@@ -6,6 +6,7 @@ import {
   threadJsonPath,
   threadMdPath,
   commentsPath,
+  pendingDiscussionsPath,
 } from './paths'
 import { nextThreadId } from './ids'
 
@@ -26,6 +27,7 @@ export function createThread(dataDir: string, input: CreateThreadInput): Thread 
   fs.writeFileSync(threadJsonPath(dataDir, id), JSON.stringify(thread, null, 2))
   fs.writeFileSync(threadMdPath(dataDir, id), input.body)
   fs.writeFileSync(commentsPath(dataDir, id), '')
+  fs.writeFileSync(pendingDiscussionsPath(dataDir, id), '')
 
   return thread
 }

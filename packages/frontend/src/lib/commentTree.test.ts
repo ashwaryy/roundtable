@@ -13,6 +13,7 @@ function comment(id: string, parent_id: string | null, discussion_id: string): C
     body: id,
     origin_discussion_id: null,
     origin_comment_id: null,
+    approved_from_pending_id: null,
     created_at: '2026-05-23T00:00:00Z',
   }
 }

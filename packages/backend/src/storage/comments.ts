@@ -3,6 +3,7 @@ import type { Comment, CreateCommentInput } from '@roundtable/shared'
 import { commentsPath, threadJsonPath } from './paths'
 import { nextCommentId } from './ids'
 import { NotFoundError } from './errors'
+import { appendJsonl } from './jsonl'
 
 export function listComments(dataDir: string, threadId: string): Comment[] {
   const file = commentsPath(dataDir, threadId)
@@ -49,9 +50,10 @@ export function addComment(
     body: input.body,
     origin_discussion_id: null,
     origin_comment_id: null,
+    approved_from_pending_id: null,
     created_at: new Date().toISOString(),
   }
 
-  fs.appendFileSync(commentsPath(dataDir, threadId), `${JSON.stringify(comment)}\n`)
+  appendJsonl(commentsPath(dataDir, threadId), comment)
   return comment
 }

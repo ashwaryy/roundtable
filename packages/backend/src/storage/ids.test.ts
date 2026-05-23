@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { Comment } from '@roundtable/shared'
-import { nextThreadId, nextCommentId } from './ids'
+import type { Comment, PendingDiscussion } from '@roundtable/shared'
+import { nextThreadId, nextCommentId, nextPendingDiscussionId } from './ids'
 import { threadsDir } from './paths'
 
 let dataDir: string
@@ -27,8 +27,22 @@ function comment(id: string, overrides: Partial<Comment> = {}): Comment {
     body: 'b',
     origin_discussion_id: null,
     origin_comment_id: null,
+    approved_from_pending_id: null,
     created_at: '2026-05-23T00:00:00Z',
     ...overrides,
+  }
+}
+
+function pending(id: string): PendingDiscussion {
+  return {
+    id,
+    thread_id: 'thread-1',
+    author: 'claude',
+    type: 'comment',
+    body: 'b',
+    origin_discussion_id: null,
+    origin_comment_id: null,
+    created_at: '2026-05-23T00:00:00Z',
   }
 }
 
@@ -57,5 +71,17 @@ describe('nextCommentId', () => {
 
   it('returns the next zero-padded id', () => {
     expect(nextCommentId([comment('c001'), comment('c002')])).toBe('c003')
+  })
+})
+
+describe('nextPendingDiscussionId', () => {
+  it('returns pd001 for an empty list', () => {
+    expect(nextPendingDiscussionId([])).toBe('pd001')
+  })
+
+  it('returns the next zero-padded id', () => {
+    expect(nextPendingDiscussionId([pending('pd001'), pending('pd002')])).toBe(
+      'pd003',
+    )
   })
 })

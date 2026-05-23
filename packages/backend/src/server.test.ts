@@ -128,3 +128,131 @@ describe('comments routes', () => {
     expect(res.status).toBe(400)
   })
 })
+
+describe('pending discussion routes', () => {
+  beforeEach(async () => {
+    await request(app).post('/api/threads').send({ title: 'A', body: 'a' })
+  })
+
+  it('lists pending discussions (empty initially)', async () => {
+    const res = await request(app).get('/api/threads/thread-1/pending-discussions')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual([])
+  })
+
+  it('creates a pending discussion', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/pending-discussions')
+      .send({ author: 'claude', type: 'critique', body: 'needs its own root' })
+    expect(res.status).toBe(201)
+    expect(res.body.id).toBe('pd001')
+    expect(res.body.author).toBe('claude')
+    expect(res.body.type).toBe('critique')
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'pending_discussion_created',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('rejects a create with an empty body (400)', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/pending-discussions')
+      .send({ author: 'claude', body: '  ' })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a create with an invalid author (400)', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/pending-discussions')
+      .send({ author: 'robot', body: 'hi' })
+    expect(res.status).toBe(400)
+  })
+
+  it('approves a pending discussion and returns a comment', async () => {
+    await request(app)
+      .post('/api/threads/thread-1/pending-discussions')
+      .send({ author: 'codex', body: 'approve me' })
+
+    const res = await request(app).post(
+      '/api/threads/thread-1/pending-discussions/pd001/approve',
+    )
+    expect(res.status).toBe(201)
+    expect(res.body.author).toBe('codex')
+    expect(res.body.body).toBe('approve me')
+    expect(res.body.parent_id).toBeNull()
+    expect(res.body.approved_from_pending_id).toBe('pd001')
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'pending_discussion_updated',
+      thread_id: 'thread-1',
+    })
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'comment_created',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('returns 404 when approving a missing pending discussion', async () => {
+    const res = await request(app).post(
+      '/api/threads/thread-1/pending-discussions/pd999/approve',
+    )
+    expect(res.status).toBe(404)
+  })
+
+  it('edits a pending discussion', async () => {
+    await request(app)
+      .post('/api/threads/thread-1/pending-discussions')
+      .send({ author: 'claude', body: 'original' })
+
+    const res = await request(app)
+      .patch('/api/threads/thread-1/pending-discussions/pd001')
+      .send({ body: 'revised', type: 'question' })
+    expect(res.status).toBe(200)
+    expect(res.body.body).toBe('revised')
+    expect(res.body.type).toBe('question')
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'pending_discussion_updated',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('returns 400 when editing with neither body nor type', async () => {
+    await request(app)
+      .post('/api/threads/thread-1/pending-discussions')
+      .send({ author: 'claude', body: 'original' })
+
+    const res = await request(app)
+      .patch('/api/threads/thread-1/pending-discussions/pd001')
+      .send({})
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects (deletes) a pending discussion', async () => {
+    await request(app)
+      .post('/api/threads/thread-1/pending-discussions')
+      .send({ author: 'codex', body: 'reject me' })
+
+    const res = await request(app).delete(
+      '/api/threads/thread-1/pending-discussions/pd001',
+    )
+    expect(res.status).toBe(204)
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'pending_discussion_updated',
+      thread_id: 'thread-1',
+    })
+
+    const list = await request(app).get('/api/threads/thread-1/pending-discussions')
+    expect(list.body).toHaveLength(0)
+  })
+
+  it('returns 404 for a malformed pending id', async () => {
+    const res = await request(app).post(
+      '/api/threads/thread-1/pending-discussions/not-a-pd/approve',
+    )
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 404 when pending operations target a missing thread', async () => {
+    const res = await request(app).get('/api/threads/thread-999/pending-discussions')
+    expect(res.status).toBe(404)
+  })
+})

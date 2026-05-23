@@ -6,22 +6,26 @@ import type {
   ThreadDetail,
   Comment,
   CommentType,
+  PendingDiscussion,
   RoundtableEvent,
 } from '@roundtable/shared'
-import { getThread, listComments, createComment } from '../api'
+import { getThread, listComments, createComment, listPendingDiscussions } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { CommentForm } from '../components/CommentForm'
 import { CommentTree } from '../components/CommentTree'
+import { PendingDiscussionQueue } from '../components/PendingDiscussionQueue'
 
 export function ThreadPage() {
   const { id } = useParams<{ id: string }>()
   const [thread, setThread] = useState<ThreadDetail | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
+  const [pendingDiscussions, setPendingDiscussions] = useState<PendingDiscussion[]>([])
 
   const refresh = useCallback(() => {
     if (!id) return
     getThread(id).then(setThread)
     listComments(id).then(setComments)
+    listPendingDiscussions(id).then(setPendingDiscussions)
   }, [id])
 
   useEffect(() => {
@@ -63,6 +67,13 @@ export function ThreadPage() {
       <h2>Discussion</h2>
       <CommentForm label="Add discussion point" onSubmit={addTopLevel} />
       <CommentTree comments={comments} onReply={addReply} />
+
+      <h2>Pending Discussions</h2>
+      <PendingDiscussionQueue
+        threadId={thread.id}
+        discussions={pendingDiscussions}
+        onUpdate={refresh}
+      />
     </main>
   )
 }

@@ -3,7 +3,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createThread, listThreads, getThread } from './threads'
-import { threadDir, threadJsonPath, threadMdPath, commentsPath } from './paths'
+import {
+  threadDir,
+  threadJsonPath,
+  threadMdPath,
+  commentsPath,
+  pendingDiscussionsPath,
+} from './paths'
 
 let dataDir: string
 
@@ -34,6 +40,9 @@ describe('createThread', () => {
       '# Plan\nbody',
     )
     expect(fs.readFileSync(commentsPath(dataDir, 'thread-1'), 'utf8')).toBe('')
+    expect(fs.readFileSync(pendingDiscussionsPath(dataDir, 'thread-1'), 'utf8')).toBe(
+      '',
+    )
   })
 
   it('assigns incrementing ids', () => {
@@ -75,6 +84,7 @@ describe('listThreads', () => {
       )
       fs.writeFileSync(threadMdPath(dataDir, id), 'body')
       fs.writeFileSync(commentsPath(dataDir, id), '')
+      fs.writeFileSync(pendingDiscussionsPath(dataDir, id), '')
     }
     const ids = listThreads(dataDir).map((t) => t.id)
     expect(ids).toEqual(['thread-10', 'thread-2'])

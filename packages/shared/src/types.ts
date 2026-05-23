@@ -36,6 +36,8 @@ export interface Comment {
   body: string
   origin_discussion_id: string | null
   origin_comment_id: string | null
+  /** Pending discussion id this comment was approved from, if any. */
+  approved_from_pending_id: string | null
   created_at: string
 }
 
@@ -49,4 +51,53 @@ export interface CreateCommentInput {
   type?: CommentType
   /** Id of the comment being replied to. Omit/null for a top-level discussion point. */
   reply_to?: string | null
+}
+
+/** An agent-proposed top-level discussion point awaiting human approval. */
+export interface PendingDiscussion {
+  id: string
+  thread_id: string
+  author: CommentAuthor
+  type: CommentType
+  body: string
+  origin_discussion_id: string | null
+  origin_comment_id: string | null
+  created_at: string
+}
+
+export interface CreatePendingDiscussionInput {
+  author: CommentAuthor
+  type?: CommentType
+  body: string
+  origin_discussion_id?: string | null
+  origin_comment_id?: string | null
+}
+
+export interface EditPendingDiscussionInput {
+  body?: string
+  type?: CommentType
+}
+
+export type ConsolidationStatus = 'drafting' | 'review' | 'rejected' | 'applied'
+
+export interface ConsolidationProposal {
+  id: string
+  thread_id: string
+  status: ConsolidationStatus
+  summary: string | null
+  created_at: string
+  applied_thread_id: string | null
+}
+
+export interface CreateConsolidationInput {
+  summary?: string | null
+}
+
+/** Metadata for one revision of a consolidation proposal. Body is in a sibling .md file. */
+export interface ProposalRevision {
+  id: string
+  proposal_id: string
+  thread_id: string
+  author: CommentAuthor
+  created_at: string
 }

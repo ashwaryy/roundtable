@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import type { Comment } from '@roundtable/shared'
+import type { Comment, PendingDiscussion } from '@roundtable/shared'
 import { threadsDir } from './paths'
 
 export function nextThreadId(dataDir: string): string {
@@ -22,4 +22,13 @@ export function nextCommentId(comments: Comment[]): string {
     if (match) max = Math.max(max, Number(match[1]))
   }
   return `c${String(max + 1).padStart(3, '0')}`
+}
+
+export function nextPendingDiscussionId(discussions: PendingDiscussion[]): string {
+  let max = 0
+  for (const discussion of discussions) {
+    const match = /^pd(\d+)$/.exec(discussion.id)
+    if (match) max = Math.max(max, Number(match[1]))
+  }
+  return `pd${String(max + 1).padStart(3, '0')}`
 }

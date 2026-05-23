@@ -1,0 +1,96 @@
+import { useState, type FormEvent } from 'react'
+import type { CommentType, PendingDiscussion } from '@roundtable/shared'
+import {
+  approvePendingDiscussion,
+  editPendingDiscussion,
+  rejectPendingDiscussion,
+} from '../api'
+
+const TYPES: CommentType[] = ['comment', 'proposal', 'critique', 'question', 'decision']
+
+export function PendingDiscussionQueue({
+  threadId,
+  discussions,
+  onUpdate,
+}: {
+  threadId: string
+  discussions: PendingDiscussion[]
+  onUpdate: () => void
+}) {
+  const [editing, setEditing] = useState<string | null>(null)
+  const [editBody, setEditBody] = useState('')
+  const [editType, setEditType] = useState<CommentType>('comment')
+
+  if (discussions.length === 0) {
+    return <p>No pending discussions.</p>
+  }
+
+  async function handleApprove(id: string) {
+    await approvePendingDiscussion(threadId, id)
+    onUpdate()
+  }
+
+  async function handleReject(id: string) {
+    await rejectPendingDiscussion(threadId, id)
+    onUpdate()
+  }
+
+  function startEdit(discussion: PendingDiscussion) {
+    setEditing(discussion.id)
+    setEditBody(discussion.body)
+    setEditType(discussion.type)
+  }
+
+  async function handleEdit(event: FormEvent, id: string) {
+    event.preventDefault()
+    await editPendingDiscussion(threadId, id, { body: editBody, type: editType })
+    setEditing(null)
+    onUpdate()
+  }
+
+  return (
+    <ul>
+      {discussions.map((discussion) => (
+        <li key={discussion.id}>
+          {editing === discussion.id ? (
+            <form
+              onSubmit={(event) => handleEdit(event, discussion.id)}
+              aria-label={`edit ${discussion.id}`}
+            >
+              <textarea
+                aria-label="edit body"
+                value={editBody}
+                onChange={(event) => setEditBody(event.target.value)}
+              />
+              <select
+                aria-label="edit type"
+                value={editType}
+                onChange={(event) => setEditType(event.target.value as CommentType)}
+              >
+                {TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+              <button type="submit">Save</button>
+              <button type="button" onClick={() => setEditing(null)}>
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <>
+              <p>{discussion.body}</p>
+              <small>
+                {discussion.author} - {discussion.type}
+              </small>
+              <button onClick={() => handleApprove(discussion.id)}>Approve</button>
+              <button onClick={() => startEdit(discussion)}>Edit</button>
+              <button onClick={() => handleReject(discussion.id)}>Reject</button>
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
