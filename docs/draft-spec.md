@@ -464,7 +464,7 @@ Agents submit state through helper commands:
 ```bash
 roundtable ready --agent claude
 roundtable ready --agent codex
-roundtable comment --body-file .roundtable/tmp/comment.md --type critique
+roundtable comment --body-file .roundtable/tmp/job-001-claude-comment.md --type critique
 roundtable proposal --body-file .roundtable/tmp/proposal.md
 ```
 

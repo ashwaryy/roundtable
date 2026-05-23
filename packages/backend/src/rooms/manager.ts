@@ -16,6 +16,9 @@ import type {
   StartRoomInput,
 } from '@roundtable/shared'
 import {
+  claudeLocalSettingsPath,
+  codexProjectConfigPath,
+  codexRulesPath,
   currentTurnPath,
   jobsDir,
   roomJsonPath,
@@ -187,6 +190,13 @@ function writeJsonFile(filePath: string, value: unknown): void {
   fs.renameSync(tmp, filePath)
 }
 
+function writeTextFile(filePath: string, contents: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const tmp = `${filePath}.tmp`
+  fs.writeFileSync(tmp, contents)
+  fs.renameSync(tmp, filePath)
+}
+
 function removeIfExists(filePath: string): void {
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
 }
@@ -217,13 +227,184 @@ function startupPrompt(agent: AgentName): string {
     `You are ${agent} participating in this Roundtable thread.`,
     '',
     'Read `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, attachments, and project snapshot files as needed.',
-    'Discussion happens around the source thread. Do not edit `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, or files under `.roundtable/`.',
+    'Discussion happens around the source thread. Do not edit `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, or `.roundtable/` files except the exact comment draft path named in a Roundtable Ask turn.',
     'Do not edit project snapshot files or user project files.',
     '',
     `First, acknowledge readiness by running: roundtable ready --agent ${agent}`,
     'After readiness, wait for Roundtable Ask turns in this terminal.',
-    'For each Ask turn, write your durable comment to `.roundtable/tmp/comment.md`, then submit it with `roundtable comment --body-file .roundtable/tmp/comment.md --type comment`.',
+    'For each Ask turn, write your durable comment only to the `.roundtable/tmp/...` path named in that turn, then submit it with the exact `roundtable comment --body-file ... --type comment` command from that turn.',
   ].join('\n')
+}
+
+function commandVariants(command: string, rtkAvailable: boolean): string[] {
+  return rtkAvailable ? [command, `rtk ${command}`] : [command]
+}
+
+function claudeBashRules(
+  commands: string[],
+  rtkAvailable: boolean,
+  wildcard = '',
+): string[] {
+  return commands.flatMap((command) =>
+    commandVariants(command, rtkAvailable).map(
+      (variant) => `Bash(${variant}${wildcard})`,
+    ),
+  )
+}
+
+function codexPrefixRule(
+  pattern: string[],
+  decision: 'allow' | 'forbidden',
+  justification: string,
+): string {
+  const quotedPattern = pattern.map((part) => JSON.stringify(part)).join(', ')
+  return `prefix_rule(pattern = [${quotedPattern}], decision = ${JSON.stringify(
+    decision,
+  )}, justification = ${JSON.stringify(justification)})`
+}
+
+function codexRulesForCommand(
+  command: string[],
+  rtkAvailable: boolean,
+  decision: 'allow' | 'forbidden',
+  justification: string,
+): string[] {
+  const rules = [codexPrefixRule(command, decision, justification)]
+  if (rtkAvailable) {
+    rules.push(codexPrefixRule(['rtk', ...command], decision, justification))
+  }
+  return rules
+}
+
+function writeAgentPermissionSetup(
+  dataDir: string,
+  threadId: string,
+  rtkAvailable: boolean,
+): void {
+  const readCommands = ['pwd', 'ls', 'cat', 'sed', 'rg']
+  const workflowCommands = [
+    'git status',
+    'git diff',
+    'npm test',
+    'npm run test',
+    'npm run typecheck',
+    'npm run build',
+    'npm run dev',
+  ]
+  const helperCommands = ['roundtable ready', 'roundtable comment']
+  const destructiveCommands = [
+    'rm',
+    'mv',
+    'git push',
+    'git commit',
+    'git reset',
+    'git checkout',
+    'npm install',
+    'npm publish',
+    'npm exec',
+    'npx',
+  ]
+
+  writeJsonFile(claudeLocalSettingsPath(dataDir, threadId), {
+    $schema: 'https://json.schemastore.org/claude-code-settings.json',
+    permissions: {
+      allow: [
+        'Read',
+        'Edit(.roundtable/tmp/**)',
+        'Edit(./.roundtable/tmp/**)',
+        'Write(.roundtable/tmp/**)',
+        'Write(./.roundtable/tmp/**)',
+        ...claudeBashRules(readCommands, rtkAvailable, ' *'),
+        ...claudeBashRules(workflowCommands, rtkAvailable, ' *'),
+        ...claudeBashRules(helperCommands, rtkAvailable, ' *'),
+      ],
+      deny: [
+        'Read(./.env)',
+        'Read(./.env.*)',
+        'Read(./**/.env)',
+        'Read(./**/.env.*)',
+        'Read(./.roundtable/room.json)',
+        'Edit(thread.md)',
+        'Write(thread.md)',
+        'Edit(thread.json)',
+        'Write(thread.json)',
+        'Edit(comments.jsonl)',
+        'Write(comments.jsonl)',
+        'Edit(pending-discussions.jsonl)',
+        'Write(pending-discussions.jsonl)',
+        'Edit(context-items.jsonl)',
+        'Write(context-items.jsonl)',
+        'Edit(project-snapshot/**)',
+        'Write(project-snapshot/**)',
+        'Edit(.roundtable/current-turn.json)',
+        'Write(.roundtable/current-turn.json)',
+        'Edit(./.roundtable/current-turn.json)',
+        'Write(./.roundtable/current-turn.json)',
+        'Edit(.roundtable/room.json)',
+        'Write(.roundtable/room.json)',
+        'Edit(./.roundtable/room.json)',
+        'Write(./.roundtable/room.json)',
+        'Bash(*>*)',
+        'Bash(*>>*)',
+        ...claudeBashRules(destructiveCommands, rtkAvailable, ' *'),
+      ],
+    },
+  })
+
+  writeTextFile(
+    codexProjectConfigPath(dataDir, threadId),
+    `approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
+
+[features.network_proxy]
+enabled = true
+domains = { "localhost" = "allow", "127.0.0.1" = "allow" }
+`,
+  )
+
+  const allowReason = 'Allowed for Roundtable agent room workflow'
+  const forbidReason = 'Blocked by Roundtable because this mutates durable state or publishes externally'
+  const codexRules = [
+    ...codexRulesForCommand(['roundtable', 'ready'], rtkAvailable, 'allow', allowReason),
+    ...codexRulesForCommand(['roundtable', 'comment'], rtkAvailable, 'allow', allowReason),
+    ...['pwd', 'ls', 'cat', 'sed', 'rg'].flatMap((command) =>
+      codexRulesForCommand([command], rtkAvailable, 'allow', allowReason),
+    ),
+    ...codexRulesForCommand(['git', 'status'], rtkAvailable, 'allow', allowReason),
+    ...codexRulesForCommand(['git', 'diff'], rtkAvailable, 'allow', allowReason),
+    ...codexRulesForCommand(['npm', 'test'], rtkAvailable, 'allow', allowReason),
+    ...codexRulesForCommand(['npm', 'run', 'test'], rtkAvailable, 'allow', allowReason),
+    ...codexRulesForCommand(['npm', 'run', 'typecheck'], rtkAvailable, 'allow', allowReason),
+    ...codexRulesForCommand(['npm', 'run', 'build'], rtkAvailable, 'allow', allowReason),
+    ...codexRulesForCommand(['npm', 'run', 'dev'], rtkAvailable, 'allow', allowReason),
+    ...['rm', 'mv', 'npx'].flatMap((command) =>
+      codexRulesForCommand([command], rtkAvailable, 'forbidden', forbidReason),
+    ),
+    ...codexRulesForCommand(['git', 'push'], rtkAvailable, 'forbidden', forbidReason),
+    ...codexRulesForCommand(['git', 'commit'], rtkAvailable, 'forbidden', forbidReason),
+    ...codexRulesForCommand(['git', 'reset'], rtkAvailable, 'forbidden', forbidReason),
+    ...codexRulesForCommand(['git', 'checkout'], rtkAvailable, 'forbidden', forbidReason),
+    ...codexRulesForCommand(['npm', 'install'], rtkAvailable, 'forbidden', forbidReason),
+    ...codexRulesForCommand(['npm', 'publish'], rtkAvailable, 'forbidden', forbidReason),
+    ...codexRulesForCommand(['npm', 'exec'], rtkAvailable, 'forbidden', forbidReason),
+  ]
+
+  writeTextFile(codexRulesPath(dataDir, threadId), `${codexRules.join('\n')}\n`)
+}
+
+function codexSandboxArgs(): string {
+  return [
+    '--sandbox workspace-write',
+    '--ask-for-approval on-request',
+    `-c ${shellSingleQuote('sandbox_workspace_write.network_access=true')}`,
+    `-c ${shellSingleQuote('features.network_proxy.enabled=true')}`,
+    `-c ${shellSingleQuote(
+      'features.network_proxy.domains={ "localhost" = "allow", "127.0.0.1" = "allow" }',
+    )}`,
+  ].join(' ')
 }
 
 function cliCommand(agent: AgentName, model: string | null, promptFile: string): string {
@@ -231,7 +412,7 @@ function cliCommand(agent: AgentName, model: string | null, promptFile: string):
   if (agent === 'claude') {
     return `claude${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
   }
-  return `codex${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
+  return `codex ${codexSandboxArgs()}${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
 }
 
 function resumeCliCommand(
@@ -243,7 +424,7 @@ function resumeCliCommand(
   if (agent === 'claude') {
     return `claude --continue${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
   }
-  return `codex resume --last${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
+  return `codex resume --last ${codexSandboxArgs()}${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
 }
 
 function writeHelperScript(
@@ -392,6 +573,15 @@ function toolPreflight(executor: CommandExecutor, name: (typeof TOOL_NAMES)[numb
   }
 }
 
+function toolAvailable(executor: CommandExecutor, name: string): boolean {
+  try {
+    executor.execFile('which', [name])
+    return true
+  } catch {
+    return false
+  }
+}
+
 function sessionExists(executor: CommandExecutor, sessionName: string): boolean {
   try {
     executor.execFile('tmux', ['has-session', '-t', sessionName])
@@ -449,6 +639,7 @@ function buildTurnPrompt(job: BoundedJob): string {
     job.turn.scope === 'discussion'
       ? `Reply to discussion ${job.turn.discussion_id}.`
       : 'Create a new top-level discussion point.'
+  const commentPath = `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-comment.md`
   const custom = job.turn.instructions
     ? `\n\nUser instructions:\n${job.turn.instructions}`
     : ''
@@ -457,9 +648,9 @@ function buildTurnPrompt(job: BoundedJob): string {
     `Roundtable Ask turn ${job.turn.id}.`,
     target,
     'Read the current thread and approved discussion as needed.',
-    'Do not edit canonical Roundtable files or project files.',
-    'Write your final comment body to `.roundtable/tmp/comment.md`.',
-    'Submit exactly once with: roundtable comment --body-file .roundtable/tmp/comment.md --type comment',
+    'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the draft file named below.',
+    `Write your final comment body to \`${commentPath}\`.`,
+    `Submit exactly once with: roundtable comment --body-file ${commentPath} --type comment`,
     'If a discussion-level reply should split into a new root, say so in this reply; pending root submission is enabled in a later phase.',
     custom,
   ].join('\n')
@@ -671,6 +862,7 @@ export function createRoomManager(options: {
       }
 
       const existing = expireActiveTurn(threadId)
+      writeAgentPermissionSetup(dataDir, threadId, toolAvailable(executor, 'rtk'))
       if (
         (
           existing.status === 'starting' ||

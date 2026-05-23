@@ -96,6 +96,18 @@ export function roundtableHelperPath(dataDir: string, threadId: string): string 
   return path.join(roundtableBinDir(dataDir, threadId), 'roundtable')
 }
 
+export function claudeLocalSettingsPath(dataDir: string, threadId: string): string {
+  return path.join(threadDir(dataDir, threadId), '.claude', 'settings.local.json')
+}
+
+export function codexProjectConfigPath(dataDir: string, threadId: string): string {
+  return path.join(threadDir(dataDir, threadId), '.codex', 'config.toml')
+}
+
+export function codexRulesPath(dataDir: string, threadId: string): string {
+  return path.join(threadDir(dataDir, threadId), '.codex', 'rules', 'default.rules')
+}
+
 export function consolidationsDir(dataDir: string, threadId: string): string {
   return path.join(threadDir(dataDir, threadId), 'consolidations')
 }

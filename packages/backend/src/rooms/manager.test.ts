@@ -4,6 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { createThread } from '../storage/threads'
 import {
+  claudeLocalSettingsPath,
+  codexProjectConfigPath,
+  codexRulesPath,
   currentTurnPath,
   roomJsonPath,
   roundtableHelperPath,
@@ -99,6 +102,120 @@ describe('createRoomManager', () => {
     })
 
     expect(() => manager.startRoom('thread-1', {})).toThrow(ConflictError)
+  })
+
+  it('writes per-thread agent permission setup without requiring rtk', () => {
+    executor.missing.add('rtk')
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptDelaysMs: [],
+    })
+
+    manager.startRoom('thread-1', {})
+
+    const claudeSettings = JSON.parse(
+      fs.readFileSync(claudeLocalSettingsPath(dataDir, 'thread-1'), 'utf8'),
+    )
+    expect(claudeSettings.permissions.allow).toEqual(
+      expect.arrayContaining([
+        'Read',
+        'Edit(.roundtable/tmp/**)',
+        'Edit(./.roundtable/tmp/**)',
+        'Write(.roundtable/tmp/**)',
+        'Write(./.roundtable/tmp/**)',
+        'Bash(roundtable ready *)',
+        'Bash(roundtable comment *)',
+        'Bash(cat *)',
+        'Bash(npm run test *)',
+      ]),
+    )
+    expect(claudeSettings.permissions.allow).not.toContain('Bash(rtk cat *)')
+    expect(claudeSettings.permissions.deny).toEqual(
+      expect.arrayContaining([
+        'Read(./.roundtable/room.json)',
+        'Edit(.roundtable/current-turn.json)',
+        'Write(.roundtable/current-turn.json)',
+        'Bash(rm *)',
+        'Bash(git push *)',
+        'Bash(npm install *)',
+      ]),
+    )
+
+    const codexStartup = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'codex-startup.md'),
+      'utf8',
+    )
+    expect(codexStartup).toContain(
+      'except the exact comment draft path named in a Roundtable Ask turn',
+    )
+    expect(codexStartup).not.toContain('files under `.roundtable/`.')
+
+    const codexConfig = fs.readFileSync(
+      codexProjectConfigPath(dataDir, 'thread-1'),
+      'utf8',
+    )
+    expect(codexConfig).toContain('sandbox_mode = "workspace-write"')
+    expect(codexConfig).toContain('[sandbox_workspace_write]')
+    expect(codexConfig).toContain('network_access = true')
+    expect(codexConfig).toContain('[features.network_proxy]')
+    expect(codexConfig).toContain('"localhost" = "allow"')
+    expect(codexConfig).toContain('"127.0.0.1" = "allow"')
+
+    const launchCodex = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-codex.sh'),
+      'utf8',
+    )
+    expect(launchCodex).toContain('exec codex --sandbox workspace-write')
+    expect(launchCodex).toContain('--ask-for-approval on-request')
+    expect(launchCodex).toContain('sandbox_workspace_write.network_access=true')
+    expect(launchCodex).toContain('features.network_proxy.domains=')
+
+    const codexRules = fs.readFileSync(codexRulesPath(dataDir, 'thread-1'), 'utf8')
+    expect(codexRules).toContain(
+      'prefix_rule(pattern = ["roundtable", "ready"], decision = "allow"',
+    )
+    expect(codexRules).toContain(
+      'prefix_rule(pattern = ["roundtable", "comment"], decision = "allow"',
+    )
+    expect(codexRules).toContain(
+      'prefix_rule(pattern = ["cat"], decision = "allow"',
+    )
+    expect(codexRules).toContain(
+      'prefix_rule(pattern = ["rm"], decision = "forbidden"',
+    )
+    expect(codexRules).not.toContain('["rtk",')
+  })
+
+  it('adds rtk wrapper permissions only when rtk is installed', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptDelaysMs: [],
+    })
+
+    manager.startRoom('thread-1', {})
+
+    const claudeSettings = JSON.parse(
+      fs.readFileSync(claudeLocalSettingsPath(dataDir, 'thread-1'), 'utf8'),
+    )
+    expect(claudeSettings.permissions.allow).toEqual(
+      expect.arrayContaining([
+        'Bash(rtk roundtable ready *)',
+        'Bash(rtk roundtable comment *)',
+        'Bash(rtk cat *)',
+      ]),
+    )
+
+    const codexRules = fs.readFileSync(codexRulesPath(dataDir, 'thread-1'), 'utf8')
+    expect(codexRules).toContain(
+      'prefix_rule(pattern = ["rtk", "roundtable", "ready"], decision = "allow"',
+    )
+    expect(codexRules).toContain(
+      'prefix_rule(pattern = ["rtk", "cat"], decision = "allow"',
+    )
   })
 
   it('starts a tmux room, writes helper state, and schedules trust prompt acceptance', async () => {
@@ -312,16 +429,20 @@ describe('createRoomManager', () => {
       id: 'job-001',
       agent: 'codex',
     })
-    expect(executor.commands).toContainEqual({
-      file: 'tmux',
-      args: [
-        'send-keys',
-        '-t',
-        'roundtable-thread-1:0.1',
-        expect.stringContaining('Roundtable Ask turn job-001'),
-        'C-m',
-      ],
-    })
+    const sendPrompt = executor.commands.find(
+      (command) =>
+        command.file === 'tmux' &&
+        command.args[0] === 'send-keys' &&
+        command.args[2] === 'roundtable-thread-1:0.1' &&
+        command.args[3].includes('Roundtable Ask turn job-001'),
+    )
+    expect(sendPrompt?.args[3]).toContain(
+      'Write your final comment body to `.roundtable/tmp/job-001-codex-comment.md`.',
+    )
+    expect(sendPrompt?.args[3]).toContain(
+      'roundtable comment --body-file .roundtable/tmp/job-001-codex-comment.md --type comment',
+    )
+    expect(sendPrompt?.args[3]).not.toContain('.roundtable/tmp/comment.md')
   })
 
   it('completes an ask turn after helper comment submission', () => {
