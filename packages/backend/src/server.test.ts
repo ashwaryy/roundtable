@@ -5,6 +5,8 @@ import path from 'node:path'
 import request from 'supertest'
 import { createApp } from './server'
 import { createStorage } from './storage'
+import type { AgentRoom, RoomPreflight } from '@roundtable/shared'
+import type { RoomManager } from './rooms/manager'
 
 let dataDir: string
 let broadcast: ReturnType<typeof vi.fn>
@@ -342,5 +344,125 @@ describe('context routes', () => {
       .post('/api/threads/thread-1/project-snapshot/preflight')
       .send({ source_path: path.join(dataDir, 'missing') })
     expect(res.status).toBe(400)
+  })
+})
+
+function testRoom(status: AgentRoom['status'] = 'starting'): AgentRoom {
+  return {
+    thread_id: 'thread-1',
+    status,
+    tmux_session: 'roundtable-thread-1',
+    attach_command: 'tmux attach -t roundtable-thread-1',
+    claude_model: null,
+    codex_model: null,
+    agents: {
+      claude: { ready_at: null },
+      codex: { ready_at: null },
+    },
+    created_at: '2026-05-23T00:00:00.000Z',
+    updated_at: '2026-05-23T00:00:00.000Z',
+    started_at: null,
+    stopped_at: null,
+    last_error: null,
+  }
+}
+
+function testPreflight(): RoomPreflight {
+  return {
+    ok: true,
+    tools: {
+      tmux: {
+        name: 'tmux',
+        available: true,
+        path: '/usr/bin/tmux',
+        version: 'tmux 3.6',
+        error: null,
+      },
+      claude: {
+        name: 'claude',
+        available: true,
+        path: '/usr/bin/claude',
+        version: 'claude 1.0',
+        error: null,
+      },
+      codex: {
+        name: 'codex',
+        available: true,
+        path: '/usr/bin/codex',
+        version: 'codex 1.0',
+        error: null,
+      },
+    },
+  }
+}
+
+describe('room routes', () => {
+  let rooms: RoomManager
+
+  beforeEach(async () => {
+    rooms = {
+      preflight: vi.fn(() => testPreflight()),
+      getRoom: vi.fn(() => testRoom('not_started')),
+      startRoom: vi.fn(() => testRoom('starting')),
+      stopRoom: vi.fn(() => testRoom('stopped')),
+      nudgeRoom: vi.fn(() => testRoom('idle')),
+      markReady: vi.fn(() => testRoom('idle')),
+    }
+    app = createApp({ storage: createStorage(dataDir), rooms, broadcast })
+    await request(app).post('/api/threads').send({ title: 'A', body: 'a' })
+  })
+
+  it('returns room preflight status', async () => {
+    const res = await request(app).get('/api/threads/thread-1/room/preflight')
+
+    expect(res.status).toBe(200)
+    expect(res.body.ok).toBe(true)
+    expect(rooms.preflight).toHaveBeenCalled()
+  })
+
+  it('starts a room and broadcasts room_updated', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/start')
+      .send({ claude_model: 'sonnet', codex_model: 'gpt-5' })
+
+    expect(res.status).toBe(201)
+    expect(rooms.startRoom).toHaveBeenCalledWith('thread-1', {
+      claude_model: 'sonnet',
+      codex_model: 'gpt-5',
+    })
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'room_updated',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('stops a room', async () => {
+    const res = await request(app).post('/api/threads/thread-1/room/stop')
+
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('stopped')
+    expect(rooms.stopRoom).toHaveBeenCalledWith('thread-1')
+  })
+
+  it('nudges an idle room', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/nudge')
+      .send({ agent: 'codex', body: 'go' })
+
+    expect(res.status).toBe(200)
+    expect(rooms.nudgeRoom).toHaveBeenCalledWith('thread-1', {
+      agent: 'codex',
+      body: 'go',
+    })
+  })
+
+  it('marks an agent ready with the bearer token', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/ready')
+      .set('authorization', 'Bearer token-123')
+      .send({ agent: 'claude' })
+
+    expect(res.status).toBe(200)
+    expect(rooms.markReady).toHaveBeenCalledWith('thread-1', 'claude', 'token-123')
   })
 })

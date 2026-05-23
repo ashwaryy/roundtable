@@ -52,6 +52,30 @@ export function projectSnapshotManifestPath(
   return path.join(threadDir(dataDir, threadId), 'project-snapshot-manifest.json')
 }
 
+export function roundtableInternalDir(dataDir: string, threadId: string): string {
+  return path.join(threadDir(dataDir, threadId), '.roundtable')
+}
+
+export function roundtableBinDir(dataDir: string, threadId: string): string {
+  return path.join(roundtableInternalDir(dataDir, threadId), 'bin')
+}
+
+export function roomJsonPath(dataDir: string, threadId: string): string {
+  return path.join(roundtableInternalDir(dataDir, threadId), 'room.json')
+}
+
+export function roomPromptPath(
+  dataDir: string,
+  threadId: string,
+  agent: 'claude' | 'codex',
+): string {
+  return path.join(roundtableInternalDir(dataDir, threadId), `${agent}-startup.md`)
+}
+
+export function roundtableHelperPath(dataDir: string, threadId: string): string {
+  return path.join(roundtableBinDir(dataDir, threadId), 'roundtable')
+}
+
 export function consolidationsDir(dataDir: string, threadId: string): string {
   return path.join(threadDir(dataDir, threadId), 'consolidations')
 }

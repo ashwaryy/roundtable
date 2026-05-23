@@ -7,15 +7,20 @@ import {
   editPendingDiscussionInputSchema,
   createProjectSnapshotInputSchema,
   createUrlContextInputSchema,
+  nudgeRoomInputSchema,
+  readyInputSchema,
   snapshotPreflightInputSchema,
+  startRoomInputSchema,
   type RoundtableEvent,
 } from '@roundtable/shared'
 import {
   BadRequestError,
   ConfirmationRequiredError,
+  ConflictError,
   NotFoundError,
   type Storage,
 } from './storage'
+import type { RoomManager } from './rooms/manager'
 
 const THREAD_ID_RE = /^thread-\d+$/
 const PENDING_ID_RE = /^pd\d+$/
@@ -50,14 +55,26 @@ function handleStorageError(err: unknown, res: express.Response): boolean {
     res.status(409).json({ error: err.message, confirmation_required: true })
     return true
   }
+  if (err instanceof ConflictError) {
+    res.status(409).json({ error: err.message })
+    return true
+  }
   return false
+}
+
+function bearerToken(req: express.Request): string | null {
+  const header = req.header('authorization')
+  if (!header) return null
+  const match = /^Bearer\s+(.+)$/i.exec(header)
+  return match ? match[1] : null
 }
 
 export function createApp(deps: {
   storage: Storage
   broadcast: (event: RoundtableEvent) => void
+  rooms?: RoomManager
 }): express.Express {
-  const { storage, broadcast } = deps
+  const { storage, broadcast, rooms } = deps
   const app = express()
   app.use(express.json())
 
@@ -310,6 +327,91 @@ export function createApp(deps: {
       const snapshot = storage.refreshProjectSnapshot(req.params.id)
       broadcast({ type: 'thread_context_updated', thread_id: req.params.id })
       res.json(snapshot)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.get('/api/threads/:id/room/preflight', (req, res) => {
+    if (!storage.getThread(req.params.id)) {
+      return res.status(404).json({ error: 'thread not found' })
+    }
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    res.json(rooms.preflight())
+  })
+
+  app.get('/api/threads/:id/room', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      res.json(rooms.getRoom(req.params.id))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/start', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = startRoomInputSchema.safeParse(req.body ?? {})
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const room = rooms.startRoom(req.params.id, parsed.data)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.status(201).json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/stop', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      const room = rooms.stopRoom(req.params.id)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/nudge', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = nudgeRoomInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const room = rooms.nudgeRoom(req.params.id, parsed.data)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/ready', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = readyInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const room = rooms.markReady(
+        req.params.id,
+        parsed.data.agent,
+        bearerToken(req),
+      )
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
     } catch (err) {
       if (handleStorageError(err, res)) return
       throw err

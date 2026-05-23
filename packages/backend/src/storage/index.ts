@@ -25,7 +25,12 @@ import * as pending from './pendingDiscussions'
 import * as proposals from './proposals'
 import * as context from './context'
 
-export { BadRequestError, ConfirmationRequiredError, NotFoundError } from './errors'
+export {
+  BadRequestError,
+  ConfirmationRequiredError,
+  ConflictError,
+  NotFoundError,
+} from './errors'
 
 export function createStorage(dataDir: string) {
   return {

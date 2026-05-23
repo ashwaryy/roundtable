@@ -8,6 +8,8 @@ import type {
   CommentType,
   PendingDiscussion,
   RoundtableEvent,
+  AgentRoom,
+  RoomPreflight,
   ThreadContext,
 } from '@roundtable/shared'
 import {
@@ -16,12 +18,15 @@ import {
   createComment,
   listPendingDiscussions,
   getThreadContext,
+  getRoom,
+  getRoomPreflight,
 } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { CommentForm } from '../components/CommentForm'
 import { CommentTree } from '../components/CommentTree'
 import { PendingDiscussionQueue } from '../components/PendingDiscussionQueue'
 import { ThreadContextPanel } from '../components/ThreadContextPanel'
+import { RoomPanel } from '../components/RoomPanel'
 
 export function ThreadPage() {
   const { id } = useParams<{ id: string }>()
@@ -29,6 +34,8 @@ export function ThreadPage() {
   const [comments, setComments] = useState<Comment[]>([])
   const [pendingDiscussions, setPendingDiscussions] = useState<PendingDiscussion[]>([])
   const [threadContext, setThreadContext] = useState<ThreadContext | null>(null)
+  const [room, setRoom] = useState<AgentRoom | null>(null)
+  const [roomPreflight, setRoomPreflight] = useState<RoomPreflight | null>(null)
 
   const refresh = useCallback(() => {
     if (!id) return
@@ -36,6 +43,8 @@ export function ThreadPage() {
     listComments(id).then(setComments)
     listPendingDiscussions(id).then(setPendingDiscussions)
     getThreadContext(id).then(setThreadContext)
+    getRoom(id).then(setRoom)
+    getRoomPreflight(id).then(setRoomPreflight)
   }, [id])
 
   useEffect(() => {
@@ -88,6 +97,13 @@ export function ThreadPage() {
       <ThreadContextPanel
         threadId={thread.id}
         context={threadContext}
+        onUpdate={refresh}
+      />
+
+      <RoomPanel
+        threadId={thread.id}
+        room={room}
+        preflight={roomPreflight}
         onUpdate={refresh}
       />
     </main>

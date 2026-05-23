@@ -175,3 +175,53 @@ export interface CreateProjectSnapshotInput {
   source_path: string
   confirmed?: boolean
 }
+
+export type AgentName = 'claude' | 'codex'
+
+export type RoomStatus = 'not_started' | 'starting' | 'idle' | 'stopped' | 'error'
+
+export interface RoomAgentState {
+  ready_at: string | null
+}
+
+export interface AgentRoom {
+  thread_id: string
+  status: RoomStatus
+  tmux_session: string
+  attach_command: string
+  claude_model: string | null
+  codex_model: string | null
+  agents: Record<AgentName, RoomAgentState>
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  stopped_at: string | null
+  last_error: string | null
+}
+
+export interface RoomToolPreflight {
+  name: 'tmux' | 'claude' | 'codex'
+  available: boolean
+  path: string | null
+  version: string | null
+  error: string | null
+}
+
+export interface RoomPreflight {
+  ok: boolean
+  tools: Record<'tmux' | 'claude' | 'codex', RoomToolPreflight>
+}
+
+export interface StartRoomInput {
+  claude_model?: string | null
+  codex_model?: string | null
+}
+
+export interface NudgeRoomInput {
+  agent: AgentName
+  body?: string | null
+}
+
+export interface ReadyInput {
+  agent: AgentName
+}

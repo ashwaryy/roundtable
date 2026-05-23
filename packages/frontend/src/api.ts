@@ -14,6 +14,10 @@ import type {
   SnapshotPreflight,
   SnapshotPreflightInput,
   ThreadContext,
+  AgentRoom,
+  NudgeRoomInput,
+  RoomPreflight,
+  StartRoomInput,
 } from '@roundtable/shared'
 
 async function json<T>(res: Response): Promise<T> {
@@ -156,4 +160,42 @@ export function refreshProjectSnapshot(threadId: string): Promise<ProjectSnapsho
   return fetch(`/api/threads/${threadId}/project-snapshot/refresh`, {
     method: 'POST',
   }).then((r) => json<ProjectSnapshot>(r))
+}
+
+export function getRoomPreflight(threadId: string): Promise<RoomPreflight> {
+  return fetch(`/api/threads/${threadId}/room/preflight`).then((r) =>
+    json<RoomPreflight>(r),
+  )
+}
+
+export function getRoom(threadId: string): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room`).then((r) => json<AgentRoom>(r))
+}
+
+export function startRoom(
+  threadId: string,
+  input: StartRoomInput,
+): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room/start`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<AgentRoom>(r))
+}
+
+export function stopRoom(threadId: string): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room/stop`, {
+    method: 'POST',
+  }).then((r) => json<AgentRoom>(r))
+}
+
+export function nudgeRoom(
+  threadId: string,
+  input: NudgeRoomInput,
+): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room/nudge`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<AgentRoom>(r))
 }
