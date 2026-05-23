@@ -713,13 +713,18 @@ export function createRoomManager(options: {
   backendUrl: string
   executor?: CommandExecutor
   onUpdate?: (event: RoundtableEvent) => void
-  startupTrustPromptDelaysMs?: number[]
+  startupTrustPromptPollIntervalMs?: number
+  startupTrustPromptTimeoutMs?: number
 }): RoomManager {
   const { dataDir, backendUrl } = options
   const executor = options.executor ?? new SystemCommandExecutor()
   const timers = new Map<string, NodeJS.Timeout>()
-  const startupTrustPromptDelaysMs =
-    options.startupTrustPromptDelaysMs ?? [1200, 3000, 6000]
+  const startupTrustPromptPollIntervalMs =
+    Math.max(1, options.startupTrustPromptPollIntervalMs ?? 250)
+  const startupTrustPromptTimeoutMs = Math.max(
+    0,
+    options.startupTrustPromptTimeoutMs ?? 30_000,
+  )
 
   function clearTurnTimer(jobId: string): void {
     const timer = timers.get(jobId)
@@ -786,32 +791,50 @@ export function createRoomManager(options: {
   }
 
   function scheduleStartupTrustPromptAcceptance(room: InternalRoom): void {
-    for (const delay of startupTrustPromptDelaysMs) {
-      const timer = setTimeout(() => {
-        try {
-          const current = readRoom(dataDir, room.thread_id)
-          if (
-            current.status !== 'starting' ||
-            !sessionExists(executor, current.tmux_session)
-          ) {
-            return
-          }
+    const startedAt = Date.now()
+    const accepted = new Set<AgentName>()
 
-          for (const agent of ['claude', 'codex'] as const) {
-            if (
-              !current.agents[agent].ready_at &&
-              paneContainsStartupTrustPrompt(executor, current, agent)
-            ) {
-              sendStartupTrustPromptEnter(executor, current, agent)
-            }
-          }
-        } catch {
-          // Trust-prompt acceptance is best-effort; room readiness is still
-          // validated by the helper handshake.
+    const poll = (): void => {
+      try {
+        const current = readRoom(dataDir, room.thread_id)
+        if (
+          current.status !== 'starting' ||
+          !sessionExists(executor, current.tmux_session)
+        ) {
+          return
         }
-      }, delay)
-      timer.unref?.()
+
+        for (const agent of ['claude', 'codex'] as const) {
+          if (
+            !accepted.has(agent) &&
+            !current.agents[agent].ready_at &&
+            paneContainsStartupTrustPrompt(executor, current, agent)
+          ) {
+            sendStartupTrustPromptEnter(executor, current, agent)
+            accepted.add(agent)
+          }
+        }
+
+        const allAgentsReadyOrAccepted = (['claude', 'codex'] as const).every(
+          (agent) => current.agents[agent].ready_at || accepted.has(agent),
+        )
+        if (
+          allAgentsReadyOrAccepted ||
+          Date.now() - startedAt >= startupTrustPromptTimeoutMs
+        ) {
+          return
+        }
+
+        const timer = setTimeout(poll, startupTrustPromptPollIntervalMs)
+        timer.unref?.()
+      } catch {
+        // Trust-prompt acceptance is best-effort; room readiness is still
+        // validated by the helper handshake.
+      }
     }
+
+    const timer = setTimeout(poll, 0)
+    timer.unref?.()
   }
 
   function startJob(room: InternalRoom, job: BoundedJob): AgentTurnResult {

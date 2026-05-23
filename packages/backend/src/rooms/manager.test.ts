@@ -110,7 +110,7 @@ describe('createRoomManager', () => {
       dataDir,
       backendUrl: 'http://localhost:4319',
       executor,
-      startupTrustPromptDelaysMs: [],
+      startupTrustPromptTimeoutMs: 0,
     })
 
     manager.startRoom('thread-1', {})
@@ -193,7 +193,7 @@ describe('createRoomManager', () => {
       dataDir,
       backendUrl: 'http://localhost:4319',
       executor,
-      startupTrustPromptDelaysMs: [],
+      startupTrustPromptTimeoutMs: 0,
     })
 
     manager.startRoom('thread-1', {})
@@ -231,7 +231,8 @@ describe('createRoomManager', () => {
       dataDir,
       backendUrl: 'http://localhost:4319',
       executor,
-      startupTrustPromptDelaysMs: [0],
+      startupTrustPromptPollIntervalMs: 1,
+      startupTrustPromptTimeoutMs: 50,
     })
 
     const room = manager.startRoom('thread-1', {
@@ -279,7 +280,8 @@ describe('createRoomManager', () => {
       dataDir,
       backendUrl: 'http://localhost:4319',
       executor,
-      startupTrustPromptDelaysMs: [0],
+      startupTrustPromptPollIntervalMs: 1,
+      startupTrustPromptTimeoutMs: 5,
     })
 
     manager.startRoom('thread-1', {})
@@ -293,6 +295,48 @@ describe('createRoomManager', () => {
         command.args[3] === 'C-m',
     )
     expect(startupEnterCommands).toEqual([])
+  })
+
+  it('accepts startup trust prompts that appear after agent startup is slow', async () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptPollIntervalMs: 1,
+      startupTrustPromptTimeoutMs: 50,
+    })
+
+    manager.startRoom('thread-1', {})
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(
+      executor.commands.some(
+        (command) =>
+          command.file === 'tmux' &&
+          command.args[0] === 'send-keys' &&
+          command.args[3] === 'C-m',
+      ),
+    ).toBe(false)
+
+    executor.paneCaptures.set(
+      'roundtable-thread-1:0.0',
+      'Quick safety check\n> 1. Yes, I trust this folder',
+    )
+    executor.paneCaptures.set(
+      'roundtable-thread-1:0.1',
+      'Do you trust the contents of this directory?\n> 1. Yes, continue',
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: ['send-keys', '-t', 'roundtable-thread-1:0.0', 'C-m'],
+    })
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: ['send-keys', '-t', 'roundtable-thread-1:0.1', 'C-m'],
+    })
   })
 
   it('marks readiness idempotently and transitions to idle', () => {
@@ -318,7 +362,7 @@ describe('createRoomManager', () => {
       dataDir,
       backendUrl: 'http://localhost:4319',
       executor,
-      startupTrustPromptDelaysMs: [],
+      startupTrustPromptTimeoutMs: 0,
     })
 
     manager.startRoom('thread-1', {})
@@ -346,7 +390,7 @@ describe('createRoomManager', () => {
       dataDir,
       backendUrl: 'http://localhost:4319',
       executor,
-      startupTrustPromptDelaysMs: [],
+      startupTrustPromptTimeoutMs: 0,
     })
     manager.startRoom('thread-1', {})
     const token = roomToken()
