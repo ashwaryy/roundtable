@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createThread } from './threads'
-import { listComments, addComment } from './comments'
+import { listComments, addComment, addAgentComment } from './comments'
 import { NotFoundError } from './errors'
 
 let dataDir: string
@@ -67,6 +67,33 @@ describe('addComment', () => {
     expect(() =>
       addComment(dataDir, 'thread-1', { body: 'x', reply_to: 'c999' }),
     ).toThrow(NotFoundError)
+  })
+})
+
+describe('addAgentComment', () => {
+  it('creates an agent-authored top-level discussion point', () => {
+    const c = addAgentComment(dataDir, 'thread-1', {
+      author: 'claude',
+      body: 'agent point',
+      type: 'critique',
+    })
+    expect(c.id).toBe('c001')
+    expect(c.author).toBe('claude')
+    expect(c.type).toBe('critique')
+    expect(c.parent_id).toBeNull()
+  })
+
+  it('creates an agent-authored reply under the discussion root', () => {
+    const root = addComment(dataDir, 'thread-1', { body: 'root' })
+    const reply = addAgentComment(dataDir, 'thread-1', {
+      author: 'codex',
+      body: 'agent reply',
+      reply_to: root.id,
+    })
+    expect(reply.id).toBe('c002')
+    expect(reply.author).toBe('codex')
+    expect(reply.discussion_id).toBe(root.id)
+    expect(reply.parent_id).toBe(root.id)
   })
 })
 

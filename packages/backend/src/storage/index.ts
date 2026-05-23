@@ -18,12 +18,14 @@ import type {
   ProjectSnapshot,
   SnapshotPreflight,
   ThreadContext,
+  BoundedJob,
 } from '@roundtable/shared'
 import * as threads from './threads'
 import * as comments from './comments'
 import * as pending from './pendingDiscussions'
 import * as proposals from './proposals'
 import * as context from './context'
+import * as jobs from './jobs'
 
 export {
   BadRequestError,
@@ -106,6 +108,15 @@ export function createStorage(dataDir: string) {
     ): ProjectSnapshot => context.createProjectSnapshot(dataDir, threadId, input),
     refreshProjectSnapshot: (threadId: string): ProjectSnapshot =>
       context.refreshProjectSnapshot(dataDir, threadId),
+    listJobs: (threadId: string): BoundedJob[] => jobs.listJobs(dataDir, threadId),
+    getJob: (threadId: string, jobId: string): BoundedJob | null =>
+      jobs.getJob(dataDir, threadId, jobId),
+    writeJob: (job: BoundedJob): BoundedJob => jobs.writeJob(dataDir, job),
+    nextJobId: (threadId: string): string => jobs.nextJobId(dataDir, threadId),
+    addAgentComment: (
+      threadId: string,
+      input: Parameters<typeof comments.addAgentComment>[2],
+    ): Comment => comments.addAgentComment(dataDir, threadId, input),
   }
 }
 

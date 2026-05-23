@@ -64,6 +64,26 @@ export function roomJsonPath(dataDir: string, threadId: string): string {
   return path.join(roundtableInternalDir(dataDir, threadId), 'room.json')
 }
 
+export function currentTurnPath(dataDir: string, threadId: string): string {
+  return path.join(roundtableInternalDir(dataDir, threadId), 'current-turn.json')
+}
+
+export function roundtableTmpDir(dataDir: string, threadId: string): string {
+  return path.join(roundtableInternalDir(dataDir, threadId), 'tmp')
+}
+
+export function jobsDir(dataDir: string, threadId: string): string {
+  return path.join(roundtableInternalDir(dataDir, threadId), 'jobs')
+}
+
+export function jobJsonPath(
+  dataDir: string,
+  threadId: string,
+  jobId: string,
+): string {
+  return path.join(jobsDir(dataDir, threadId), `${jobId}.json`)
+}
+
 export function roomPromptPath(
   dataDir: string,
   threadId: string,

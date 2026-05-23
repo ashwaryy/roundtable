@@ -79,3 +79,22 @@ export const nudgeRoomInputSchema = z.object({
 export const readyInputSchema = z.object({
   agent: agentNameSchema,
 })
+
+export const askAgentInputSchema = z.object({
+  agent: agentNameSchema,
+  body: z
+    .preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().trim().min(1).optional(),
+    )
+    .nullable()
+    .optional(),
+  discussion_id: z.string().min(1).nullish(),
+})
+
+export const helperCommentInputSchema = z.object({
+  turn_id: z.string().min(1, 'turn_id is required'),
+  agent: agentNameSchema,
+  body: z.string().trim().min(1, 'body is required'),
+  type: commentTypeSchema.optional(),
+})

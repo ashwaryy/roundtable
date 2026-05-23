@@ -15,10 +15,21 @@ import type {
   SnapshotPreflightInput,
   ThreadContext,
   AgentRoom,
+  AskAgentInput,
+  BoundedJob,
   NudgeRoomInput,
   RoomPreflight,
   StartRoomInput,
 } from '@roundtable/shared'
+
+export interface AgentTurnResult {
+  room: AgentRoom
+  job: BoundedJob
+}
+
+export interface AgentTurnSubmission extends AgentTurnResult {
+  comment: Comment
+}
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -198,4 +209,31 @@ export function nudgeRoom(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
   }).then((r) => json<AgentRoom>(r))
+}
+
+export function askAgent(
+  threadId: string,
+  input: AskAgentInput,
+): Promise<AgentTurnResult> {
+  return fetch(`/api/threads/${threadId}/room/ask`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<AgentTurnResult>(r))
+}
+
+export function retryTurn(threadId: string): Promise<AgentTurnResult> {
+  return fetch(`/api/threads/${threadId}/room/turn/retry`, {
+    method: 'POST',
+  }).then((r) => json<AgentTurnResult>(r))
+}
+
+export function skipTurn(threadId: string): Promise<AgentTurnResult> {
+  return fetch(`/api/threads/${threadId}/room/turn/skip`, {
+    method: 'POST',
+  }).then((r) => json<AgentTurnResult>(r))
+}
+
+export function listJobs(threadId: string): Promise<BoundedJob[]> {
+  return fetch(`/api/threads/${threadId}/jobs`).then((r) => json<BoundedJob[]>(r))
 }

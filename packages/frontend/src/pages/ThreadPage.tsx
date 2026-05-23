@@ -11,6 +11,7 @@ import type {
   AgentRoom,
   RoomPreflight,
   ThreadContext,
+  AgentName,
 } from '@roundtable/shared'
 import {
   getThread,
@@ -20,6 +21,7 @@ import {
   getThreadContext,
   getRoom,
   getRoomPreflight,
+  askAgent,
 } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { CommentForm } from '../components/CommentForm'
@@ -71,41 +73,70 @@ export function ThreadPage() {
     refresh()
   }
 
+  async function askDiscussion(discussionId: string, agent: AgentName) {
+    if (!id) return
+    await askAgent(id, { agent, discussion_id: discussionId })
+    refresh()
+  }
+
   if (!thread) return <p>Loading...</p>
 
   return (
-    <main>
-      <p>
-        <Link to="/">All threads</Link>
-      </p>
-      <h1>{thread.title}</h1>
-      <section aria-label="thread-body">
-        <Markdown remarkPlugins={[remarkGfm]}>{thread.body}</Markdown>
-      </section>
+    <main className="page-shell">
+      <header className="page-header">
+        <div>
+          <Link to="/" className="back-link">
+            All threads
+          </Link>
+          <h1>{thread.title}</h1>
+        </div>
+        {room ? <span className={`status-pill status-pill--${room.status}`}>{room.status}</span> : null}
+      </header>
 
-      <h2>Discussion</h2>
-      <CommentForm label="Add discussion point" onSubmit={addTopLevel} />
-      <CommentTree comments={comments} onReply={addReply} />
+      <div className="thread-layout">
+        <div className="thread-main">
+          <section className="panel thread-body" aria-label="thread-body">
+            <Markdown remarkPlugins={[remarkGfm]}>{thread.body}</Markdown>
+          </section>
 
-      <h2>Pending Discussions</h2>
-      <PendingDiscussionQueue
-        threadId={thread.id}
-        discussions={pendingDiscussions}
-        onUpdate={refresh}
-      />
+          <section className="panel">
+            <div className="section-heading">
+              <h2>Discussion</h2>
+              <span>{comments.length} comments</span>
+            </div>
+            <CommentForm label="Add discussion point" onSubmit={addTopLevel} />
+            <CommentTree
+              comments={comments}
+              onReply={addReply}
+              onAskDiscussion={askDiscussion}
+            />
+          </section>
+        </div>
 
-      <ThreadContextPanel
-        threadId={thread.id}
-        context={threadContext}
-        onUpdate={refresh}
-      />
+        <aside className="thread-sidebar">
+          <section className="panel">
+            <h2>Pending Discussions</h2>
+            <PendingDiscussionQueue
+              threadId={thread.id}
+              discussions={pendingDiscussions}
+              onUpdate={refresh}
+            />
+          </section>
 
-      <RoomPanel
-        threadId={thread.id}
-        room={room}
-        preflight={roomPreflight}
-        onUpdate={refresh}
-      />
+          <ThreadContextPanel
+            threadId={thread.id}
+            context={threadContext}
+            onUpdate={refresh}
+          />
+
+          <RoomPanel
+            threadId={thread.id}
+            room={room}
+            preflight={roomPreflight}
+            onUpdate={refresh}
+          />
+        </aside>
+      </div>
     </main>
   )
 }

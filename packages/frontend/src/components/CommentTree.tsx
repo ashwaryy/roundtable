@@ -1,17 +1,19 @@
 import { useState } from 'react'
-import type { Comment, CommentType } from '@roundtable/shared'
+import type { AgentName, Comment, CommentType } from '@roundtable/shared'
 import { groupComments } from '../lib/commentTree'
 import { CommentForm } from './CommentForm'
 
 export function CommentTree({
   comments,
   onReply,
+  onAskDiscussion,
 }: {
   comments: Comment[]
   onReply: (
     replyTo: string,
     input: { body: string; type: CommentType },
   ) => Promise<void>
+  onAskDiscussion: (discussionId: string, agent: AgentName) => Promise<void>
 }) {
   const groups = groupComments(comments)
   const [openReply, setOpenReply] = useState<string | null>(null)
@@ -55,6 +57,12 @@ export function CommentTree({
           ) : (
             <button onClick={() => setOpenReply(root.id)}>Reply</button>
           )}
+          <button onClick={() => onAskDiscussion(root.id, 'claude')}>
+            Ask Claude
+          </button>
+          <button onClick={() => onAskDiscussion(root.id, 'codex')}>
+            Ask Codex
+          </button>
         </li>
       ))}
     </ul>

@@ -3,14 +3,21 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createThread } from '../storage/threads'
-import { roomJsonPath, roundtableHelperPath } from '../storage/paths'
+import {
+  currentTurnPath,
+  roomJsonPath,
+  roundtableHelperPath,
+} from '../storage/paths'
 import { ConflictError } from '../storage/errors'
+import { getJob } from '../storage/jobs'
+import { listComments } from '../storage/comments'
 import { createRoomManager, type CommandExecutor } from './manager'
 
 class FakeExecutor implements CommandExecutor {
   commands: Array<{ file: string; args: string[] }> = []
   missing = new Set<string>()
   sessions = new Set<string>()
+  paneCaptures = new Map<string, string>()
 
   execFile(file: string, args: string[]): string {
     this.commands.push({ file, args })
@@ -40,6 +47,11 @@ class FakeExecutor implements CommandExecutor {
       const session = args[args.indexOf('-t') + 1]
       this.sessions.delete(session)
       return ''
+    }
+
+    if (file === 'tmux' && args[0] === 'capture-pane') {
+      const target = args[args.indexOf('-t') + 1]
+      return this.paneCaptures.get(target) ?? ''
     }
 
     return ''
@@ -89,11 +101,20 @@ describe('createRoomManager', () => {
     expect(() => manager.startRoom('thread-1', {})).toThrow(ConflictError)
   })
 
-  it('starts a tmux room and writes helper state', () => {
+  it('starts a tmux room, writes helper state, and schedules trust prompt acceptance', async () => {
+    executor.paneCaptures.set(
+      'roundtable-thread-1:0.0',
+      'Quick safety check\n> 1. Yes, I trust this folder',
+    )
+    executor.paneCaptures.set(
+      'roundtable-thread-1:0.1',
+      'Do you trust the contents of this directory?\n> 1. Yes, continue',
+    )
     const manager = createRoomManager({
       dataDir,
       backendUrl: 'http://localhost:4319',
       executor,
+      startupTrustPromptDelaysMs: [0],
     })
 
     const room = manager.startRoom('thread-1', {
@@ -106,6 +127,9 @@ describe('createRoomManager', () => {
     expect(room.codex_model).toBe('gpt-5')
     expect(room.attach_command).toBe('tmux attach -t roundtable-thread-1')
     expect(fs.existsSync(roundtableHelperPath(dataDir, 'thread-1'))).toBe(true)
+    expect(
+      fs.readFileSync(roundtableHelperPath(dataDir, 'thread-1'), 'utf8'),
+    ).toContain('roundtable comment --body-file')
     expect(executor.sessions.has('roundtable-thread-1')).toBe(true)
     expect(executor.commands).toContainEqual({
       file: 'tmux',
@@ -118,6 +142,40 @@ describe('createRoomManager', () => {
         path.join(dataDir, 'threads', 'thread-1'),
       ],
     })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: ['send-keys', '-t', 'roundtable-thread-1:0.0', 'C-m'],
+    })
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: ['send-keys', '-t', 'roundtable-thread-1:0.1', 'C-m'],
+    })
+  })
+
+  it('does not send startup Enter when a pane is past the trust prompt', async () => {
+    executor.paneCaptures.set('roundtable-thread-1:0.0', 'Claude Code ready')
+    executor.paneCaptures.set('roundtable-thread-1:0.1', 'Codex ready')
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptDelaysMs: [0],
+    })
+
+    manager.startRoom('thread-1', {})
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const startupEnterCommands = executor.commands.filter(
+      (command) =>
+        command.file === 'tmux' &&
+        command.args[0] === 'send-keys' &&
+        command.args.length === 4 &&
+        command.args[3] === 'C-m',
+    )
+    expect(startupEnterCommands).toEqual([])
   })
 
   it('marks readiness idempotently and transitions to idle', () => {
@@ -136,6 +194,61 @@ describe('createRoomManager', () => {
     expect(afterClaude.status).toBe('starting')
     expect(afterClaudeAgain.agents.claude.ready_at).toBe(afterClaude.agents.claude.ready_at)
     expect(afterCodex.status).toBe('idle')
+  })
+
+  it('restarts fresh after a failed start attempt that never became ready', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptDelaysMs: [],
+    })
+
+    manager.startRoom('thread-1', {})
+    manager.stopRoom('thread-1')
+    executor.commands = []
+
+    manager.startRoom('thread-1', {})
+
+    const launchClaude = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-claude.sh'),
+      'utf8',
+    )
+    const launchCodex = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-codex.sh'),
+      'utf8',
+    )
+    expect(launchClaude).toContain('exec claude ')
+    expect(launchClaude).not.toContain('claude --continue')
+    expect(launchCodex).toContain('exec codex ')
+    expect(launchCodex).not.toContain('codex resume --last')
+  })
+
+  it('uses resume only for agents that previously became ready', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptDelaysMs: [],
+    })
+    manager.startRoom('thread-1', {})
+    const token = roomToken()
+    manager.markReady('thread-1', 'claude', token)
+    manager.stopRoom('thread-1')
+
+    manager.startRoom('thread-1', {})
+
+    const launchClaude = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-claude.sh'),
+      'utf8',
+    )
+    const launchCodex = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-codex.sh'),
+      'utf8',
+    )
+    expect(launchClaude).toContain('claude --continue')
+    expect(launchCodex).toContain('exec codex ')
+    expect(launchCodex).not.toContain('codex resume --last')
   })
 
   it('rejects readiness with an invalid token', () => {
@@ -174,6 +287,124 @@ describe('createRoomManager', () => {
         'C-m',
       ],
     })
+  })
+
+  it('starts an ask turn, writes current-turn context, and sends the prompt', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    })
+    manager.startRoom('thread-1', {})
+    const token = roomToken()
+    manager.markReady('thread-1', 'claude', token)
+    manager.markReady('thread-1', 'codex', token)
+
+    const result = manager.askAgent('thread-1', {
+      agent: 'codex',
+      body: 'Please review the thread.',
+    })
+
+    expect(result.room.status).toBe('running')
+    expect(result.room.active_job_id).toBe('job-001')
+    expect(result.job.turn.scope).toBe('thread')
+    expect(JSON.parse(fs.readFileSync(currentTurnPath(dataDir, 'thread-1'), 'utf8'))).toMatchObject({
+      id: 'job-001',
+      agent: 'codex',
+    })
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: [
+        'send-keys',
+        '-t',
+        'roundtable-thread-1:0.1',
+        expect.stringContaining('Roundtable Ask turn job-001'),
+        'C-m',
+      ],
+    })
+  })
+
+  it('completes an ask turn after helper comment submission', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    })
+    manager.startRoom('thread-1', {})
+    const token = roomToken()
+    manager.markReady('thread-1', 'claude', token)
+    manager.markReady('thread-1', 'codex', token)
+    manager.askAgent('thread-1', { agent: 'claude' })
+
+    const result = manager.submitComment(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: 'agent comment',
+        type: 'critique',
+      },
+      token,
+    )
+
+    expect(result.room.status).toBe('idle')
+    expect(result.room.active_job_id).toBeNull()
+    expect(result.comment.author).toBe('claude')
+    expect(result.comment.type).toBe('critique')
+    expect(getJob(dataDir, 'thread-1', 'job-001')?.status).toBe('completed')
+    expect(listComments(dataDir, 'thread-1')).toHaveLength(1)
+    expect(fs.existsSync(currentTurnPath(dataDir, 'thread-1'))).toBe(false)
+  })
+
+  it('rejects helper submissions that do not match the active turn', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    })
+    manager.startRoom('thread-1', {})
+    const token = roomToken()
+    manager.markReady('thread-1', 'claude', token)
+    manager.markReady('thread-1', 'codex', token)
+    manager.askAgent('thread-1', { agent: 'claude' })
+
+    expect(() =>
+      manager.submitComment(
+        'thread-1',
+        { turn_id: 'job-001', agent: 'codex', body: 'wrong agent' },
+        token,
+      ),
+    ).toThrow('agent does not match active turn')
+  })
+
+  it('marks timed-out active turns as needing attention', async () => {
+    const previousTimeout = process.env.ROUNDTABLE_TURN_TIMEOUT_MS
+    process.env.ROUNDTABLE_TURN_TIMEOUT_MS = '1'
+    try {
+      const manager = createRoomManager({
+        dataDir,
+        backendUrl: 'http://localhost:4319',
+        executor,
+      })
+      manager.startRoom('thread-1', {})
+      const token = roomToken()
+      manager.markReady('thread-1', 'claude', token)
+      manager.markReady('thread-1', 'codex', token)
+      manager.askAgent('thread-1', { agent: 'claude' })
+
+      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      const room = manager.getRoom('thread-1')
+      expect(room.status).toBe('needs_attention')
+      expect(room.last_error).toBe('agent turn timed out')
+      expect(getJob(dataDir, 'thread-1', 'job-001')?.status).toBe('timed_out')
+    } finally {
+      if (previousTimeout === undefined) {
+        delete process.env.ROUNDTABLE_TURN_TIMEOUT_MS
+      } else {
+        process.env.ROUNDTABLE_TURN_TIMEOUT_MS = previousTimeout
+      }
+    }
   })
 
   it('stops rooms idempotently', () => {

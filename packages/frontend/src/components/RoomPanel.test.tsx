@@ -59,6 +59,7 @@ function makeRoom(status: AgentRoom['status'] = 'not_started'): AgentRoom {
     started_at: null,
     stopped_at: null,
     last_error: null,
+    active_job_id: status === 'running' || status === 'needs_attention' ? 'job-001' : null,
   }
 }
 
@@ -135,6 +136,56 @@ describe('RoomPanel', () => {
     expect(mockedApi.nudgeRoom).toHaveBeenCalledWith('thread-1', {
       agent: 'codex',
       body: 'Please inspect this.',
+    })
+    await waitFor(() => expect(onUpdate).toHaveBeenCalled())
+  })
+
+  it('starts a thread-level ask turn', async () => {
+    const onUpdate = vi.fn()
+    mockedApi.askAgent.mockResolvedValue({
+      room: makeRoom('running'),
+      job: {
+        id: 'job-001',
+        thread_id: 'thread-1',
+        kind: 'agent_turn',
+        status: 'running',
+        agent: 'claude',
+        started_at: '2026-05-23T00:00:00Z',
+        timeout_at: '2026-05-23T00:10:00Z',
+        completed_at: null,
+        logs: [],
+        result: null,
+        failure_reason: null,
+        turn: {
+          id: 'job-001',
+          thread_id: 'thread-1',
+          agent: 'claude',
+          kind: 'comment',
+          scope: 'thread',
+          discussion_id: null,
+          instructions: 'Look here',
+          allow_direct_roots: true,
+          pending_roots_only: false,
+          created_at: '2026-05-23T00:00:00Z',
+          timeout_at: '2026-05-23T00:10:00Z',
+        },
+      },
+    })
+    render(
+      <RoomPanel
+        threadId="thread-1"
+        room={makeRoom('idle')}
+        preflight={makePreflight()}
+        onUpdate={onUpdate}
+      />,
+    )
+
+    await userEvent.type(screen.getByLabelText('Ask body'), 'Look here')
+    await userEvent.click(screen.getByRole('button', { name: /ask agent/i }))
+
+    expect(mockedApi.askAgent).toHaveBeenCalledWith('thread-1', {
+      agent: 'claude',
+      body: 'Look here',
     })
     await waitFor(() => expect(onUpdate).toHaveBeenCalled())
   })

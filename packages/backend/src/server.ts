@@ -7,6 +7,8 @@ import {
   editPendingDiscussionInputSchema,
   createProjectSnapshotInputSchema,
   createUrlContextInputSchema,
+  askAgentInputSchema,
+  helperCommentInputSchema,
   nudgeRoomInputSchema,
   readyInputSchema,
   snapshotPreflightInputSchema,
@@ -24,6 +26,7 @@ import type { RoomManager } from './rooms/manager'
 
 const THREAD_ID_RE = /^thread-\d+$/
 const PENDING_ID_RE = /^pd\d+$/
+const JOB_ID_RE = /^job-\d+$/
 
 function flattenFiles(files: Record<string, FormidableFile | FormidableFile[]>): FormidableFile[] {
   return Object.values(files).flatMap((file) => (Array.isArray(file) ? file : [file]))
@@ -88,6 +91,13 @@ export function createApp(deps: {
   app.param('pendingId', (_req, res, next, value: string) => {
     if (!PENDING_ID_RE.test(value)) {
       return res.status(404).json({ error: 'pending discussion not found' })
+    }
+    next()
+  })
+
+  app.param('jobId', (_req, res, next, value: string) => {
+    if (!JOB_ID_RE.test(value)) {
+      return res.status(404).json({ error: 'job not found' })
     }
     next()
   })
@@ -391,6 +401,89 @@ export function createApp(deps: {
       const room = rooms.nudgeRoom(req.params.id, parsed.data)
       broadcast({ type: 'room_updated', thread_id: req.params.id })
       res.json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/ask', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = askAgentInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const result = rooms.askAgent(req.params.id, parsed.data)
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.status(201).json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/comment', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = helperCommentInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const result = rooms.submitComment(req.params.id, parsed.data, bearerToken(req))
+      broadcast({ type: 'comment_created', thread_id: req.params.id })
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.status(201).json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/turn/retry', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      const result = rooms.retryTurn(req.params.id)
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/turn/skip', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      const result = rooms.skipTurn(req.params.id)
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.get('/api/threads/:id/jobs', (req, res) => {
+    try {
+      res.json(storage.listJobs(req.params.id))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.get('/api/threads/:id/jobs/:jobId', (req, res) => {
+    try {
+      const job = storage.getJob(req.params.id, req.params.jobId)
+      if (!job) return res.status(404).json({ error: 'job not found' })
+      res.json(job)
     } catch (err) {
       if (handleStorageError(err, res)) return
       throw err

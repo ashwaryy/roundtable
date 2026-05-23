@@ -178,7 +178,14 @@ export interface CreateProjectSnapshotInput {
 
 export type AgentName = 'claude' | 'codex'
 
-export type RoomStatus = 'not_started' | 'starting' | 'idle' | 'stopped' | 'error'
+export type RoomStatus =
+  | 'not_started'
+  | 'starting'
+  | 'idle'
+  | 'running'
+  | 'needs_attention'
+  | 'stopped'
+  | 'error'
 
 export interface RoomAgentState {
   ready_at: string | null
@@ -197,6 +204,7 @@ export interface AgentRoom {
   started_at: string | null
   stopped_at: string | null
   last_error: string | null
+  active_job_id: string | null
 }
 
 export interface RoomToolPreflight {
@@ -224,4 +232,55 @@ export interface NudgeRoomInput {
 
 export interface ReadyInput {
   agent: AgentName
+}
+
+export type AgentTurnScope = 'thread' | 'discussion'
+
+export interface AskAgentInput {
+  agent: AgentName
+  body?: string | null
+  discussion_id?: string | null
+}
+
+export interface AgentTurn {
+  id: string
+  thread_id: string
+  agent: AgentName
+  kind: 'comment'
+  scope: AgentTurnScope
+  discussion_id: string | null
+  instructions: string | null
+  allow_direct_roots: boolean
+  pending_roots_only: boolean
+  created_at: string
+  timeout_at: string
+}
+
+export type BoundedJobStatus =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'timed_out'
+  | 'skipped'
+
+export interface BoundedJob {
+  id: string
+  thread_id: string
+  kind: 'agent_turn'
+  status: BoundedJobStatus
+  agent: AgentName
+  started_at: string
+  timeout_at: string
+  completed_at: string | null
+  logs: string[]
+  result: { comment_id: string } | null
+  failure_reason: string | null
+  turn: AgentTurn
+}
+
+export interface HelperCommentInput {
+  turn_id: string
+  agent: AgentName
+  body: string
+  type?: CommentType
 }

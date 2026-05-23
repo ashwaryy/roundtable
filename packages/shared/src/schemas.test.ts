@@ -7,6 +7,8 @@ import {
   createUrlContextInputSchema,
   snapshotPreflightInputSchema,
   createProjectSnapshotInputSchema,
+  askAgentInputSchema,
+  helperCommentInputSchema,
 } from './index'
 
 describe('createThreadInputSchema', () => {
@@ -137,5 +139,50 @@ describe('createProjectSnapshotInputSchema', () => {
       confirmed: true,
     })
     expect(parsed.confirmed).toBe(true)
+  })
+})
+
+describe('askAgentInputSchema', () => {
+  it('accepts a thread-level ask', () => {
+    const parsed = askAgentInputSchema.parse({
+      agent: 'claude',
+      body: 'review this',
+    })
+    expect(parsed.agent).toBe('claude')
+    expect(parsed.body).toBe('review this')
+  })
+
+  it('accepts a discussion-level ask', () => {
+    const parsed = askAgentInputSchema.parse({
+      agent: 'codex',
+      discussion_id: 'c001',
+    })
+    expect(parsed.discussion_id).toBe('c001')
+  })
+
+  it('rejects an invalid agent', () => {
+    expect(() => askAgentInputSchema.parse({ agent: 'robot' })).toThrow()
+  })
+})
+
+describe('helperCommentInputSchema', () => {
+  it('accepts a helper comment submission', () => {
+    const parsed = helperCommentInputSchema.parse({
+      turn_id: 'job-001',
+      agent: 'claude',
+      body: 'comment body',
+      type: 'critique',
+    })
+    expect(parsed.type).toBe('critique')
+  })
+
+  it('rejects an empty helper body', () => {
+    expect(() =>
+      helperCommentInputSchema.parse({
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: '  ',
+      }),
+    ).toThrow()
   })
 })

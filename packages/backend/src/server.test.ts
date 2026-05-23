@@ -5,7 +5,7 @@ import path from 'node:path'
 import request from 'supertest'
 import { createApp } from './server'
 import { createStorage } from './storage'
-import type { AgentRoom, RoomPreflight } from '@roundtable/shared'
+import type { AgentRoom, BoundedJob, RoomPreflight } from '@roundtable/shared'
 import type { RoomManager } from './rooms/manager'
 
 let dataDir: string
@@ -364,6 +364,36 @@ function testRoom(status: AgentRoom['status'] = 'starting'): AgentRoom {
     started_at: null,
     stopped_at: null,
     last_error: null,
+    active_job_id: null,
+  }
+}
+
+function testJob(status: BoundedJob['status'] = 'running'): BoundedJob {
+  return {
+    id: 'job-001',
+    thread_id: 'thread-1',
+    kind: 'agent_turn',
+    status,
+    agent: 'claude',
+    started_at: '2026-05-23T00:00:00.000Z',
+    timeout_at: '2026-05-23T00:10:00.000Z',
+    completed_at: null,
+    logs: [],
+    result: null,
+    failure_reason: null,
+    turn: {
+      id: 'job-001',
+      thread_id: 'thread-1',
+      agent: 'claude',
+      kind: 'comment',
+      scope: 'thread',
+      discussion_id: null,
+      instructions: null,
+      allow_direct_roots: true,
+      pending_roots_only: false,
+      created_at: '2026-05-23T00:00:00.000Z',
+      timeout_at: '2026-05-23T00:10:00.000Z',
+    },
   }
 }
 
@@ -407,6 +437,26 @@ describe('room routes', () => {
       stopRoom: vi.fn(() => testRoom('stopped')),
       nudgeRoom: vi.fn(() => testRoom('idle')),
       markReady: vi.fn(() => testRoom('idle')),
+      askAgent: vi.fn(() => ({ room: testRoom('running'), job: testJob() })),
+      submitComment: vi.fn(() => ({
+        room: testRoom('idle'),
+        job: testJob('completed'),
+        comment: {
+          id: 'c001',
+          thread_id: 'thread-1',
+          discussion_id: 'c001',
+          parent_id: null,
+          author: 'claude',
+          type: 'comment',
+          body: 'agent comment',
+          origin_discussion_id: null,
+          origin_comment_id: null,
+          approved_from_pending_id: null,
+          created_at: '2026-05-23T00:00:00.000Z',
+        },
+      })),
+      retryTurn: vi.fn(() => ({ room: testRoom('running'), job: testJob() })),
+      skipTurn: vi.fn(() => ({ room: testRoom('idle'), job: testJob('skipped') })),
     }
     app = createApp({ storage: createStorage(dataDir), rooms, broadcast })
     await request(app).post('/api/threads').send({ title: 'A', body: 'a' })
@@ -464,5 +514,54 @@ describe('room routes', () => {
 
     expect(res.status).toBe(200)
     expect(rooms.markReady).toHaveBeenCalledWith('thread-1', 'claude', 'token-123')
+  })
+
+  it('starts an ask turn and broadcasts job and room updates', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/ask')
+      .send({ agent: 'claude', body: 'inspect this' })
+
+    expect(res.status).toBe(201)
+    expect(rooms.askAgent).toHaveBeenCalledWith('thread-1', {
+      agent: 'claude',
+      body: 'inspect this',
+    })
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'job_updated',
+      thread_id: 'thread-1',
+      job_id: 'job-001',
+    })
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'room_updated',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('accepts helper comment submissions with the bearer token', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/comment')
+      .set('authorization', 'Bearer room-token')
+      .send({ turn_id: 'job-001', agent: 'claude', body: 'agent comment' })
+
+    expect(res.status).toBe(201)
+    expect(rooms.submitComment).toHaveBeenCalledWith(
+      'thread-1',
+      { turn_id: 'job-001', agent: 'claude', body: 'agent comment' },
+      'room-token',
+    )
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'comment_created',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('retries and skips turns needing attention', async () => {
+    const retry = await request(app).post('/api/threads/thread-1/room/turn/retry')
+    const skip = await request(app).post('/api/threads/thread-1/room/turn/skip')
+
+    expect(retry.status).toBe(200)
+    expect(skip.status).toBe(200)
+    expect(rooms.retryTurn).toHaveBeenCalledWith('thread-1')
+    expect(rooms.skipTurn).toHaveBeenCalledWith('thread-1')
   })
 })

@@ -5,21 +5,31 @@ import { randomBytes } from 'node:crypto'
 import type {
   AgentName,
   AgentRoom,
+  AskAgentInput,
+  BoundedJob,
+  Comment,
+  HelperCommentInput,
   NudgeRoomInput,
+  RoundtableEvent,
   RoomPreflight,
   RoomToolPreflight,
   StartRoomInput,
 } from '@roundtable/shared'
 import {
+  currentTurnPath,
+  jobsDir,
   roomJsonPath,
   roomPromptPath,
   roundtableBinDir,
   roundtableHelperPath,
   roundtableInternalDir,
+  roundtableTmpDir,
   threadDir,
   threadJsonPath,
 } from '../storage/paths'
 import { BadRequestError, ConflictError, NotFoundError } from '../storage/errors'
+import { addAgentComment, listComments } from '../storage/comments'
+import { getJob, nextJobId, writeJob } from '../storage/jobs'
 
 interface InternalRoom extends AgentRoom {
   token: string
@@ -61,9 +71,27 @@ export interface RoomManager {
   stopRoom(threadId: string): AgentRoom
   nudgeRoom(threadId: string, input: NudgeRoomInput): AgentRoom
   markReady(threadId: string, agent: AgentName, token: string | null): AgentRoom
+  askAgent(threadId: string, input: AskAgentInput): AgentTurnResult
+  submitComment(
+    threadId: string,
+    input: HelperCommentInput,
+    token: string | null,
+  ): AgentTurnSubmission
+  retryTurn(threadId: string): AgentTurnResult
+  skipTurn(threadId: string): AgentTurnResult
+}
+
+export interface AgentTurnResult {
+  room: AgentRoom
+  job: BoundedJob
+}
+
+export interface AgentTurnSubmission extends AgentTurnResult {
+  comment: Comment
 }
 
 const TOOL_NAMES = ['tmux', 'claude', 'codex'] as const
+const DEFAULT_TURN_TIMEOUT_MS = 10 * 60 * 1000
 
 function now(): string {
   return new Date().toISOString()
@@ -111,6 +139,7 @@ function defaultRoom(threadId: string): InternalRoom {
     started_at: null,
     stopped_at: null,
     last_error: null,
+    active_job_id: null,
     token: '',
   }
 }
@@ -151,6 +180,36 @@ function writeExecutable(filePath: string, contents: string): void {
   fs.chmodSync(filePath, 0o700)
 }
 
+function writeJsonFile(filePath: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const tmp = `${filePath}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2))
+  fs.renameSync(tmp, filePath)
+}
+
+function removeIfExists(filePath: string): void {
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+}
+
+function turnTimeoutMs(): number {
+  const configured = Number(process.env.ROUNDTABLE_TURN_TIMEOUT_MS)
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_TURN_TIMEOUT_MS
+}
+
+function addMilliseconds(timestamp: string, ms: number): string {
+  return new Date(new Date(timestamp).getTime() + ms).toISOString()
+}
+
+function isTimedOut(job: BoundedJob): boolean {
+  return Date.now() >= new Date(job.timeout_at).getTime()
+}
+
+function paneForAgent(agent: AgentName): string {
+  return agent === 'claude' ? '0.0' : '0.1'
+}
+
 function startupPrompt(agent: AgentName): string {
   return [
     '# Roundtable Agent Room',
@@ -162,7 +221,8 @@ function startupPrompt(agent: AgentName): string {
     'Do not edit project snapshot files or user project files.',
     '',
     `First, acknowledge readiness by running: roundtable ready --agent ${agent}`,
-    'After readiness, wait for Roundtable nudges in this terminal.',
+    'After readiness, wait for Roundtable Ask turns in this terminal.',
+    'For each Ask turn, write your durable comment to `.roundtable/tmp/comment.md`, then submit it with `roundtable comment --body-file .roundtable/tmp/comment.md --type comment`.',
   ].join('\n')
 }
 
@@ -190,13 +250,16 @@ function writeHelperScript(
   dataDir: string,
   room: InternalRoom,
   backendUrl: string,
-  shouldResume: boolean,
+  shouldResume: Record<AgentName, boolean>,
 ): void {
   const binDir = roundtableBinDir(dataDir, room.thread_id)
   fs.mkdirSync(binDir, { recursive: true })
   writeExecutable(
     roundtableHelperPath(dataDir, room.thread_id),
     `#!/usr/bin/env node
+const fs = require('node:fs')
+const path = require('node:path')
+
 const command = process.argv[2]
 const args = process.argv.slice(3)
 
@@ -206,17 +269,6 @@ function argValue(name) {
 }
 
 async function main() {
-  if (command !== 'ready') {
-    console.error('unsupported roundtable helper command')
-    process.exit(2)
-  }
-
-  const agent = argValue('--agent')
-  if (agent !== 'claude' && agent !== 'codex') {
-    console.error('usage: roundtable ready --agent claude|codex')
-    process.exit(2)
-  }
-
   const threadId = process.env.ROUNDTABLE_THREAD_ID
   const backendUrl = process.env.ROUNDTABLE_BACKEND_URL
   const token = process.env.ROUNDTABLE_ROOM_TOKEN
@@ -225,21 +277,74 @@ async function main() {
     process.exit(2)
   }
 
-  const response = await fetch(\`\${backendUrl}/api/threads/\${threadId}/room/ready\`, {
-    method: 'POST',
-    headers: {
-      authorization: \`Bearer \${token}\`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ agent }),
-  })
+  if (command === 'ready') {
+    const agent = argValue('--agent')
+    if (agent !== 'claude' && agent !== 'codex') {
+      console.error('usage: roundtable ready --agent claude|codex')
+      process.exit(2)
+    }
 
-  if (!response.ok) {
-    console.error(await response.text())
-    process.exit(1)
+    const response = await fetch(\`\${backendUrl}/api/threads/\${threadId}/room/ready\`, {
+      method: 'POST',
+      headers: {
+        authorization: \`Bearer \${token}\`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ agent }),
+    })
+
+    if (!response.ok) {
+      console.error(await response.text())
+      process.exit(1)
+    }
+
+    console.log(\`\${agent} ready\`)
+    return
   }
 
-  console.log(\`\${agent} ready\`)
+  if (command === 'comment') {
+    const bodyFile = argValue('--body-file')
+    if (!bodyFile) {
+      console.error('usage: roundtable comment --body-file <path> [--type comment|proposal|critique|question|decision]')
+      process.exit(2)
+    }
+
+    const workspace = process.cwd()
+    const absoluteBodyFile = path.resolve(workspace, bodyFile)
+    if (!absoluteBodyFile.startsWith(workspace + path.sep)) {
+      console.error('body file must be inside the thread workspace')
+      process.exit(2)
+    }
+
+    const body = fs.readFileSync(absoluteBodyFile, 'utf8')
+    const turnPath = path.join(workspace, '.roundtable', 'current-turn.json')
+    const turn = JSON.parse(fs.readFileSync(turnPath, 'utf8'))
+    const response = await fetch(\`\${backendUrl}/api/threads/\${threadId}/room/comment\`, {
+      method: 'POST',
+      headers: {
+        authorization: \`Bearer \${token}\`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        turn_id: turn.id,
+        agent: turn.agent,
+        body,
+        type: argValue('--type') || undefined,
+      }),
+    })
+
+    if (!response.ok) {
+      console.error(await response.text())
+      process.exit(1)
+    }
+
+    const result = await response.json()
+    console.log(\`comment submitted: \${result.comment.id}\`)
+    return
+  }
+
+  console.error('unsupported roundtable helper command')
+  process.exit(2)
 }
 
 main().catch((err) => {
@@ -253,7 +358,7 @@ main().catch((err) => {
     const promptFile = roomPromptPath(dataDir, room.thread_id, agent)
     fs.writeFileSync(promptFile, startupPrompt(agent))
     const model = agent === 'claude' ? room.claude_model : room.codex_model
-    const command = shouldResume
+    const command = shouldResume[agent]
       ? resumeCliCommand(agent, model, promptFile)
       : cliCommand(agent, model, promptFile)
     writeExecutable(
@@ -296,24 +401,245 @@ function sessionExists(executor: CommandExecutor, sessionName: string): boolean 
   }
 }
 
+function sendStartupTrustPromptEnter(
+  executor: CommandExecutor,
+  room: InternalRoom,
+  agent: AgentName,
+): void {
+  executor.execFile('tmux', [
+    'send-keys',
+    '-t',
+    `${room.tmux_session}:${paneForAgent(agent)}`,
+    'C-m',
+  ])
+}
+
+function paneContainsStartupTrustPrompt(
+  executor: CommandExecutor,
+  room: InternalRoom,
+  agent: AgentName,
+): boolean {
+  const output = executor.execFile('tmux', [
+    'capture-pane',
+    '-t',
+    `${room.tmux_session}:${paneForAgent(agent)}`,
+    '-p',
+    '-S',
+    '-80',
+  ])
+  return /Do you trust|Quick safety check|Yes, I trust this folder|Yes, continue/i.test(
+    output,
+  )
+}
+
 function markError(dataDir: string, room: InternalRoom, message: string): AgentRoom {
   const updated: InternalRoom = {
     ...room,
     status: 'error',
     updated_at: now(),
     last_error: message,
+    active_job_id: null,
   }
   writeRoom(dataDir, updated)
   return stripToken(updated)
+}
+
+function buildTurnPrompt(job: BoundedJob): string {
+  const target =
+    job.turn.scope === 'discussion'
+      ? `Reply to discussion ${job.turn.discussion_id}.`
+      : 'Create a new top-level discussion point.'
+  const custom = job.turn.instructions
+    ? `\n\nUser instructions:\n${job.turn.instructions}`
+    : ''
+
+  return [
+    `Roundtable Ask turn ${job.turn.id}.`,
+    target,
+    'Read the current thread and approved discussion as needed.',
+    'Do not edit canonical Roundtable files or project files.',
+    'Write your final comment body to `.roundtable/tmp/comment.md`.',
+    'Submit exactly once with: roundtable comment --body-file .roundtable/tmp/comment.md --type comment',
+    'If a discussion-level reply should split into a new root, say so in this reply; pending root submission is enabled in a later phase.',
+    custom,
+  ].join('\n')
+}
+
+function createAgentTurnJob(input: {
+  dataDir: string
+  threadId: string
+  ask: AskAgentInput
+}): BoundedJob {
+  const timestamp = now()
+  const timeoutAt = addMilliseconds(timestamp, turnTimeoutMs())
+  const jobId = nextJobId(input.dataDir, input.threadId)
+  const scope = input.ask.discussion_id ? 'discussion' : 'thread'
+
+  return {
+    id: jobId,
+    thread_id: input.threadId,
+    kind: 'agent_turn',
+    status: 'running',
+    agent: input.ask.agent,
+    started_at: timestamp,
+    timeout_at: timeoutAt,
+    completed_at: null,
+    logs: ['Agent turn started.'],
+    result: null,
+    failure_reason: null,
+    turn: {
+      id: jobId,
+      thread_id: input.threadId,
+      agent: input.ask.agent,
+      kind: 'comment',
+      scope,
+      discussion_id: input.ask.discussion_id ?? null,
+      instructions: input.ask.body?.trim() ?? null,
+      allow_direct_roots: scope === 'thread',
+      pending_roots_only: false,
+      created_at: timestamp,
+      timeout_at: timeoutAt,
+    },
+  }
 }
 
 export function createRoomManager(options: {
   dataDir: string
   backendUrl: string
   executor?: CommandExecutor
+  onUpdate?: (event: RoundtableEvent) => void
+  startupTrustPromptDelaysMs?: number[]
 }): RoomManager {
   const { dataDir, backendUrl } = options
   const executor = options.executor ?? new SystemCommandExecutor()
+  const timers = new Map<string, NodeJS.Timeout>()
+  const startupTrustPromptDelaysMs =
+    options.startupTrustPromptDelaysMs ?? [1200, 3000, 6000]
+
+  function clearTurnTimer(jobId: string): void {
+    const timer = timers.get(jobId)
+    if (timer) clearTimeout(timer)
+    timers.delete(jobId)
+  }
+
+  function broadcast(event: RoundtableEvent): void {
+    options.onUpdate?.(event)
+  }
+
+  function expireActiveTurn(threadId: string): InternalRoom {
+    let room = readRoom(dataDir, threadId)
+    if (!room.active_job_id) return room
+
+    const job = getJob(dataDir, threadId, room.active_job_id)
+    if (!job || job.status !== 'running' || !isTimedOut(job)) return room
+
+    const timestamp = now()
+    const updatedJob: BoundedJob = {
+      ...job,
+      status: 'timed_out',
+      completed_at: timestamp,
+      failure_reason: 'agent turn timed out',
+      logs: [...job.logs, 'Agent turn timed out.'],
+    }
+    writeJob(dataDir, updatedJob)
+    clearTurnTimer(job.id)
+    removeIfExists(currentTurnPath(dataDir, threadId))
+
+    room = {
+      ...room,
+      status: 'needs_attention',
+      updated_at: timestamp,
+      last_error: 'agent turn timed out',
+    }
+    writeRoom(dataDir, room)
+    broadcast({ type: 'job_updated', thread_id: threadId, job_id: job.id })
+    broadcast({ type: 'room_updated', thread_id: threadId })
+    return room
+  }
+
+  function scheduleTimeout(job: BoundedJob): void {
+    clearTurnTimer(job.id)
+    const delay = Math.max(0, new Date(job.timeout_at).getTime() - Date.now())
+    const timer = setTimeout(() => {
+      expireActiveTurn(job.thread_id)
+    }, delay)
+    timer.unref?.()
+    timers.set(job.id, timer)
+  }
+
+  function sendTurnToAgent(room: InternalRoom, job: BoundedJob): void {
+    fs.mkdirSync(roundtableTmpDir(dataDir, room.thread_id), { recursive: true })
+    fs.mkdirSync(jobsDir(dataDir, room.thread_id), { recursive: true })
+    writeJsonFile(currentTurnPath(dataDir, room.thread_id), job.turn)
+    executor.execFile('tmux', [
+      'send-keys',
+      '-t',
+      `${room.tmux_session}:${paneForAgent(job.agent)}`,
+      buildTurnPrompt(job),
+      'C-m',
+    ])
+  }
+
+  function scheduleStartupTrustPromptAcceptance(room: InternalRoom): void {
+    for (const delay of startupTrustPromptDelaysMs) {
+      const timer = setTimeout(() => {
+        try {
+          const current = readRoom(dataDir, room.thread_id)
+          if (
+            current.status !== 'starting' ||
+            !sessionExists(executor, current.tmux_session)
+          ) {
+            return
+          }
+
+          for (const agent of ['claude', 'codex'] as const) {
+            if (
+              !current.agents[agent].ready_at &&
+              paneContainsStartupTrustPrompt(executor, current, agent)
+            ) {
+              sendStartupTrustPromptEnter(executor, current, agent)
+            }
+          }
+        } catch {
+          // Trust-prompt acceptance is best-effort; room readiness is still
+          // validated by the helper handshake.
+        }
+      }, delay)
+      timer.unref?.()
+    }
+  }
+
+  function startJob(room: InternalRoom, job: BoundedJob): AgentTurnResult {
+    writeJob(dataDir, job)
+    try {
+      sendTurnToAgent(room, job)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const failed: BoundedJob = {
+        ...job,
+        status: 'failed',
+        completed_at: now(),
+        failure_reason: message,
+        logs: [...job.logs, message],
+      }
+      writeJob(dataDir, failed)
+      return {
+        room: markError(dataDir, room, message),
+        job: failed,
+      }
+    }
+
+    const updated: InternalRoom = {
+      ...room,
+      status: 'running',
+      active_job_id: job.id,
+      updated_at: now(),
+      last_error: null,
+    }
+    writeRoom(dataDir, updated)
+    scheduleTimeout(job)
+    return { room: stripToken(updated), job }
+  }
 
   return {
     preflight(): RoomPreflight {
@@ -330,7 +656,7 @@ export function createRoomManager(options: {
 
     getRoom(threadId: string): AgentRoom {
       ensureThread(dataDir, threadId)
-      return stripToken(readRoom(dataDir, threadId))
+      return stripToken(expireActiveTurn(threadId))
     },
 
     startRoom(threadId: string, input: StartRoomInput): AgentRoom {
@@ -344,16 +670,24 @@ export function createRoomManager(options: {
         throw new ConflictError(`missing required room tools: ${missing}`)
       }
 
-      const existing = readRoom(dataDir, threadId)
+      const existing = expireActiveTurn(threadId)
       if (
-        (existing.status === 'starting' || existing.status === 'idle') &&
+        (
+          existing.status === 'starting' ||
+          existing.status === 'idle' ||
+          existing.status === 'running' ||
+          existing.status === 'needs_attention'
+        ) &&
         sessionExists(executor, existing.tmux_session)
       ) {
         return stripToken(existing)
       }
 
       const timestamp = now()
-      const shouldResume = existing.started_at !== null
+      const shouldResume = {
+        claude: existing.started_at !== null && existing.agents.claude.ready_at !== null,
+        codex: existing.started_at !== null && existing.agents.codex.ready_at !== null,
+      }
       const room: InternalRoom = {
         ...existing,
         status: 'starting',
@@ -367,6 +701,7 @@ export function createRoomManager(options: {
         started_at: existing.started_at ?? timestamp,
         stopped_at: null,
         last_error: null,
+        active_job_id: null,
         token: randomToken(),
       }
       writeHelperScript(dataDir, room, backendUrl, shouldResume)
@@ -404,6 +739,7 @@ export function createRoomManager(options: {
           path.join(internalDir, 'launch-codex.sh'),
           'C-m',
         ])
+        scheduleStartupTrustPromptAcceptance(room)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         return markError(dataDir, room, message)
@@ -425,28 +761,30 @@ export function createRoomManager(options: {
         status: 'stopped',
         updated_at: timestamp,
         stopped_at: timestamp,
+        active_job_id: null,
       }
+      if (room.active_job_id) clearTurnTimer(room.active_job_id)
+      removeIfExists(currentTurnPath(dataDir, threadId))
       writeRoom(dataDir, updated)
       return stripToken(updated)
     },
 
     nudgeRoom(threadId: string, input: NudgeRoomInput): AgentRoom {
       ensureThread(dataDir, threadId)
-      const room = readRoom(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
       if (room.status !== 'idle') {
         throw new BadRequestError('room must be idle before sending nudges')
       }
       if (!sessionExists(executor, room.tmux_session)) {
         return markError(dataDir, room, 'tmux session is not running')
       }
-      const pane = input.agent === 'claude' ? '0.0' : '0.1'
       const body =
         input.body?.trim() ??
-        'Roundtable nudge: inspect the current thread and approved discussion. Reply in this terminal only; durable comment submission is enabled in a later phase.'
+        'Roundtable nudge: inspect the current thread and approved discussion. If you need to make a durable comment, wait for an Ask turn.'
       executor.execFile('tmux', [
         'send-keys',
         '-t',
-        `${room.tmux_session}:${pane}`,
+        `${room.tmux_session}:${paneForAgent(input.agent)}`,
         body,
         'C-m',
       ])
@@ -457,7 +795,7 @@ export function createRoomManager(options: {
 
     markReady(threadId: string, agent: AgentName, token: string | null): AgentRoom {
       ensureThread(dataDir, threadId)
-      const room = readRoom(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
       if (!token || token !== room.token) {
         throw new BadRequestError('invalid room token')
       }
@@ -480,6 +818,175 @@ export function createRoomManager(options: {
       }
       writeRoom(dataDir, updated)
       return stripToken(updated)
+    },
+
+    askAgent(threadId: string, input: AskAgentInput): AgentTurnResult {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (room.status !== 'idle') {
+        throw new BadRequestError('room must be idle before starting an ask turn')
+      }
+      if (!sessionExists(executor, room.tmux_session)) {
+        const failed = {
+          ...createAgentTurnJob({ dataDir, threadId, ask: input }),
+          status: 'failed' as const,
+          completed_at: now(),
+          failure_reason: 'tmux session is not running',
+        }
+        writeJob(dataDir, failed)
+        return {
+          room: markError(dataDir, room, 'tmux session is not running'),
+          job: failed,
+        }
+      }
+
+      if (input.discussion_id) {
+        const root = listComments(dataDir, threadId).find(
+          (comment) =>
+            comment.id === input.discussion_id && comment.parent_id === null,
+        )
+        if (!root) {
+          throw new NotFoundError(`discussion ${input.discussion_id} not found`)
+        }
+      }
+
+      return startJob(room, createAgentTurnJob({ dataDir, threadId, ask: input }))
+    },
+
+    submitComment(
+      threadId: string,
+      input: HelperCommentInput,
+      token: string | null,
+    ): AgentTurnSubmission {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (!token || token !== room.token) {
+        throw new BadRequestError('invalid room token')
+      }
+      if (room.status !== 'running' || !room.active_job_id) {
+        throw new BadRequestError('no active turn is running')
+      }
+      if (room.active_job_id !== input.turn_id) {
+        throw new BadRequestError('turn does not match active job')
+      }
+
+      const job = getJob(dataDir, threadId, room.active_job_id)
+      if (!job || job.status !== 'running') {
+        throw new BadRequestError('active job is not running')
+      }
+      if (job.agent !== input.agent || job.turn.agent !== input.agent) {
+        throw new BadRequestError('agent does not match active turn')
+      }
+      if (isTimedOut(job)) {
+        expireActiveTurn(threadId)
+        throw new BadRequestError('active turn has timed out')
+      }
+
+      const comment = addAgentComment(dataDir, threadId, {
+        author: input.agent,
+        body: input.body,
+        type: input.type,
+        reply_to:
+          job.turn.scope === 'discussion' ? job.turn.discussion_id : null,
+      })
+
+      const completed: BoundedJob = {
+        ...job,
+        status: 'completed',
+        completed_at: now(),
+        result: { comment_id: comment.id },
+        logs: [...job.logs, `Comment ${comment.id} submitted.`],
+      }
+      writeJob(dataDir, completed)
+      clearTurnTimer(job.id)
+      removeIfExists(currentTurnPath(dataDir, threadId))
+
+      const updated: InternalRoom = {
+        ...room,
+        status: 'idle',
+        active_job_id: null,
+        updated_at: now(),
+        last_error: null,
+      }
+      writeRoom(dataDir, updated)
+      return { room: stripToken(updated), job: completed, comment }
+    },
+
+    retryTurn(threadId: string): AgentTurnResult {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (room.status !== 'needs_attention' || !room.active_job_id) {
+        throw new BadRequestError('room does not have a turn needing attention')
+      }
+      if (!sessionExists(executor, room.tmux_session)) {
+        return {
+          room: markError(dataDir, room, 'tmux session is not running'),
+          job: getJob(dataDir, threadId, room.active_job_id) ??
+            createAgentTurnJob({
+              dataDir,
+              threadId,
+              ask: { agent: 'claude' },
+            }),
+        }
+      }
+
+      const oldJob = getJob(dataDir, threadId, room.active_job_id)
+      if (!oldJob) throw new NotFoundError(`job ${room.active_job_id} not found`)
+
+      const timestamp = now()
+      const timeoutAt = addMilliseconds(timestamp, turnTimeoutMs())
+      const jobId = nextJobId(dataDir, threadId)
+      const retryJob: BoundedJob = {
+        ...oldJob,
+        id: jobId,
+        status: 'running',
+        started_at: timestamp,
+        timeout_at: timeoutAt,
+        completed_at: null,
+        logs: ['Agent turn retried.'],
+        result: null,
+        failure_reason: null,
+        turn: {
+          ...oldJob.turn,
+          id: jobId,
+          created_at: timestamp,
+          timeout_at: timeoutAt,
+        },
+      }
+
+      return startJob({ ...room, status: 'idle', active_job_id: null }, retryJob)
+    },
+
+    skipTurn(threadId: string): AgentTurnResult {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (room.status !== 'needs_attention' || !room.active_job_id) {
+        throw new BadRequestError('room does not have a turn needing attention')
+      }
+
+      const job = getJob(dataDir, threadId, room.active_job_id)
+      if (!job) throw new NotFoundError(`job ${room.active_job_id} not found`)
+
+      const skipped: BoundedJob = {
+        ...job,
+        status: 'skipped',
+        completed_at: now(),
+        failure_reason: job.failure_reason ?? 'agent turn skipped',
+        logs: [...job.logs, 'Agent turn skipped.'],
+      }
+      writeJob(dataDir, skipped)
+      clearTurnTimer(job.id)
+      removeIfExists(currentTurnPath(dataDir, threadId))
+
+      const updated: InternalRoom = {
+        ...room,
+        status: 'idle',
+        active_job_id: null,
+        updated_at: now(),
+        last_error: null,
+      }
+      writeRoom(dataDir, updated)
+      return { room: stripToken(updated), job: skipped }
     },
   }
 }

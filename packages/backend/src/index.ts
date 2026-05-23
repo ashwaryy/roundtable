@@ -11,10 +11,14 @@ const port = Number(process.env.ROUNDTABLE_PORT ?? 4319)
 const backendUrl = process.env.ROUNDTABLE_BACKEND_URL ?? `http://localhost:${port}`
 
 const storage = createStorage(dataDir)
-const rooms = createRoomManager({ dataDir, backendUrl })
 const server = http.createServer()
 const wss = new WebSocketServer({ server, path: '/ws' })
 const hub = createBroadcastHub(wss)
+const rooms = createRoomManager({
+  dataDir,
+  backendUrl,
+  onUpdate: hub.broadcast,
+})
 
 const app = createApp({ storage, rooms, broadcast: hub.broadcast })
 server.on('request', app)

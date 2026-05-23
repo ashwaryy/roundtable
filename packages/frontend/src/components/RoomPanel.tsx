@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import type { AgentName, AgentRoom, RoomPreflight } from '@roundtable/shared'
-import { nudgeRoom, startRoom, stopRoom } from '../api'
+import { askAgent, nudgeRoom, retryTurn, skipTurn, startRoom, stopRoom } from '../api'
 
 function readyText(readyAt: string | null): string {
   return readyAt ? 'ready' : 'waiting'
@@ -21,6 +21,8 @@ export function RoomPanel({
   const [codexModel, setCodexModel] = useState('')
   const [nudgeAgent, setNudgeAgent] = useState<AgentName>('claude')
   const [nudgeBody, setNudgeBody] = useState('')
+  const [askAgentName, setAskAgentName] = useState<AgentName>('claude')
+  const [askBody, setAskBody] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   async function handleStart(event: FormEvent) {
@@ -62,9 +64,51 @@ export function RoomPanel({
     }
   }
 
-  const canStart = preflight?.ok ?? false
+  async function handleAsk(event: FormEvent) {
+    event.preventDefault()
+    setError(null)
+    try {
+      await askAgent(threadId, {
+        agent: askAgentName,
+        body: askBody || null,
+      })
+      setAskBody('')
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleRetry() {
+    setError(null)
+    try {
+      await retryTurn(threadId)
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleSkip() {
+    setError(null)
+    try {
+      await skipTurn(threadId)
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const canStart =
+    (preflight?.ok ?? false) &&
+    (!room ||
+      room.status === 'not_started' ||
+      room.status === 'stopped' ||
+      room.status === 'error')
   const canNudge = room?.status === 'idle'
+  const canAsk = room?.status === 'idle'
   const canStop = room && room.status !== 'not_started' && room.status !== 'stopped'
+  const needsAttention = room?.status === 'needs_attention'
   const toolEntries = preflight ? Object.values(preflight.tools) : []
 
   return (
@@ -142,6 +186,39 @@ export function RoomPanel({
           Send Nudge
         </button>
       </form>
+
+      <form onSubmit={handleAsk} aria-label="ask-agent">
+        <select
+          aria-label="Ask agent"
+          value={askAgentName}
+          onChange={(event) => setAskAgentName(event.target.value as AgentName)}
+          disabled={!canAsk}
+        >
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+        </select>
+        <input
+          aria-label="Ask body"
+          value={askBody}
+          onChange={(event) => setAskBody(event.target.value)}
+          placeholder="Optional ask instructions"
+          disabled={!canAsk}
+        />
+        <button type="submit" disabled={!canAsk}>
+          Ask Agent
+        </button>
+      </form>
+
+      {needsAttention ? (
+        <p>
+          <button type="button" onClick={handleRetry}>
+            Retry Turn
+          </button>
+          <button type="button" onClick={handleSkip}>
+            Skip Turn
+          </button>
+        </p>
+      ) : null}
 
       {error ? <p role="alert">{error}</p> : null}
     </section>

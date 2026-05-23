@@ -25,16 +25,34 @@ export function ThreadListPage() {
   useLiveRefresh(onEvent)
 
   return (
-    <main>
-      <h1>Roundtable</h1>
-      <NewThreadForm onCreated={refresh} />
-      <ul>
-        {threads.map((thread) => (
-          <li key={thread.id}>
-            <Link to={`/threads/${thread.id}`}>{thread.title}</Link>
-          </li>
-        ))}
-      </ul>
+    <main className="page-shell page-shell--narrow">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Local forum</p>
+          <h1>Roundtable</h1>
+        </div>
+      </header>
+
+      <section className="panel">
+        <h2>New thread</h2>
+        <NewThreadForm onCreated={refresh} />
+      </section>
+
+      <section className="panel">
+        <h2>Threads</h2>
+        {threads.length > 0 ? (
+          <ul className="thread-list">
+            {threads.map((thread) => (
+              <li key={thread.id}>
+                <Link to={`/threads/${thread.id}`}>{thread.title}</Link>
+                <span>{thread.status}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="empty-state">No threads yet.</p>
+        )}
+      </section>
     </main>
   )
 }

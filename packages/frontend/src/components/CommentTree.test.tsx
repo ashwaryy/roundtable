@@ -25,13 +25,17 @@ describe('CommentTree', () => {
       comment('c001', null, 'root point'),
       comment('c002', 'c001', 'a reply'),
     ]
-    render(<CommentTree comments={comments} onReply={vi.fn()} />)
+    render(
+      <CommentTree comments={comments} onReply={vi.fn()} onAskDiscussion={vi.fn()} />,
+    )
     expect(screen.getByText('root point')).toBeInTheDocument()
     expect(screen.getByText('a reply')).toBeInTheDocument()
   })
 
   it('shows an empty-state message when there are no comments', () => {
-    render(<CommentTree comments={[]} onReply={vi.fn()} />)
+    render(
+      <CommentTree comments={[]} onReply={vi.fn()} onAskDiscussion={vi.fn()} />,
+    )
     expect(screen.getByText(/no discussion yet/i)).toBeInTheDocument()
   })
 })
