@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "npm run dev --workspace @roundtable/backend",
     "dev:frontend": "npm run dev --workspace @roundtable/frontend",
     "test": "vitest run",
@@ -15,6 +16,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.0",
+    "concurrently": "^9.2.1",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"
   }
