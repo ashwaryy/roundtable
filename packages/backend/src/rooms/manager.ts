@@ -220,6 +220,16 @@ function paneForAgent(agent: AgentName): string {
   return agent === 'claude' ? '0.0' : '0.1'
 }
 
+function sendLineToPane(
+  executor: CommandExecutor,
+  target: string,
+  line: string,
+): void {
+  executor.execFile('tmux', ['send-keys', '-t', target, 'C-u'])
+  executor.execFile('tmux', ['send-keys', '-t', target, '-l', line])
+  executor.execFile('tmux', ['send-keys', '-t', target, 'Enter'])
+}
+
 function startupPrompt(agent: AgentName): string {
   return [
     '# Roundtable Agent Room',
@@ -656,6 +666,10 @@ function buildTurnPrompt(job: BoundedJob): string {
   ].join('\n')
 }
 
+function turnPromptRelativePath(job: BoundedJob): string {
+  return `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-turn.md`
+}
+
 function createAgentTurnJob(input: {
   dataDir: string
   threadId: string
@@ -762,13 +776,13 @@ export function createRoomManager(options: {
     fs.mkdirSync(roundtableTmpDir(dataDir, room.thread_id), { recursive: true })
     fs.mkdirSync(jobsDir(dataDir, room.thread_id), { recursive: true })
     writeJsonFile(currentTurnPath(dataDir, room.thread_id), job.turn)
-    executor.execFile('tmux', [
-      'send-keys',
-      '-t',
+    const promptPath = turnPromptRelativePath(job)
+    writeTextFile(path.join(threadDir(dataDir, room.thread_id), promptPath), buildTurnPrompt(job))
+    sendLineToPane(
+      executor,
       `${room.tmux_session}:${paneForAgent(job.agent)}`,
-      buildTurnPrompt(job),
-      'C-m',
-    ])
+      `Read ${promptPath} and follow it.`,
+    )
   }
 
   function scheduleStartupTrustPromptAcceptance(room: InternalRoom): void {

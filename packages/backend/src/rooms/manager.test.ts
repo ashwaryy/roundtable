@@ -406,7 +406,7 @@ describe('createRoomManager', () => {
     })
   })
 
-  it('starts an ask turn, writes current-turn context, and sends the prompt', () => {
+  it('starts an ask turn, writes current-turn context, and sends a single-line prompt file instruction', () => {
     const manager = createRoomManager({
       dataDir,
       backendUrl: 'http://localhost:4319',
@@ -429,20 +429,56 @@ describe('createRoomManager', () => {
       id: 'job-001',
       agent: 'codex',
     })
-    const sendPrompt = executor.commands.find(
+    const turnPromptPath = path.join(
+      dataDir,
+      'threads',
+      'thread-1',
+      '.roundtable',
+      'tmp',
+      'job-001-codex-turn.md',
+    )
+    const turnPrompt = fs.readFileSync(turnPromptPath, 'utf8')
+    expect(turnPrompt).toContain('Roundtable Ask turn job-001')
+    expect(turnPrompt).toContain(
+      'Write your final comment body to `.roundtable/tmp/job-001-codex-comment.md`.',
+    )
+    expect(turnPrompt).toContain(
+      'roundtable comment --body-file .roundtable/tmp/job-001-codex-comment.md --type comment',
+    )
+    expect(turnPrompt).not.toContain('.roundtable/tmp/comment.md')
+
+    const promptTextCommandIndex = executor.commands.findIndex(
       (command) =>
         command.file === 'tmux' &&
         command.args[0] === 'send-keys' &&
         command.args[2] === 'roundtable-thread-1:0.1' &&
-        command.args[3].includes('Roundtable Ask turn job-001'),
+        command.args[3] === '-l' &&
+        command.args[4].includes('job-001-codex-turn.md'),
     )
-    expect(sendPrompt?.args[3]).toContain(
-      'Write your final comment body to `.roundtable/tmp/job-001-codex-comment.md`.',
+    expect(executor.commands.slice(promptTextCommandIndex - 1, promptTextCommandIndex + 2)).toEqual([
+      {
+        file: 'tmux',
+        args: ['send-keys', '-t', 'roundtable-thread-1:0.1', 'C-u'],
+      },
+      {
+        file: 'tmux',
+        args: [
+          'send-keys',
+          '-t',
+          'roundtable-thread-1:0.1',
+          '-l',
+          'Read .roundtable/tmp/job-001-codex-turn.md and follow it.',
+        ],
+      },
+      {
+        file: 'tmux',
+        args: ['send-keys', '-t', 'roundtable-thread-1:0.1', 'Enter'],
+      },
+    ])
+    expect(executor.commands[promptTextCommandIndex].args[4]).not.toContain('\n')
+    expect(executor.commands[promptTextCommandIndex].args[4]).not.toContain(
+      '.roundtable/tmp/comment.md',
     )
-    expect(sendPrompt?.args[3]).toContain(
-      'roundtable comment --body-file .roundtable/tmp/job-001-codex-comment.md --type comment',
-    )
-    expect(sendPrompt?.args[3]).not.toContain('.roundtable/tmp/comment.md')
   })
 
   it('completes an ask turn after helper comment submission', () => {
