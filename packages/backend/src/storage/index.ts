@@ -11,13 +11,21 @@ import type {
   EditPendingDiscussionInput,
   CreateConsolidationInput,
   CommentAuthor,
+  ContextItem,
+  CreateProjectSnapshotInput,
+  CreateUrlContextInput,
+  FileContextItem,
+  ProjectSnapshot,
+  SnapshotPreflight,
+  ThreadContext,
 } from '@roundtable/shared'
 import * as threads from './threads'
 import * as comments from './comments'
 import * as pending from './pendingDiscussions'
 import * as proposals from './proposals'
+import * as context from './context'
 
-export { NotFoundError } from './errors'
+export { BadRequestError, ConfirmationRequiredError, NotFoundError } from './errors'
 
 export function createStorage(dataDir: string) {
   return {
@@ -67,6 +75,32 @@ export function createStorage(dataDir: string) {
       proposals.getLatestRevision(dataDir, threadId, proposalId),
     listRevisions: (threadId: string, proposalId: string): ProposalRevision[] =>
       proposals.listRevisions(dataDir, threadId, proposalId),
+    getThreadContext: (threadId: string): ThreadContext =>
+      context.getThreadContext(dataDir, threadId),
+    addUrlContextItem: (
+      threadId: string,
+      input: CreateUrlContextInput,
+    ): ContextItem => context.addUrlContextItem(dataDir, threadId, input),
+    addAttachmentFromFile: (
+      threadId: string,
+      input: {
+        tempPath: string
+        originalName: string
+        mediaType: string | null
+        sizeBytes: number
+      },
+    ): FileContextItem => context.addAttachmentFromFile(dataDir, threadId, input),
+    preflightProjectSnapshot: (
+      threadId: string,
+      sourcePath: string,
+    ): SnapshotPreflight =>
+      context.preflightProjectSnapshot(dataDir, threadId, sourcePath),
+    createProjectSnapshot: (
+      threadId: string,
+      input: CreateProjectSnapshotInput,
+    ): ProjectSnapshot => context.createProjectSnapshot(dataDir, threadId, input),
+    refreshProjectSnapshot: (threadId: string): ProjectSnapshot =>
+      context.refreshProjectSnapshot(dataDir, threadId),
   }
 }
 

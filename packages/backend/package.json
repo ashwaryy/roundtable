@@ -11,6 +11,7 @@
   "dependencies": {
     "@roundtable/shared": "*",
     "express": "^4.19.2",
+    "formidable": "^3.5.4",
     "ws": "^8.17.0"
   },
   "devDependencies": {

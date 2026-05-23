@@ -29,6 +29,29 @@ export function pendingDiscussionsPath(dataDir: string, threadId: string): strin
   return path.join(threadDir(dataDir, threadId), 'pending-discussions.jsonl')
 }
 
+export function contextItemsPath(dataDir: string, threadId: string): string {
+  return path.join(threadDir(dataDir, threadId), 'context-items.jsonl')
+}
+
+export function attachmentsDir(dataDir: string, threadId: string): string {
+  return path.join(threadDir(dataDir, threadId), 'attachments')
+}
+
+export function projectSnapshotDir(dataDir: string, threadId: string): string {
+  return path.join(threadDir(dataDir, threadId), 'project-snapshot')
+}
+
+export function projectSnapshotJsonPath(dataDir: string, threadId: string): string {
+  return path.join(threadDir(dataDir, threadId), 'project-snapshot.json')
+}
+
+export function projectSnapshotManifestPath(
+  dataDir: string,
+  threadId: string,
+): string {
+  return path.join(threadDir(dataDir, threadId), 'project-snapshot-manifest.json')
+}
+
 export function consolidationsDir(dataDir: string, threadId: string): string {
   return path.join(threadDir(dataDir, threadId), 'consolidations')
 }

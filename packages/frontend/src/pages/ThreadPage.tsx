@@ -8,24 +8,34 @@ import type {
   CommentType,
   PendingDiscussion,
   RoundtableEvent,
+  ThreadContext,
 } from '@roundtable/shared'
-import { getThread, listComments, createComment, listPendingDiscussions } from '../api'
+import {
+  getThread,
+  listComments,
+  createComment,
+  listPendingDiscussions,
+  getThreadContext,
+} from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { CommentForm } from '../components/CommentForm'
 import { CommentTree } from '../components/CommentTree'
 import { PendingDiscussionQueue } from '../components/PendingDiscussionQueue'
+import { ThreadContextPanel } from '../components/ThreadContextPanel'
 
 export function ThreadPage() {
   const { id } = useParams<{ id: string }>()
   const [thread, setThread] = useState<ThreadDetail | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [pendingDiscussions, setPendingDiscussions] = useState<PendingDiscussion[]>([])
+  const [threadContext, setThreadContext] = useState<ThreadContext | null>(null)
 
   const refresh = useCallback(() => {
     if (!id) return
     getThread(id).then(setThread)
     listComments(id).then(setComments)
     listPendingDiscussions(id).then(setPendingDiscussions)
+    getThreadContext(id).then(setThreadContext)
   }, [id])
 
   useEffect(() => {
@@ -72,6 +82,12 @@ export function ThreadPage() {
       <PendingDiscussionQueue
         threadId={thread.id}
         discussions={pendingDiscussions}
+        onUpdate={refresh}
+      />
+
+      <ThreadContextPanel
+        threadId={thread.id}
+        context={threadContext}
         onUpdate={refresh}
       />
     </main>

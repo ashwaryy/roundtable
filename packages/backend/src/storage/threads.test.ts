@@ -9,6 +9,9 @@ import {
   threadMdPath,
   commentsPath,
   pendingDiscussionsPath,
+  contextItemsPath,
+  attachmentsDir,
+  projectSnapshotDir,
 } from './paths'
 
 let dataDir: string
@@ -22,7 +25,7 @@ afterEach(() => {
 })
 
 describe('createThread', () => {
-  it('writes thread.json, thread.md, and an empty comments.jsonl', () => {
+  it('writes canonical thread files and context directories', () => {
     const thread = createThread(dataDir, { title: 'TTS queue', body: '# Plan\nbody' })
 
     expect(thread.id).toBe('thread-1')
@@ -43,6 +46,9 @@ describe('createThread', () => {
     expect(fs.readFileSync(pendingDiscussionsPath(dataDir, 'thread-1'), 'utf8')).toBe(
       '',
     )
+    expect(fs.readFileSync(contextItemsPath(dataDir, 'thread-1'), 'utf8')).toBe('')
+    expect(fs.existsSync(attachmentsDir(dataDir, 'thread-1'))).toBe(true)
+    expect(fs.existsSync(projectSnapshotDir(dataDir, 'thread-1'))).toBe(true)
   })
 
   it('assigns incrementing ids', () => {

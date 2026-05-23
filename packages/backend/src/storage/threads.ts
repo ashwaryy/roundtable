@@ -7,6 +7,9 @@ import {
   threadMdPath,
   commentsPath,
   pendingDiscussionsPath,
+  contextItemsPath,
+  attachmentsDir,
+  projectSnapshotDir,
 } from './paths'
 import { nextThreadId } from './ids'
 
@@ -28,6 +31,9 @@ export function createThread(dataDir: string, input: CreateThreadInput): Thread 
   fs.writeFileSync(threadMdPath(dataDir, id), input.body)
   fs.writeFileSync(commentsPath(dataDir, id), '')
   fs.writeFileSync(pendingDiscussionsPath(dataDir, id), '')
+  fs.writeFileSync(contextItemsPath(dataDir, id), '')
+  fs.mkdirSync(attachmentsDir(dataDir, id), { recursive: true })
+  fs.mkdirSync(projectSnapshotDir(dataDir, id), { recursive: true })
 
   return thread
 }

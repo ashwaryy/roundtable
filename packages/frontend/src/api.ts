@@ -7,6 +7,13 @@ import type {
   CreateCommentInput,
   CreatePendingDiscussionInput,
   EditPendingDiscussionInput,
+  ContextItem,
+  CreateProjectSnapshotInput,
+  CreateUrlContextInput,
+  ProjectSnapshot,
+  SnapshotPreflight,
+  SnapshotPreflightInput,
+  ThreadContext,
 } from '@roundtable/shared'
 
 async function json<T>(res: Response): Promise<T> {
@@ -94,4 +101,59 @@ export function rejectPendingDiscussion(
   }).then((res) => {
     if (!res.ok) throw new Error(`request failed: ${res.status}`)
   })
+}
+
+export function getThreadContext(threadId: string): Promise<ThreadContext> {
+  return fetch(`/api/threads/${threadId}/context`).then((r) => json<ThreadContext>(r))
+}
+
+export function uploadAttachmentFiles(
+  threadId: string,
+  files: FileList | File[],
+): Promise<ContextItem[]> {
+  const form = new FormData()
+  Array.from(files).forEach((file) => form.append('files', file))
+  return fetch(`/api/threads/${threadId}/attachments/files`, {
+    method: 'POST',
+    body: form,
+  }).then((r) => json<ContextItem[]>(r))
+}
+
+export function addUrlContextItem(
+  threadId: string,
+  input: CreateUrlContextInput,
+): Promise<ContextItem> {
+  return fetch(`/api/threads/${threadId}/attachments/urls`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<ContextItem>(r))
+}
+
+export function preflightProjectSnapshot(
+  threadId: string,
+  input: SnapshotPreflightInput,
+): Promise<SnapshotPreflight> {
+  return fetch(`/api/threads/${threadId}/project-snapshot/preflight`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<SnapshotPreflight>(r))
+}
+
+export function createProjectSnapshot(
+  threadId: string,
+  input: CreateProjectSnapshotInput,
+): Promise<ProjectSnapshot> {
+  return fetch(`/api/threads/${threadId}/project-snapshot`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<ProjectSnapshot>(r))
+}
+
+export function refreshProjectSnapshot(threadId: string): Promise<ProjectSnapshot> {
+  return fetch(`/api/threads/${threadId}/project-snapshot/refresh`, {
+    method: 'POST',
+  }).then((r) => json<ProjectSnapshot>(r))
 }

@@ -256,3 +256,91 @@ describe('pending discussion routes', () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe('context routes', () => {
+  beforeEach(async () => {
+    await request(app).post('/api/threads').send({ title: 'A', body: 'a' })
+  })
+
+  it('returns empty context initially', async () => {
+    const res = await request(app).get('/api/threads/thread-1/context')
+    expect(res.status).toBe(200)
+    expect(res.body.items).toEqual([])
+    expect(res.body.snapshot).toBeNull()
+    expect(res.body.workspace_added_files).toEqual([])
+  })
+
+  it('adds a URL context item and broadcasts context updates', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/attachments/urls')
+      .send({ url: 'https://example.com/spec', label: 'Spec' })
+    expect(res.status).toBe(201)
+    expect(res.body.kind).toBe('url')
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'thread_context_updated',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('uploads file attachments', async () => {
+    const source = path.join(dataDir, 'upload.txt')
+    fs.writeFileSync(source, 'hello')
+
+    const res = await request(app)
+      .post('/api/threads/thread-1/attachments/files')
+      .attach('files', source)
+    expect(res.status).toBe(201)
+    expect(res.body[0].kind).toBe('file')
+    expect(res.body[0].path).toContain('attachments/')
+  })
+
+  it('preflights and creates a confirmed non-git snapshot', async () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-server-project-'))
+    fs.writeFileSync(path.join(project, 'notes.md'), '# Notes\n')
+
+    const preflight = await request(app)
+      .post('/api/threads/thread-1/project-snapshot/preflight')
+      .send({ source_path: project })
+    expect(preflight.status).toBe(200)
+    expect(preflight.body.mode).toBe('non-git')
+    expect(preflight.body.requires_confirmation).toBe(true)
+
+    const rejected = await request(app)
+      .put('/api/threads/thread-1/project-snapshot')
+      .send({ source_path: project })
+    expect(rejected.status).toBe(409)
+    expect(rejected.body.confirmation_required).toBe(true)
+
+    const created = await request(app)
+      .put('/api/threads/thread-1/project-snapshot')
+      .send({ source_path: project, confirmed: true })
+    expect(created.status).toBe(201)
+    expect(created.body.file_count).toBe(1)
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'thread_context_updated',
+      thread_id: 'thread-1',
+    })
+    fs.rmSync(project, { recursive: true, force: true })
+  })
+
+  it('refreshes an existing snapshot', async () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-server-project-'))
+    fs.writeFileSync(path.join(project, 'a.md'), 'a')
+    await request(app)
+      .put('/api/threads/thread-1/project-snapshot')
+      .send({ source_path: project, confirmed: true })
+    fs.writeFileSync(path.join(project, 'b.md'), 'b')
+
+    const res = await request(app).post('/api/threads/thread-1/project-snapshot/refresh')
+    expect(res.status).toBe(200)
+    expect(res.body.added_since_last_refresh).toEqual(['b.md'])
+    fs.rmSync(project, { recursive: true, force: true })
+  })
+
+  it('returns 400 for invalid snapshot paths', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/project-snapshot/preflight')
+      .send({ source_path: path.join(dataDir, 'missing') })
+    expect(res.status).toBe(400)
+  })
+})

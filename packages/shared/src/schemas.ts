@@ -38,3 +38,17 @@ export const editPendingDiscussionInputSchema = z
     (d) => d.body !== undefined || d.type !== undefined,
     'at least one of body or type is required',
   )
+
+export const createUrlContextInputSchema = z.object({
+  url: z.string().trim().url('url must be valid'),
+  label: z.string().trim().min(1).nullish(),
+})
+
+export const snapshotPreflightInputSchema = z.object({
+  source_path: z.string().trim().min(1, 'source_path is required'),
+})
+
+export const createProjectSnapshotInputSchema = z.object({
+  source_path: z.string().trim().min(1, 'source_path is required'),
+  confirmed: z.boolean().optional(),
+})

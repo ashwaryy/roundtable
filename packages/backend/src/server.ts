@@ -1,15 +1,57 @@
 import express from 'express'
+import formidable, { type File as FormidableFile } from 'formidable'
 import {
   createThreadInputSchema,
   createCommentInputSchema,
   createPendingDiscussionInputSchema,
   editPendingDiscussionInputSchema,
+  createProjectSnapshotInputSchema,
+  createUrlContextInputSchema,
+  snapshotPreflightInputSchema,
   type RoundtableEvent,
 } from '@roundtable/shared'
-import { NotFoundError, type Storage } from './storage'
+import {
+  BadRequestError,
+  ConfirmationRequiredError,
+  NotFoundError,
+  type Storage,
+} from './storage'
 
 const THREAD_ID_RE = /^thread-\d+$/
 const PENDING_ID_RE = /^pd\d+$/
+
+function flattenFiles(files: Record<string, FormidableFile | FormidableFile[]>): FormidableFile[] {
+  return Object.values(files).flatMap((file) => (Array.isArray(file) ? file : [file]))
+}
+
+function parseMultipartFiles(req: express.Request): Promise<FormidableFile[]> {
+  const form = formidable({ multiples: true })
+  return new Promise((resolve, reject) => {
+    form.parse(req, (err, _fields, files) => {
+      if (err) {
+        reject(err)
+        return
+      }
+      resolve(flattenFiles(files))
+    })
+  })
+}
+
+function handleStorageError(err: unknown, res: express.Response): boolean {
+  if (err instanceof NotFoundError) {
+    res.status(404).json({ error: err.message })
+    return true
+  }
+  if (err instanceof BadRequestError) {
+    res.status(400).json({ error: err.message })
+    return true
+  }
+  if (err instanceof ConfirmationRequiredError) {
+    res.status(409).json({ error: err.message, confirmation_required: true })
+    return true
+  }
+  return false
+}
 
 export function createApp(deps: {
   storage: Storage
@@ -178,6 +220,98 @@ export function createApp(deps: {
       if (err instanceof NotFoundError) {
         return res.status(404).json({ error: err.message })
       }
+      throw err
+    }
+  })
+
+  app.get('/api/threads/:id/context', (req, res) => {
+    try {
+      res.json(storage.getThreadContext(req.params.id))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/attachments/urls', (req, res) => {
+    const parsed = createUrlContextInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const item = storage.addUrlContextItem(req.params.id, parsed.data)
+      broadcast({ type: 'thread_context_updated', thread_id: req.params.id })
+      res.status(201).json(item)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/attachments/files', async (req, res) => {
+    if (!storage.getThread(req.params.id)) {
+      return res.status(404).json({ error: 'thread not found' })
+    }
+
+    try {
+      const files = await parseMultipartFiles(req)
+      if (files.length === 0) {
+        return res.status(400).json({ error: 'at least one file is required' })
+      }
+      const items = files.map((file) =>
+        storage.addAttachmentFromFile(req.params.id, {
+          tempPath: file.filepath,
+          originalName: file.originalFilename ?? 'attachment',
+          mediaType: file.mimetype,
+          sizeBytes: file.size,
+        }),
+      )
+      broadcast({ type: 'thread_context_updated', thread_id: req.params.id })
+      res.status(201).json(items)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/project-snapshot/preflight', (req, res) => {
+    const parsed = snapshotPreflightInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      res.json(storage.preflightProjectSnapshot(req.params.id, parsed.data.source_path))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.put('/api/threads/:id/project-snapshot', (req, res) => {
+    const parsed = createProjectSnapshotInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const snapshot = storage.createProjectSnapshot(req.params.id, parsed.data)
+      broadcast({ type: 'thread_context_updated', thread_id: req.params.id })
+      res.status(201).json(snapshot)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/project-snapshot/refresh', (req, res) => {
+    try {
+      const snapshot = storage.refreshProjectSnapshot(req.params.id)
+      broadcast({ type: 'thread_context_updated', thread_id: req.params.id })
+      res.json(snapshot)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
       throw err
     }
   })

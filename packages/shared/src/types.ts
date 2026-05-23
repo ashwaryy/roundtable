@@ -101,3 +101,77 @@ export interface ProposalRevision {
   author: CommentAuthor
   created_at: string
 }
+
+export type ContextItemKind = 'file' | 'url'
+
+export interface FileContextItem {
+  id: string
+  thread_id: string
+  kind: 'file'
+  filename: string
+  original_name: string
+  path: string
+  media_type: string | null
+  size_bytes: number
+  created_at: string
+}
+
+export interface UrlContextItem {
+  id: string
+  thread_id: string
+  kind: 'url'
+  url: string
+  label: string | null
+  created_at: string
+}
+
+export type ContextItem = FileContextItem | UrlContextItem
+
+export type ProjectSnapshotMode = 'git-tracked' | 'non-git'
+
+export interface SnapshotPreflight {
+  source_path: string
+  mode: ProjectSnapshotMode
+  requires_confirmation: boolean
+  file_count: number
+  total_bytes: number
+  excluded_count: number
+  warnings: string[]
+}
+
+export interface ProjectSnapshot {
+  source_path: string
+  mode: ProjectSnapshotMode
+  created_at: string
+  refreshed_at: string
+  file_count: number
+  total_bytes: number
+  warnings: string[]
+  added_since_last_refresh: string[]
+}
+
+export interface WorkspaceAddedFile {
+  path: string
+  size_bytes: number
+  modified_at: string
+}
+
+export interface ThreadContext {
+  items: ContextItem[]
+  snapshot: ProjectSnapshot | null
+  workspace_added_files: WorkspaceAddedFile[]
+}
+
+export interface CreateUrlContextInput {
+  url: string
+  label?: string | null
+}
+
+export interface SnapshotPreflightInput {
+  source_path: string
+}
+
+export interface CreateProjectSnapshotInput {
+  source_path: string
+  confirmed?: boolean
+}

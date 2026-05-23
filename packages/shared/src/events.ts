@@ -3,3 +3,4 @@ export type RoundtableEvent =
   | { type: 'comment_created'; thread_id: string }
   | { type: 'pending_discussion_created'; thread_id: string }
   | { type: 'pending_discussion_updated'; thread_id: string }
+  | { type: 'thread_context_updated'; thread_id: string }

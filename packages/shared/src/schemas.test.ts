@@ -4,6 +4,9 @@ import {
   createCommentInputSchema,
   createPendingDiscussionInputSchema,
   editPendingDiscussionInputSchema,
+  createUrlContextInputSchema,
+  snapshotPreflightInputSchema,
+  createProjectSnapshotInputSchema,
 } from './index'
 
 describe('createThreadInputSchema', () => {
@@ -99,5 +102,40 @@ describe('editPendingDiscussionInputSchema', () => {
 
   it('rejects an empty object (neither field provided)', () => {
     expect(() => editPendingDiscussionInputSchema.parse({})).toThrow()
+  })
+})
+
+describe('createUrlContextInputSchema', () => {
+  it('accepts a valid URL with a label', () => {
+    const parsed = createUrlContextInputSchema.parse({
+      url: 'https://example.com/spec',
+      label: 'Spec',
+    })
+    expect(parsed.label).toBe('Spec')
+  })
+
+  it('rejects an invalid URL', () => {
+    expect(() => createUrlContextInputSchema.parse({ url: 'not-a-url' })).toThrow()
+  })
+})
+
+describe('snapshotPreflightInputSchema', () => {
+  it('accepts a source path', () => {
+    const parsed = snapshotPreflightInputSchema.parse({ source_path: '/tmp/project' })
+    expect(parsed.source_path).toBe('/tmp/project')
+  })
+
+  it('rejects an empty source path', () => {
+    expect(() => snapshotPreflightInputSchema.parse({ source_path: '  ' })).toThrow()
+  })
+})
+
+describe('createProjectSnapshotInputSchema', () => {
+  it('accepts a source path and confirmation flag', () => {
+    const parsed = createProjectSnapshotInputSchema.parse({
+      source_path: '/tmp/project',
+      confirmed: true,
+    })
+    expect(parsed.confirmed).toBe(true)
   })
 })
