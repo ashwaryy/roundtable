@@ -40,6 +40,8 @@ function job(id: string): BoundedJob {
       instructions: null,
       allow_direct_roots: true,
       pending_roots_only: false,
+      auto_run_id: null,
+      auto_turn_index: null,
       created_at: '2026-05-23T00:00:00.000Z',
       timeout_at: '2026-05-23T00:10:00.000Z',
     },

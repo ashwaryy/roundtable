@@ -365,6 +365,7 @@ function testRoom(status: AgentRoom['status'] = 'starting'): AgentRoom {
     stopped_at: null,
     last_error: null,
     active_job_id: null,
+    auto: null,
   }
 }
 
@@ -391,6 +392,8 @@ function testJob(status: BoundedJob['status'] = 'running'): BoundedJob {
       instructions: null,
       allow_direct_roots: true,
       pending_roots_only: false,
+      auto_run_id: null,
+      auto_turn_index: null,
       created_at: '2026-05-23T00:00:00.000Z',
       timeout_at: '2026-05-23T00:10:00.000Z',
     },
@@ -438,6 +441,15 @@ describe('room routes', () => {
       nudgeRoom: vi.fn(() => testRoom('idle')),
       markReady: vi.fn(() => testRoom('idle')),
       askAgent: vi.fn(() => ({ room: testRoom('running'), job: testJob() })),
+      startAutoDiscussion: vi.fn(() => ({
+        room: testRoom('running'),
+        job: testJob(),
+      })),
+      pauseAutoDiscussion: vi.fn(() => testRoom('paused')),
+      extendAutoDiscussion: vi.fn(() => ({
+        room: testRoom('running'),
+        job: testJob(),
+      })),
       submitComment: vi.fn(() => ({
         room: testRoom('idle'),
         job: testJob('completed'),
@@ -452,6 +464,23 @@ describe('room routes', () => {
           origin_discussion_id: null,
           origin_comment_id: null,
           approved_from_pending_id: null,
+          created_at: '2026-05-23T00:00:00.000Z',
+        },
+      })),
+      submitPendingDiscussion: vi.fn(() => ({
+        room: testRoom('idle'),
+        job: {
+          ...testJob('completed'),
+          result: { pending_discussion_id: 'pd001' },
+        },
+        pending_discussion: {
+          id: 'pd001',
+          thread_id: 'thread-1',
+          author: 'claude',
+          type: 'comment',
+          body: 'pending root',
+          origin_discussion_id: null,
+          origin_comment_id: null,
           created_at: '2026-05-23T00:00:00.000Z',
         },
       })),
@@ -537,6 +566,37 @@ describe('room routes', () => {
     })
   })
 
+  it('starts, pauses, and extends auto discussion', async () => {
+    const start = await request(app)
+      .post('/api/threads/thread-1/room/auto/start')
+      .send({ turn_count: 4, allow_direct_roots: true })
+    const pause = await request(app).post('/api/threads/thread-1/room/auto/pause')
+    const extend = await request(app)
+      .post('/api/threads/thread-1/room/auto/extend')
+      .send({ turn_count: 2 })
+
+    expect(start.status).toBe(201)
+    expect(pause.status).toBe(200)
+    expect(extend.status).toBe(200)
+    expect(rooms.startAutoDiscussion).toHaveBeenCalledWith('thread-1', {
+      turn_count: 4,
+      allow_direct_roots: true,
+    })
+    expect(rooms.pauseAutoDiscussion).toHaveBeenCalledWith('thread-1')
+    expect(rooms.extendAutoDiscussion).toHaveBeenCalledWith('thread-1', {
+      turn_count: 2,
+    })
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'job_updated',
+      thread_id: 'thread-1',
+      job_id: 'job-001',
+    })
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'room_updated',
+      thread_id: 'thread-1',
+    })
+  })
+
   it('accepts helper comment submissions with the bearer token', async () => {
     const res = await request(app)
       .post('/api/threads/thread-1/room/comment')
@@ -551,6 +611,34 @@ describe('room routes', () => {
     )
     expect(broadcast).toHaveBeenCalledWith({
       type: 'comment_created',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('accepts helper pending discussion submissions with the bearer token', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/pending-discussion')
+      .set('authorization', 'Bearer room-token')
+      .send({
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: 'pending root',
+        type: 'critique',
+      })
+
+    expect(res.status).toBe(201)
+    expect(rooms.submitPendingDiscussion).toHaveBeenCalledWith(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: 'pending root',
+        type: 'critique',
+      },
+      'room-token',
+    )
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'pending_discussion_created',
       thread_id: 'thread-1',
     })
   })

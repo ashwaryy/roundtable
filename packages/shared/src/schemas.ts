@@ -92,9 +92,34 @@ export const askAgentInputSchema = z.object({
   discussion_id: z.string().min(1).nullish(),
 })
 
+const autoTurnCountSchema = z.coerce
+  .number()
+  .int()
+  .min(1, 'turn_count must be at least 1')
+  .max(20, 'turn_count must be at most 20')
+
+export const startAutoDiscussionInputSchema = z.object({
+  turn_count: autoTurnCountSchema,
+  allow_direct_roots: z.boolean().optional(),
+})
+
+export const extendAutoDiscussionInputSchema = z.object({
+  turn_count: autoTurnCountSchema,
+})
+
 export const helperCommentInputSchema = z.object({
   turn_id: z.string().min(1, 'turn_id is required'),
   agent: agentNameSchema,
   body: z.string().trim().min(1, 'body is required'),
   type: commentTypeSchema.optional(),
+  discussion_id: z.string().min(1).nullish(),
+})
+
+export const helperPendingDiscussionInputSchema = z.object({
+  turn_id: z.string().min(1, 'turn_id is required'),
+  agent: agentNameSchema,
+  body: z.string().trim().min(1, 'body is required'),
+  type: commentTypeSchema.optional(),
+  origin_discussion_id: z.string().min(1).nullish(),
+  origin_comment_id: z.string().min(1).nullish(),
 })

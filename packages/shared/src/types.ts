@@ -183,12 +183,33 @@ export type RoomStatus =
   | 'starting'
   | 'idle'
   | 'running'
+  | 'paused'
+  | 'turn_limit_reached'
   | 'needs_attention'
   | 'stopped'
   | 'error'
 
 export interface RoomAgentState {
   ready_at: string | null
+}
+
+export type AutoDiscussionStatus =
+  | 'running'
+  | 'paused'
+  | 'turn_limit_reached'
+
+export interface AutoDiscussionState {
+  run_id: string
+  status: AutoDiscussionStatus
+  total_turns: number
+  completed_turns: number
+  remaining_turns: number
+  next_agent: AgentName
+  allow_direct_roots: boolean
+  pause_requested: boolean
+  started_at: string
+  updated_at: string
+  ended_at: string | null
 }
 
 export interface AgentRoom {
@@ -205,6 +226,7 @@ export interface AgentRoom {
   stopped_at: string | null
   last_error: string | null
   active_job_id: string | null
+  auto: AutoDiscussionState | null
 }
 
 export interface RoomToolPreflight {
@@ -242,6 +264,15 @@ export interface AskAgentInput {
   discussion_id?: string | null
 }
 
+export interface StartAutoDiscussionInput {
+  turn_count: number
+  allow_direct_roots?: boolean
+}
+
+export interface ExtendAutoDiscussionInput {
+  turn_count: number
+}
+
 export interface AgentTurn {
   id: string
   thread_id: string
@@ -252,6 +283,8 @@ export interface AgentTurn {
   instructions: string | null
   allow_direct_roots: boolean
   pending_roots_only: boolean
+  auto_run_id: string | null
+  auto_turn_index: number | null
   created_at: string
   timeout_at: string
 }
@@ -273,9 +306,26 @@ export interface BoundedJob {
   timeout_at: string
   completed_at: string | null
   logs: string[]
-  result: { comment_id: string } | null
+  result: { comment_id: string } | { pending_discussion_id: string } | null
   failure_reason: string | null
   turn: AgentTurn
+}
+
+export interface HelperCommentInput {
+  turn_id: string
+  agent: AgentName
+  body: string
+  type?: CommentType
+  discussion_id?: string | null
+}
+
+export interface HelperPendingDiscussionInput {
+  turn_id: string
+  agent: AgentName
+  body: string
+  type?: CommentType
+  origin_discussion_id?: string | null
+  origin_comment_id?: string | null
 }
 
 export interface HelperCommentInput {

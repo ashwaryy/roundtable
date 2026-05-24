@@ -1,6 +1,16 @@
 import { useState, type FormEvent } from 'react'
 import type { AgentName, AgentRoom, RoomPreflight } from '@roundtable/shared'
-import { askAgent, nudgeRoom, retryTurn, skipTurn, startRoom, stopRoom } from '../api'
+import {
+  askAgent,
+  extendAutoDiscussion,
+  nudgeRoom,
+  pauseAutoDiscussion,
+  retryTurn,
+  skipTurn,
+  startAutoDiscussion,
+  startRoom,
+  stopRoom,
+} from '../api'
 
 function readyText(readyAt: string | null): string {
   return readyAt ? 'ready' : 'waiting'
@@ -23,6 +33,9 @@ export function RoomPanel({
   const [nudgeBody, setNudgeBody] = useState('')
   const [askAgentName, setAskAgentName] = useState<AgentName>('claude')
   const [askBody, setAskBody] = useState('')
+  const [autoTurns, setAutoTurns] = useState(4)
+  const [extendTurns, setExtendTurns] = useState(4)
+  const [allowDirectRoots, setAllowDirectRoots] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleStart(event: FormEvent) {
@@ -79,6 +92,41 @@ export function RoomPanel({
     }
   }
 
+  async function handleStartAuto(event: FormEvent) {
+    event.preventDefault()
+    setError(null)
+    try {
+      await startAutoDiscussion(threadId, {
+        turn_count: autoTurns,
+        allow_direct_roots: allowDirectRoots,
+      })
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handlePauseAuto() {
+    setError(null)
+    try {
+      await pauseAutoDiscussion(threadId)
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleExtendAuto(event: FormEvent) {
+    event.preventDefault()
+    setError(null)
+    try {
+      await extendAutoDiscussion(threadId, { turn_count: extendTurns })
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function handleRetry() {
     setError(null)
     try {
@@ -107,6 +155,9 @@ export function RoomPanel({
       room.status === 'error')
   const canNudge = room?.status === 'idle'
   const canAsk = room?.status === 'idle'
+  const canStartAuto = room?.status === 'idle'
+  const canPauseAuto = room?.auto?.status === 'running'
+  const canExtendAuto = room?.status === 'paused' || room?.status === 'turn_limit_reached'
   const canStop = room && room.status !== 'not_started' && room.status !== 'stopped'
   const needsAttention = room?.status === 'needs_attention'
   const toolEntries = preflight ? Object.values(preflight.tools) : []
@@ -132,6 +183,12 @@ export function RoomPanel({
         <>
           <p>Claude: {readyText(room.agents.claude.ready_at)}</p>
           <p>Codex: {readyText(room.agents.codex.ready_at)}</p>
+          {room.auto ? (
+            <p>
+              Auto: {room.auto.status} ({room.auto.completed_turns}/
+              {room.auto.total_turns})
+            </p>
+          ) : null}
           <p>Attach: {room.attach_command}</p>
           {room.last_error ? <p role="alert">{room.last_error}</p> : null}
         </>
@@ -206,6 +263,56 @@ export function RoomPanel({
         />
         <button type="submit" disabled={!canAsk}>
           Ask Agent
+        </button>
+      </form>
+
+      <form onSubmit={handleStartAuto} aria-label="start-auto-discussion">
+        <label>
+          Turns
+          <input
+            aria-label="Auto turns"
+            type="number"
+            min={1}
+            max={20}
+            value={autoTurns}
+            onChange={(event) => setAutoTurns(Number(event.target.value))}
+            disabled={!canStartAuto}
+          />
+        </label>
+        <label>
+          <input
+            aria-label="Allow direct roots"
+            type="checkbox"
+            checked={allowDirectRoots}
+            onChange={(event) => setAllowDirectRoots(event.target.checked)}
+            disabled={!canStartAuto}
+          />
+          Allow direct roots
+        </label>
+        <button type="submit" disabled={!canStartAuto}>
+          Let Them Discuss
+        </button>
+      </form>
+
+      <button type="button" onClick={handlePauseAuto} disabled={!canPauseAuto}>
+        Pause
+      </button>
+
+      <form onSubmit={handleExtendAuto} aria-label="extend-auto-discussion">
+        <label>
+          Extend turns
+          <input
+            aria-label="Extend turns"
+            type="number"
+            min={1}
+            max={20}
+            value={extendTurns}
+            onChange={(event) => setExtendTurns(Number(event.target.value))}
+            disabled={!canExtendAuto}
+          />
+        </label>
+        <button type="submit" disabled={!canExtendAuto}>
+          Extend
         </button>
       </form>
 

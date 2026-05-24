@@ -9,9 +9,12 @@ import {
   createUrlContextInputSchema,
   askAgentInputSchema,
   helperCommentInputSchema,
+  helperPendingDiscussionInputSchema,
   nudgeRoomInputSchema,
   readyInputSchema,
   snapshotPreflightInputSchema,
+  extendAutoDiscussionInputSchema,
+  startAutoDiscussionInputSchema,
   startRoomInputSchema,
   type RoundtableEvent,
 } from '@roundtable/shared'
@@ -425,6 +428,54 @@ export function createApp(deps: {
     }
   })
 
+  app.post('/api/threads/:id/room/auto/start', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = startAutoDiscussionInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const result = rooms.startAutoDiscussion(req.params.id, parsed.data)
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.status(201).json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/auto/pause', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      const room = rooms.pauseAutoDiscussion(req.params.id)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/auto/extend', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = extendAutoDiscussionInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const result = rooms.extendAutoDiscussion(req.params.id, parsed.data)
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
   app.post('/api/threads/:id/room/comment', (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
     const parsed = helperCommentInputSchema.safeParse(req.body)
@@ -435,6 +486,29 @@ export function createApp(deps: {
     try {
       const result = rooms.submitComment(req.params.id, parsed.data, bearerToken(req))
       broadcast({ type: 'comment_created', thread_id: req.params.id })
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.status(201).json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/pending-discussion', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = helperPendingDiscussionInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const result = rooms.submitPendingDiscussion(
+        req.params.id,
+        parsed.data,
+        bearerToken(req),
+      )
+      broadcast({ type: 'pending_discussion_created', thread_id: req.params.id })
       broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
       broadcast({ type: 'room_updated', thread_id: req.params.id })
       res.status(201).json(result)

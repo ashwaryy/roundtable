@@ -8,7 +8,10 @@ import {
   snapshotPreflightInputSchema,
   createProjectSnapshotInputSchema,
   askAgentInputSchema,
+  extendAutoDiscussionInputSchema,
   helperCommentInputSchema,
+  helperPendingDiscussionInputSchema,
+  startAutoDiscussionInputSchema,
 } from './index'
 
 describe('createThreadInputSchema', () => {
@@ -165,6 +168,29 @@ describe('askAgentInputSchema', () => {
   })
 })
 
+describe('startAutoDiscussionInputSchema', () => {
+  it('accepts a bounded auto discussion request', () => {
+    const parsed = startAutoDiscussionInputSchema.parse({
+      turn_count: 4,
+      allow_direct_roots: true,
+    })
+    expect(parsed.turn_count).toBe(4)
+    expect(parsed.allow_direct_roots).toBe(true)
+  })
+
+  it('rejects turn counts outside the supported range', () => {
+    expect(() => startAutoDiscussionInputSchema.parse({ turn_count: 0 })).toThrow()
+    expect(() => startAutoDiscussionInputSchema.parse({ turn_count: 21 })).toThrow()
+  })
+})
+
+describe('extendAutoDiscussionInputSchema', () => {
+  it('accepts an extension turn count', () => {
+    const parsed = extendAutoDiscussionInputSchema.parse({ turn_count: 2 })
+    expect(parsed.turn_count).toBe(2)
+  })
+})
+
 describe('helperCommentInputSchema', () => {
   it('accepts a helper comment submission', () => {
     const parsed = helperCommentInputSchema.parse({
@@ -172,8 +198,10 @@ describe('helperCommentInputSchema', () => {
       agent: 'claude',
       body: 'comment body',
       type: 'critique',
+      discussion_id: 'c001',
     })
     expect(parsed.type).toBe('critique')
+    expect(parsed.discussion_id).toBe('c001')
   })
 
   it('rejects an empty helper body', () => {
@@ -181,6 +209,30 @@ describe('helperCommentInputSchema', () => {
       helperCommentInputSchema.parse({
         turn_id: 'job-001',
         agent: 'claude',
+        body: '  ',
+      }),
+    ).toThrow()
+  })
+})
+
+describe('helperPendingDiscussionInputSchema', () => {
+  it('accepts a helper pending discussion submission', () => {
+    const parsed = helperPendingDiscussionInputSchema.parse({
+      turn_id: 'job-001',
+      agent: 'codex',
+      body: 'new root',
+      type: 'question',
+      origin_discussion_id: 'c001',
+    })
+    expect(parsed.agent).toBe('codex')
+    expect(parsed.origin_discussion_id).toBe('c001')
+  })
+
+  it('rejects empty pending discussion bodies', () => {
+    expect(() =>
+      helperPendingDiscussionInputSchema.parse({
+        turn_id: 'job-001',
+        agent: 'codex',
         body: '  ',
       }),
     ).toThrow()

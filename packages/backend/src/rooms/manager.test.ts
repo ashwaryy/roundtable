@@ -14,6 +14,7 @@ import {
 import { ConflictError } from '../storage/errors'
 import { getJob } from '../storage/jobs'
 import { listComments } from '../storage/comments'
+import { listPendingDiscussions } from '../storage/pendingDiscussions'
 import { createRoomManager, type CommandExecutor } from './manager'
 
 class FakeExecutor implements CommandExecutor {
@@ -76,6 +77,19 @@ afterEach(() => {
 
 function roomToken(): string {
   return JSON.parse(fs.readFileSync(roomJsonPath(dataDir, 'thread-1'), 'utf8')).token
+}
+
+function startReadyRoom() {
+  const manager = createRoomManager({
+    dataDir,
+    backendUrl: 'http://localhost:4319',
+    executor,
+  })
+  manager.startRoom('thread-1', {})
+  const token = roomToken()
+  manager.markReady('thread-1', 'claude', token)
+  manager.markReady('thread-1', 'codex', token)
+  return { manager, token }
 }
 
 describe('createRoomManager', () => {
@@ -597,6 +611,150 @@ describe('createRoomManager', () => {
     expect(getJob(dataDir, 'thread-1', 'job-001')?.status).toBe('completed')
     expect(listComments(dataDir, 'thread-1')).toHaveLength(1)
     expect(fs.existsSync(currentTurnPath(dataDir, 'thread-1'))).toBe(false)
+  })
+
+  it('starts auto discussion with Claude and writes pending-only turn context', () => {
+    const { manager } = startReadyRoom()
+
+    const result = manager.startAutoDiscussion('thread-1', {
+      turn_count: 2,
+      allow_direct_roots: false,
+    })
+
+    expect(result.room.status).toBe('running')
+    expect(result.room.auto).toMatchObject({
+      status: 'running',
+      total_turns: 2,
+      completed_turns: 0,
+      remaining_turns: 2,
+      next_agent: 'claude',
+      allow_direct_roots: false,
+    })
+    expect(result.job.agent).toBe('claude')
+    expect(result.job.turn.auto_turn_index).toBe(1)
+    expect(result.job.turn.pending_roots_only).toBe(true)
+    expect(JSON.parse(fs.readFileSync(currentTurnPath(dataDir, 'thread-1'), 'utf8'))).toMatchObject({
+      auto_run_id: result.room.auto?.run_id,
+      pending_roots_only: true,
+    })
+  })
+
+  it('queues an auto pending discussion and schedules the next agent', () => {
+    const { manager, token } = startReadyRoom()
+    manager.startAutoDiscussion('thread-1', {
+      turn_count: 2,
+      allow_direct_roots: false,
+    })
+
+    const result = manager.submitPendingDiscussion(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: 'This needs a new root.',
+        type: 'critique',
+      },
+      token,
+    )
+
+    expect(result.pending_discussion.id).toBe('pd001')
+    expect(result.job.result).toEqual({ pending_discussion_id: 'pd001' })
+    expect(result.room.status).toBe('running')
+    expect(result.room.active_job_id).toBe('job-002')
+    expect(result.room.auto).toMatchObject({
+      completed_turns: 1,
+      remaining_turns: 1,
+      next_agent: 'codex',
+    })
+    expect(getJob(dataDir, 'thread-1', 'job-002')?.agent).toBe('codex')
+    expect(listPendingDiscussions(dataDir, 'thread-1')).toHaveLength(1)
+  })
+
+  it('blocks direct roots during auto mode unless bypass is enabled', () => {
+    const { manager, token } = startReadyRoom()
+    manager.startAutoDiscussion('thread-1', {
+      turn_count: 1,
+      allow_direct_roots: false,
+    })
+
+    expect(() =>
+      manager.submitComment(
+        'thread-1',
+        {
+          turn_id: 'job-001',
+          agent: 'claude',
+          body: 'direct root',
+        },
+        token,
+      ),
+    ).toThrow('auto discussion requires new roots')
+  })
+
+  it('allows direct roots for an auto run bypass and stops at the turn limit', () => {
+    const { manager, token } = startReadyRoom()
+    manager.startAutoDiscussion('thread-1', {
+      turn_count: 1,
+      allow_direct_roots: true,
+    })
+
+    const result = manager.submitComment(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: 'direct root',
+      },
+      token,
+    )
+
+    expect(result.room.status).toBe('turn_limit_reached')
+    expect(result.room.auto).toMatchObject({
+      status: 'turn_limit_reached',
+      completed_turns: 1,
+      remaining_turns: 0,
+    })
+    expect(listComments(dataDir, 'thread-1')[0]).toMatchObject({
+      parent_id: null,
+      body: 'direct root',
+    })
+  })
+
+  it('pauses auto discussion after the active turn finishes and can extend it', () => {
+    const { manager, token } = startReadyRoom()
+    manager.startAutoDiscussion('thread-1', {
+      turn_count: 2,
+      allow_direct_roots: false,
+    })
+
+    const pausing = manager.pauseAutoDiscussion('thread-1')
+    expect(pausing.status).toBe('running')
+    expect(pausing.auto?.pause_requested).toBe(true)
+
+    const paused = manager.submitPendingDiscussion(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: 'new root',
+      },
+      token,
+    )
+    expect(paused.room.status).toBe('paused')
+    expect(paused.room.active_job_id).toBeNull()
+    expect(paused.room.auto).toMatchObject({
+      status: 'paused',
+      completed_turns: 1,
+      next_agent: 'codex',
+    })
+
+    const extended = manager.extendAutoDiscussion('thread-1', { turn_count: 2 })
+    expect(extended.room.status).toBe('running')
+    expect(extended.job.agent).toBe('codex')
+    expect(extended.room.auto).toMatchObject({
+      status: 'running',
+      total_turns: 3,
+      remaining_turns: 2,
+    })
   })
 
   it('rejects helper submissions that do not match the active turn', () => {

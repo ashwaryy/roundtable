@@ -17,9 +17,11 @@ import type {
   AgentRoom,
   AskAgentInput,
   BoundedJob,
+  ExtendAutoDiscussionInput,
   NudgeRoomInput,
   RoomPreflight,
   StartRoomInput,
+  StartAutoDiscussionInput,
 } from '@roundtable/shared'
 
 export interface AgentTurnResult {
@@ -216,6 +218,34 @@ export function askAgent(
   input: AskAgentInput,
 ): Promise<AgentTurnResult> {
   return fetch(`/api/threads/${threadId}/room/ask`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<AgentTurnResult>(r))
+}
+
+export function startAutoDiscussion(
+  threadId: string,
+  input: StartAutoDiscussionInput,
+): Promise<AgentTurnResult> {
+  return fetch(`/api/threads/${threadId}/room/auto/start`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<AgentTurnResult>(r))
+}
+
+export function pauseAutoDiscussion(threadId: string): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room/auto/pause`, {
+    method: 'POST',
+  }).then((r) => json<AgentRoom>(r))
+}
+
+export function extendAutoDiscussion(
+  threadId: string,
+  input: ExtendAutoDiscussionInput,
+): Promise<AgentTurnResult> {
+  return fetch(`/api/threads/${threadId}/room/auto/extend`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),

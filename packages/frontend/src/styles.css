@@ -249,6 +249,13 @@ section[aria-label="agent-room"] {
   background: #e9f7f1;
 }
 
+.status-pill--paused,
+.status-pill--turn_limit_reached {
+  color: #33517a;
+  border-color: #a8bddb;
+  background: #eef5ff;
+}
+
 .status-pill--running,
 .status-pill--starting {
   color: #7a4b00;

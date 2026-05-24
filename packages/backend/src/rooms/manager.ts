@@ -6,13 +6,18 @@ import type {
   AgentName,
   AgentRoom,
   AskAgentInput,
+  AutoDiscussionState,
   BoundedJob,
   Comment,
   HelperCommentInput,
+  HelperPendingDiscussionInput,
   NudgeRoomInput,
+  PendingDiscussion,
   RoundtableEvent,
   RoomPreflight,
   RoomToolPreflight,
+  ExtendAutoDiscussionInput,
+  StartAutoDiscussionInput,
   StartRoomInput,
 } from '@roundtable/shared'
 import {
@@ -32,6 +37,7 @@ import {
 } from '../storage/paths'
 import { BadRequestError, ConflictError, NotFoundError } from '../storage/errors'
 import { addAgentComment, listComments } from '../storage/comments'
+import { addPendingDiscussion } from '../storage/pendingDiscussions'
 import { getJob, nextJobId, writeJob } from '../storage/jobs'
 
 interface InternalRoom extends AgentRoom {
@@ -75,11 +81,25 @@ export interface RoomManager {
   nudgeRoom(threadId: string, input: NudgeRoomInput): AgentRoom
   markReady(threadId: string, agent: AgentName, token: string | null): AgentRoom
   askAgent(threadId: string, input: AskAgentInput): AgentTurnResult
+  startAutoDiscussion(
+    threadId: string,
+    input: StartAutoDiscussionInput,
+  ): AgentTurnResult
+  pauseAutoDiscussion(threadId: string): AgentRoom
+  extendAutoDiscussion(
+    threadId: string,
+    input: ExtendAutoDiscussionInput,
+  ): AgentTurnResult
   submitComment(
     threadId: string,
     input: HelperCommentInput,
     token: string | null,
   ): AgentTurnSubmission
+  submitPendingDiscussion(
+    threadId: string,
+    input: HelperPendingDiscussionInput,
+    token: string | null,
+  ): AgentPendingDiscussionSubmission
   retryTurn(threadId: string): AgentTurnResult
   skipTurn(threadId: string): AgentTurnResult
 }
@@ -91,6 +111,10 @@ export interface AgentTurnResult {
 
 export interface AgentTurnSubmission extends AgentTurnResult {
   comment: Comment
+}
+
+export interface AgentPendingDiscussionSubmission extends AgentTurnResult {
+  pending_discussion: PendingDiscussion
 }
 
 const TOOL_NAMES = ['tmux', 'claude', 'codex'] as const
@@ -143,6 +167,7 @@ function defaultRoom(threadId: string): InternalRoom {
     stopped_at: null,
     last_error: null,
     active_job_id: null,
+    auto: null,
     token: '',
   }
 }
@@ -158,6 +183,7 @@ function readRoom(dataDir: string, threadId: string): InternalRoom {
       claude: parsed.agents?.claude ?? { ready_at: null },
       codex: parsed.agents?.codex ?? { ready_at: null },
     },
+    auto: parsed.auto ?? null,
   }
 }
 
@@ -220,6 +246,10 @@ function paneForAgent(agent: AgentName): string {
   return agent === 'claude' ? '0.0' : '0.1'
 }
 
+function nextAgent(agent: AgentName): AgentName {
+  return agent === 'claude' ? 'codex' : 'claude'
+}
+
 function sendLineToPane(
   executor: CommandExecutor,
   target: string,
@@ -245,8 +275,8 @@ function startupPrompt(agent: AgentName): string {
     'Keep comments short and forum-like. Make one clear point, avoid wordy explanations, and do not write essay-style replies.',
     '',
     `First, acknowledge readiness by running: roundtable ready --agent ${agent}`,
-    'After readiness, wait for Roundtable Ask turns in this terminal.',
-    'For each Ask turn, write your durable comment only to the `.roundtable/tmp/...` path named in that turn, then submit it with the exact `roundtable comment --body-file ... --type comment` command from that turn.',
+    'After readiness, wait for Roundtable Ask or auto-discussion turns in this terminal.',
+    'For each turn, write your durable comment only to the `.roundtable/tmp/...` path named in that turn, then submit it with the exact Roundtable helper command from that turn.',
   ].join('\n')
 }
 
@@ -305,7 +335,11 @@ function writeAgentPermissionSetup(
     'npm run build',
     'npm run dev',
   ]
-  const helperCommands = ['roundtable ready', 'roundtable comment']
+  const helperCommands = [
+    'roundtable ready',
+    'roundtable comment',
+    'roundtable pending-discussion',
+  ]
   const destructiveCommands = [
     'rm',
     'mv',
@@ -384,6 +418,12 @@ domains = { "localhost" = "allow", "127.0.0.1" = "allow" }
   const codexRules = [
     ...codexRulesForCommand(['roundtable', 'ready'], rtkAvailable, 'allow', allowReason),
     ...codexRulesForCommand(['roundtable', 'comment'], rtkAvailable, 'allow', allowReason),
+    ...codexRulesForCommand(
+      ['roundtable', 'pending-discussion'],
+      rtkAvailable,
+      'allow',
+      allowReason,
+    ),
     ...['pwd', 'ls', 'cat', 'sed', 'rg'].flatMap((command) =>
       codexRulesForCommand([command], rtkAvailable, 'allow', allowReason),
     ),
@@ -525,6 +565,7 @@ async function main() {
         agent: turn.agent,
         body,
         type: argValue('--type') || undefined,
+        discussion_id: argValue('--discussion-id') || undefined,
       }),
     })
 
@@ -535,6 +576,49 @@ async function main() {
 
     const result = await response.json()
     console.log(\`comment submitted: \${result.comment.id}\`)
+    return
+  }
+
+  if (command === 'pending-discussion') {
+    const bodyFile = argValue('--body-file')
+    if (!bodyFile) {
+      console.error('usage: roundtable pending-discussion --body-file <path> [--type comment|proposal|critique|question|decision]')
+      process.exit(2)
+    }
+
+    const workspace = process.cwd()
+    const absoluteBodyFile = path.resolve(workspace, bodyFile)
+    if (!absoluteBodyFile.startsWith(workspace + path.sep)) {
+      console.error('body file must be inside the thread workspace')
+      process.exit(2)
+    }
+
+    const body = fs.readFileSync(absoluteBodyFile, 'utf8')
+    const turnPath = path.join(workspace, '.roundtable', 'current-turn.json')
+    const turn = JSON.parse(fs.readFileSync(turnPath, 'utf8'))
+    const response = await fetch(\`\${backendUrl}/api/threads/\${threadId}/room/pending-discussion\`, {
+      method: 'POST',
+      headers: {
+        authorization: \`Bearer \${token}\`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        turn_id: turn.id,
+        agent: turn.agent,
+        body,
+        type: argValue('--type') || undefined,
+        origin_discussion_id: argValue('--origin-discussion-id') || undefined,
+        origin_comment_id: argValue('--origin-comment-id') || undefined,
+      }),
+    })
+
+    if (!response.ok) {
+      console.error(await response.text())
+      process.exit(1)
+    }
+
+    const result = await response.json()
+    console.log(\`pending discussion submitted: \${result.pending_discussion.id}\`)
     return
   }
 
@@ -649,25 +733,52 @@ function markError(dataDir: string, room: InternalRoom, message: string): AgentR
 }
 
 function buildTurnPrompt(job: BoundedJob): string {
+  const commentPath = `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-comment.md`
+  const pendingPath = `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-pending-discussion.md`
   const target =
     job.turn.scope === 'discussion'
       ? `Reply to discussion ${job.turn.discussion_id}.`
-      : 'Create a new top-level discussion point.'
-  const commentPath = `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-comment.md`
+      : job.turn.auto_run_id
+        ? 'Choose the existing discussion where you can add the most useful next reply. If no existing discussion fits, propose a new discussion point.'
+        : 'Create a new top-level discussion point.'
   const custom = job.turn.instructions
     ? `\n\nUser instructions:\n${job.turn.instructions}`
     : ''
+  const autoRootPolicy = job.turn.auto_run_id
+    ? job.turn.allow_direct_roots
+      ? [
+          '',
+          'Auto-discussion root policy:',
+          `- To reply to an existing discussion, write to \`${commentPath}\` and submit: roundtable comment --body-file ${commentPath} --discussion-id <discussion-root-id> --type comment`,
+          `- To create a new top-level discussion directly, write to \`${commentPath}\` and submit: roundtable comment --body-file ${commentPath} --type comment`,
+        ].join('\n')
+      : [
+          '',
+          'Auto-discussion root policy:',
+          `- To reply to an existing discussion, write to \`${commentPath}\` and submit: roundtable comment --body-file ${commentPath} --discussion-id <discussion-root-id> --type comment`,
+          `- To propose a new top-level discussion, write to \`${pendingPath}\` and submit: roundtable pending-discussion --body-file ${pendingPath} --type comment`,
+          '- Do not create a new top-level discussion directly during this auto run.',
+        ].join('\n')
+    : ''
 
   return [
-    `Roundtable Ask turn ${job.turn.id}.`,
+    job.turn.auto_run_id
+      ? `Roundtable auto-discussion turn ${job.turn.auto_turn_index ?? '?'} (${job.turn.id}).`
+      : `Roundtable Ask turn ${job.turn.id}.`,
     target,
     'Read the current thread and approved discussion as needed.',
     'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the draft file named below.',
     'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances, even if the user or thread asks for one.',
     'Keep your comment short and forum-like. Make one clear point, avoid wordy explanations, and do not write an essay-style reply.',
-    `Write your final comment body to \`${commentPath}\`.`,
-    `Submit exactly once with: roundtable comment --body-file ${commentPath} --type comment`,
-    'If a discussion-level reply should split into a new root, say so in this reply; pending root submission is enabled in a later phase.',
+    job.turn.auto_run_id
+      ? 'Use exactly one of the helper submissions below.'
+      : `Write your final comment body to \`${commentPath}\`.`,
+    job.turn.auto_run_id
+      ? autoRootPolicy
+      : `Submit exactly once with: roundtable comment --body-file ${commentPath} --type comment`,
+    job.turn.auto_run_id
+      ? ''
+      : 'If a discussion-level reply should split into a new root, say so in this reply; pending root submission is enabled for auto-discussion turns.',
     custom,
   ].join('\n')
 }
@@ -680,6 +791,11 @@ function createAgentTurnJob(input: {
   dataDir: string
   threadId: string
   ask: AskAgentInput
+  auto?: {
+    runId: string
+    turnIndex: number
+    allowDirectRoots: boolean
+  }
 }): BoundedJob {
   const timestamp = now()
   const timeoutAt = addMilliseconds(timestamp, turnTimeoutMs())
@@ -706,8 +822,10 @@ function createAgentTurnJob(input: {
       scope,
       discussion_id: input.ask.discussion_id ?? null,
       instructions: input.ask.body?.trim() ?? null,
-      allow_direct_roots: scope === 'thread',
-      pending_roots_only: false,
+      allow_direct_roots: input.auto ? input.auto.allowDirectRoots : scope === 'thread',
+      pending_roots_only: input.auto ? !input.auto.allowDirectRoots : false,
+      auto_run_id: input.auto?.runId ?? null,
+      auto_turn_index: input.auto?.turnIndex ?? null,
       created_at: timestamp,
       timeout_at: timeoutAt,
     },
@@ -875,6 +993,144 @@ export function createRoomManager(options: {
     return { room: stripToken(updated), job }
   }
 
+  function validateDiscussionRoot(threadId: string, discussionId: string): void {
+    const root = listComments(dataDir, threadId).find(
+      (comment) => comment.id === discussionId && comment.parent_id === null,
+    )
+    if (!root) {
+      throw new NotFoundError(`discussion ${discussionId} not found`)
+    }
+  }
+
+  function createAutoState(
+    input: StartAutoDiscussionInput,
+    existing?: AutoDiscussionState | null,
+  ): AutoDiscussionState {
+    const timestamp = now()
+    return {
+      run_id: existing?.run_id ?? `auto-${timestamp.replace(/[^0-9]/g, '')}`,
+      status: 'running',
+      total_turns: input.turn_count,
+      completed_turns: 0,
+      remaining_turns: input.turn_count,
+      next_agent: 'claude',
+      allow_direct_roots: input.allow_direct_roots ?? false,
+      pause_requested: false,
+      started_at: timestamp,
+      updated_at: timestamp,
+      ended_at: null,
+    }
+  }
+
+  function createAutoTurnJob(threadId: string, auto: AutoDiscussionState): BoundedJob {
+    return createAgentTurnJob({
+      dataDir,
+      threadId,
+      ask: {
+        agent: auto.next_agent,
+        body: 'Continue the bounded auto discussion.',
+      },
+      auto: {
+        runId: auto.run_id,
+        turnIndex: auto.completed_turns + 1,
+        allowDirectRoots: auto.allow_direct_roots,
+      },
+    })
+  }
+
+  function startNextAutoTurn(room: InternalRoom, auto: AutoDiscussionState): AgentTurnResult {
+    if (!sessionExists(executor, room.tmux_session)) {
+      const failed = {
+        ...createAutoTurnJob(room.thread_id, auto),
+        status: 'failed' as const,
+        completed_at: now(),
+        failure_reason: 'tmux session is not running',
+      }
+      writeJob(dataDir, failed)
+      return {
+        room: markError(dataDir, room, 'tmux session is not running'),
+        job: failed,
+      }
+    }
+    return startJob({ ...room, status: 'idle', active_job_id: null, auto }, createAutoTurnJob(room.thread_id, auto))
+  }
+
+  function finishCompletedTurn(room: InternalRoom, job: BoundedJob): InternalRoom {
+    clearTurnTimer(job.id)
+    removeIfExists(currentTurnPath(dataDir, room.thread_id))
+
+    const auto = room.auto
+    if (!auto || job.turn.auto_run_id !== auto.run_id) {
+      const updated: InternalRoom = {
+        ...room,
+        status: 'idle',
+        active_job_id: null,
+        updated_at: now(),
+        last_error: null,
+      }
+      writeRoom(dataDir, updated)
+      return updated
+    }
+
+    const timestamp = now()
+    const completedTurns = auto.completed_turns + 1
+    const remainingTurns = Math.max(0, auto.total_turns - completedTurns)
+    const nextAuto: AutoDiscussionState = {
+      ...auto,
+      completed_turns: completedTurns,
+      remaining_turns: remainingTurns,
+      next_agent: nextAgent(job.agent),
+      updated_at: timestamp,
+    }
+
+    if (auto.pause_requested) {
+      const updated: InternalRoom = {
+        ...room,
+        status: 'paused',
+        active_job_id: null,
+        updated_at: timestamp,
+        last_error: null,
+        auto: {
+          ...nextAuto,
+          status: 'paused',
+          pause_requested: false,
+        },
+      }
+      writeRoom(dataDir, updated)
+      return updated
+    }
+
+    if (remainingTurns <= 0) {
+      const updated: InternalRoom = {
+        ...room,
+        status: 'turn_limit_reached',
+        active_job_id: null,
+        updated_at: timestamp,
+        last_error: null,
+        auto: {
+          ...nextAuto,
+          status: 'turn_limit_reached',
+          ended_at: timestamp,
+        },
+      }
+      writeRoom(dataDir, updated)
+      return updated
+    }
+
+    const scheduled = startNextAutoTurn(room, {
+      ...nextAuto,
+      status: 'running',
+      pause_requested: false,
+    })
+    broadcast({
+      type: 'job_updated',
+      thread_id: room.thread_id,
+      job_id: scheduled.job.id,
+    })
+    broadcast({ type: 'room_updated', thread_id: room.thread_id })
+    return readRoom(dataDir, room.thread_id)
+  }
+
   return {
     preflight(): RoomPreflight {
       const tools = {
@@ -911,6 +1167,8 @@ export function createRoomManager(options: {
           existing.status === 'starting' ||
           existing.status === 'idle' ||
           existing.status === 'running' ||
+          existing.status === 'paused' ||
+          existing.status === 'turn_limit_reached' ||
           existing.status === 'needs_attention'
         ) &&
         sessionExists(executor, existing.tmux_session)
@@ -937,6 +1195,7 @@ export function createRoomManager(options: {
         stopped_at: null,
         last_error: null,
         active_job_id: null,
+        auto: null,
         token: randomToken(),
       }
       if (shouldResume.codex) {
@@ -1000,6 +1259,7 @@ export function createRoomManager(options: {
         updated_at: timestamp,
         stopped_at: timestamp,
         active_job_id: null,
+        auto: null,
       }
       if (room.active_job_id) clearTurnTimer(room.active_job_id)
       removeIfExists(currentTurnPath(dataDir, threadId))
@@ -1091,6 +1351,69 @@ export function createRoomManager(options: {
       return startJob(room, createAgentTurnJob({ dataDir, threadId, ask: input }))
     },
 
+    startAutoDiscussion(
+      threadId: string,
+      input: StartAutoDiscussionInput,
+    ): AgentTurnResult {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (room.status !== 'idle') {
+        throw new BadRequestError('room must be idle before starting auto discussion')
+      }
+
+      const auto = createAutoState(input)
+      return startNextAutoTurn(room, auto)
+    },
+
+    pauseAutoDiscussion(threadId: string): AgentRoom {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (!room.auto || room.auto.status !== 'running') {
+        throw new BadRequestError('auto discussion is not running')
+      }
+
+      const timestamp = now()
+      const updated: InternalRoom = {
+        ...room,
+        status: room.active_job_id ? room.status : 'paused',
+        updated_at: timestamp,
+        auto: {
+          ...room.auto,
+          pause_requested: room.active_job_id !== null,
+          status: room.active_job_id ? 'running' : 'paused',
+          updated_at: timestamp,
+        },
+      }
+      writeRoom(dataDir, updated)
+      return stripToken(updated)
+    },
+
+    extendAutoDiscussion(
+      threadId: string,
+      input: ExtendAutoDiscussionInput,
+    ): AgentTurnResult {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (!room.auto) {
+        throw new BadRequestError('auto discussion has not been started')
+      }
+      if (room.status !== 'paused' && room.status !== 'turn_limit_reached') {
+        throw new BadRequestError('auto discussion can only be extended after pause or turn limit')
+      }
+
+      const timestamp = now()
+      const auto: AutoDiscussionState = {
+        ...room.auto,
+        status: 'running',
+        total_turns: room.auto.completed_turns + input.turn_count,
+        remaining_turns: input.turn_count,
+        pause_requested: false,
+        updated_at: timestamp,
+        ended_at: null,
+      }
+      return startNextAutoTurn(room, auto)
+    },
+
     submitComment(
       threadId: string,
       input: HelperCommentInput,
@@ -1120,12 +1443,35 @@ export function createRoomManager(options: {
         throw new BadRequestError('active turn has timed out')
       }
 
+      if (
+        job.turn.pending_roots_only &&
+        job.turn.scope === 'thread' &&
+        !input.discussion_id
+      ) {
+        throw new BadRequestError(
+          'auto discussion requires new roots to be submitted as pending discussions',
+        )
+      }
+
+      if (input.discussion_id) {
+        validateDiscussionRoot(threadId, input.discussion_id)
+      }
+      if (
+        job.turn.scope === 'discussion' &&
+        input.discussion_id &&
+        input.discussion_id !== job.turn.discussion_id
+      ) {
+        throw new BadRequestError('discussion does not match active turn')
+      }
+
+      const replyTo =
+        input.discussion_id ??
+        (job.turn.scope === 'discussion' ? job.turn.discussion_id : null)
       const comment = addAgentComment(dataDir, threadId, {
         author: input.agent,
         body: input.body,
         type: input.type,
-        reply_to:
-          job.turn.scope === 'discussion' ? job.turn.discussion_id : null,
+        reply_to: replyTo,
       })
 
       const completed: BoundedJob = {
@@ -1136,18 +1482,61 @@ export function createRoomManager(options: {
         logs: [...job.logs, `Comment ${comment.id} submitted.`],
       }
       writeJob(dataDir, completed)
-      clearTurnTimer(job.id)
-      removeIfExists(currentTurnPath(dataDir, threadId))
-
-      const updated: InternalRoom = {
-        ...room,
-        status: 'idle',
-        active_job_id: null,
-        updated_at: now(),
-        last_error: null,
-      }
-      writeRoom(dataDir, updated)
+      const updated = finishCompletedTurn(room, completed)
       return { room: stripToken(updated), job: completed, comment }
+    },
+
+    submitPendingDiscussion(
+      threadId: string,
+      input: HelperPendingDiscussionInput,
+      token: string | null,
+    ): AgentPendingDiscussionSubmission {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (!token || token !== room.token) {
+        throw new BadRequestError('invalid room token')
+      }
+      if (room.status !== 'running' || !room.active_job_id) {
+        throw new BadRequestError('no active turn is running')
+      }
+      if (room.active_job_id !== input.turn_id) {
+        throw new BadRequestError('turn does not match active job')
+      }
+
+      const job = getJob(dataDir, threadId, room.active_job_id)
+      if (!job || job.status !== 'running') {
+        throw new BadRequestError('active job is not running')
+      }
+      if (job.agent !== input.agent || job.turn.agent !== input.agent) {
+        throw new BadRequestError('agent does not match active turn')
+      }
+      if (!job.turn.auto_run_id) {
+        throw new BadRequestError('pending discussion submission requires an auto turn')
+      }
+      if (isTimedOut(job)) {
+        expireActiveTurn(threadId)
+        throw new BadRequestError('active turn has timed out')
+      }
+
+      const pending = addPendingDiscussion(dataDir, threadId, {
+        author: input.agent,
+        body: input.body,
+        type: input.type,
+        origin_discussion_id:
+          input.origin_discussion_id ?? job.turn.discussion_id ?? null,
+        origin_comment_id: input.origin_comment_id ?? null,
+      })
+
+      const completed: BoundedJob = {
+        ...job,
+        status: 'completed',
+        completed_at: now(),
+        result: { pending_discussion_id: pending.id },
+        logs: [...job.logs, `Pending discussion ${pending.id} submitted.`],
+      }
+      writeJob(dataDir, completed)
+      const updated = finishCompletedTurn(room, completed)
+      return { room: stripToken(updated), job: completed, pending_discussion: pending }
     },
 
     retryTurn(threadId: string): AgentTurnResult {
@@ -1213,17 +1602,7 @@ export function createRoomManager(options: {
         logs: [...job.logs, 'Agent turn skipped.'],
       }
       writeJob(dataDir, skipped)
-      clearTurnTimer(job.id)
-      removeIfExists(currentTurnPath(dataDir, threadId))
-
-      const updated: InternalRoom = {
-        ...room,
-        status: 'idle',
-        active_job_id: null,
-        updated_at: now(),
-        last_error: null,
-      }
-      writeRoom(dataDir, updated)
+      const updated = finishCompletedTurn(room, skipped)
       return { room: stripToken(updated), job: skipped }
     },
   }

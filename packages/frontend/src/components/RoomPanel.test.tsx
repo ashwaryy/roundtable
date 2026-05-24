@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { AgentRoom, RoomPreflight } from '@roundtable/shared'
+import type { AgentRoom, BoundedJob, RoomPreflight } from '@roundtable/shared'
 import { RoomPanel } from './RoomPanel'
 import * as api from '../api'
 
@@ -60,6 +60,38 @@ function makeRoom(status: AgentRoom['status'] = 'not_started'): AgentRoom {
     stopped_at: null,
     last_error: null,
     active_job_id: status === 'running' || status === 'needs_attention' ? 'job-001' : null,
+    auto: null,
+  }
+}
+
+function makeJob(): BoundedJob {
+  return {
+    id: 'job-001',
+    thread_id: 'thread-1',
+    kind: 'agent_turn',
+    status: 'running',
+    agent: 'claude',
+    started_at: '2026-05-23T00:00:00Z',
+    timeout_at: '2026-05-23T00:10:00Z',
+    completed_at: null,
+    logs: [],
+    result: null,
+    failure_reason: null,
+    turn: {
+      id: 'job-001',
+      thread_id: 'thread-1',
+      agent: 'claude',
+      kind: 'comment',
+      scope: 'thread',
+      discussion_id: null,
+      instructions: null,
+      allow_direct_roots: true,
+      pending_roots_only: false,
+      auto_run_id: null,
+      auto_turn_index: null,
+      created_at: '2026-05-23T00:00:00Z',
+      timeout_at: '2026-05-23T00:10:00Z',
+    },
   }
 }
 
@@ -166,6 +198,8 @@ describe('RoomPanel', () => {
           instructions: 'Look here',
           allow_direct_roots: true,
           pending_roots_only: false,
+          auto_run_id: null,
+          auto_turn_index: null,
           created_at: '2026-05-23T00:00:00Z',
           timeout_at: '2026-05-23T00:10:00Z',
         },
@@ -188,6 +222,85 @@ describe('RoomPanel', () => {
       body: 'Look here',
     })
     await waitFor(() => expect(onUpdate).toHaveBeenCalled())
+  })
+
+  it('starts auto discussion with turn count and direct-root bypass', async () => {
+    const onUpdate = vi.fn()
+    mockedApi.startAutoDiscussion.mockResolvedValue({
+      room: makeRoom('running'),
+      job: makeJob(),
+    })
+    render(
+      <RoomPanel
+        threadId="thread-1"
+        room={makeRoom('idle')}
+        preflight={makePreflight()}
+        onUpdate={onUpdate}
+      />,
+    )
+
+    await userEvent.clear(screen.getByLabelText('Auto turns'))
+    await userEvent.type(screen.getByLabelText('Auto turns'), '6')
+    await userEvent.click(screen.getByLabelText('Allow direct roots'))
+    await userEvent.click(screen.getByRole('button', { name: /let them discuss/i }))
+
+    expect(mockedApi.startAutoDiscussion).toHaveBeenCalledWith('thread-1', {
+      turn_count: 6,
+      allow_direct_roots: true,
+    })
+    await waitFor(() => expect(onUpdate).toHaveBeenCalled())
+  })
+
+  it('pauses and extends auto discussion from valid states', async () => {
+    const onUpdate = vi.fn()
+    mockedApi.pauseAutoDiscussion.mockResolvedValue(makeRoom('running'))
+    mockedApi.extendAutoDiscussion.mockResolvedValue({
+      room: makeRoom('running'),
+      job: makeJob(),
+    })
+    const running = {
+      ...makeRoom('running'),
+      auto: {
+        run_id: 'auto-1',
+        status: 'running' as const,
+        total_turns: 4,
+        completed_turns: 1,
+        remaining_turns: 3,
+        next_agent: 'codex' as const,
+        allow_direct_roots: false,
+        pause_requested: false,
+        started_at: '2026-05-23T00:00:00Z',
+        updated_at: '2026-05-23T00:00:00Z',
+        ended_at: null,
+      },
+    }
+    const { rerender } = render(
+      <RoomPanel
+        threadId="thread-1"
+        room={running}
+        preflight={makePreflight()}
+        onUpdate={onUpdate}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /^pause$/i }))
+    expect(mockedApi.pauseAutoDiscussion).toHaveBeenCalledWith('thread-1')
+
+    rerender(
+      <RoomPanel
+        threadId="thread-1"
+        room={{ ...running, status: 'turn_limit_reached' }}
+        preflight={makePreflight()}
+        onUpdate={onUpdate}
+      />,
+    )
+    await userEvent.clear(screen.getByLabelText('Extend turns'))
+    await userEvent.type(screen.getByLabelText('Extend turns'), '3')
+    await userEvent.click(screen.getByRole('button', { name: /^extend$/i }))
+
+    expect(mockedApi.extendAutoDiscussion).toHaveBeenCalledWith('thread-1', {
+      turn_count: 3,
+    })
   })
 
   it('stops an active room', async () => {
