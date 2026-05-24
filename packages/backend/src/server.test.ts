@@ -366,6 +366,7 @@ function testRoom(status: AgentRoom['status'] = 'starting'): AgentRoom {
     last_error: null,
     active_job_id: null,
     auto: null,
+    input_prompt: null,
   }
 }
 
@@ -450,6 +451,7 @@ describe('room routes', () => {
         room: testRoom('running'),
         job: testJob(),
       })),
+      sendInputResponse: vi.fn(() => testRoom('running')),
       submitComment: vi.fn(() => ({
         room: testRoom('idle'),
         job: testJob('completed'),
@@ -590,6 +592,22 @@ describe('room routes', () => {
       type: 'job_updated',
       thread_id: 'thread-1',
       job_id: 'job-001',
+    })
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'room_updated',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('sends yes/no input responses to the room pane', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/input-response')
+      .send({ agent: 'codex', response: 'yes' })
+
+    expect(res.status).toBe(200)
+    expect(rooms.sendInputResponse).toHaveBeenCalledWith('thread-1', {
+      agent: 'codex',
+      response: 'yes',
     })
     expect(broadcast).toHaveBeenCalledWith({
       type: 'room_updated',

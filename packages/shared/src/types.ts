@@ -212,6 +212,12 @@ export interface AutoDiscussionState {
   ended_at: string | null
 }
 
+export interface AgentInputPrompt {
+  agent: AgentName
+  excerpt: string
+  detected_at: string
+}
+
 export interface AgentRoom {
   thread_id: string
   status: RoomStatus
@@ -227,6 +233,7 @@ export interface AgentRoom {
   last_error: string | null
   active_job_id: string | null
   auto: AutoDiscussionState | null
+  input_prompt: AgentInputPrompt | null
 }
 
 export interface RoomToolPreflight {
@@ -271,6 +278,11 @@ export interface StartAutoDiscussionInput {
 
 export interface ExtendAutoDiscussionInput {
   turn_count: number
+}
+
+export interface SendRoomInputResponseInput {
+  agent: AgentName
+  response: 'yes' | 'no'
 }
 
 export interface AgentTurn {
@@ -326,11 +338,4 @@ export interface HelperPendingDiscussionInput {
   type?: CommentType
   origin_discussion_id?: string | null
   origin_comment_id?: string | null
-}
-
-export interface HelperCommentInput {
-  turn_id: string
-  agent: AgentName
-  body: string
-  type?: CommentType
 }

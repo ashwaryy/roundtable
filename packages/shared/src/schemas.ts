@@ -107,6 +107,11 @@ export const extendAutoDiscussionInputSchema = z.object({
   turn_count: autoTurnCountSchema,
 })
 
+export const sendRoomInputResponseInputSchema = z.object({
+  agent: agentNameSchema,
+  response: z.enum(['yes', 'no']),
+})
+
 export const helperCommentInputSchema = z.object({
   turn_id: z.string().min(1, 'turn_id is required'),
   agent: agentNameSchema,

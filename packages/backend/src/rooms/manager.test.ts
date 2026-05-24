@@ -142,6 +142,9 @@ describe('createRoomManager', () => {
         'Bash(roundtable ready *)',
         'Bash(roundtable comment *)',
         'Bash(cat *)',
+        'Bash(read *)',
+        'Bash(head *)',
+        'Bash(tail *)',
         'Bash(npm run test *)',
       ]),
     )
@@ -210,6 +213,12 @@ describe('createRoomManager', () => {
       'prefix_rule(pattern = ["cat"], decision = "allow"',
     )
     expect(codexRules).toContain(
+      'prefix_rule(pattern = ["read"], decision = "allow"',
+    )
+    expect(codexRules).toContain(
+      'prefix_rule(pattern = ["tail"], decision = "allow"',
+    )
+    expect(codexRules).toContain(
       'prefix_rule(pattern = ["rm"], decision = "forbidden"',
     )
     expect(codexRules).not.toContain('["rtk",')
@@ -233,6 +242,7 @@ describe('createRoomManager', () => {
         'Bash(rtk roundtable ready *)',
         'Bash(rtk roundtable comment *)',
         'Bash(rtk cat *)',
+        'Bash(rtk read *)',
       ]),
     )
 
@@ -242,6 +252,9 @@ describe('createRoomManager', () => {
     )
     expect(codexRules).toContain(
       'prefix_rule(pattern = ["rtk", "cat"], decision = "allow"',
+    )
+    expect(codexRules).toContain(
+      'prefix_rule(pattern = ["rtk", "read"], decision = "allow"',
     )
   })
 
@@ -499,6 +512,37 @@ describe('createRoomManager', () => {
         'Please inspect this.',
         'C-m',
       ],
+    })
+  })
+
+  it('detects a pane input prompt and sends a yes response', () => {
+    const { manager } = startReadyRoom()
+    executor.paneCaptures.set(
+      'roundtable-thread-1:0.1',
+      [
+        'This command requires approval',
+        'Do you want to proceed?',
+        '1. Yes',
+        '2. Yes, and do not ask again',
+        '3. No',
+      ].join('\n'),
+    )
+
+    const detected = manager.getRoom('thread-1')
+    expect(detected.input_prompt).toMatchObject({
+      agent: 'codex',
+    })
+    expect(detected.input_prompt?.excerpt).toContain('Do you want to proceed?')
+
+    const updated = manager.sendInputResponse('thread-1', {
+      agent: 'codex',
+      response: 'yes',
+    })
+
+    expect(updated.input_prompt).toBeNull()
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: ['send-keys', '-t', 'roundtable-thread-1:0.1', '1', 'Enter'],
     })
   })
 

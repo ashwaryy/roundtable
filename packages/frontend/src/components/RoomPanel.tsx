@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import type { AgentName, AgentRoom, RoomPreflight } from '@roundtable/shared'
 import {
   askAgent,
@@ -6,6 +6,7 @@ import {
   nudgeRoom,
   pauseAutoDiscussion,
   retryTurn,
+  sendRoomInputResponse,
   skipTurn,
   startAutoDiscussion,
   startRoom,
@@ -127,6 +128,20 @@ export function RoomPanel({
     }
   }
 
+  async function handleInputResponse(response: 'yes' | 'no') {
+    if (!room?.input_prompt) return
+    setError(null)
+    try {
+      await sendRoomInputResponse(threadId, {
+        agent: room.input_prompt.agent,
+        response,
+      })
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function handleRetry() {
     setError(null)
     try {
@@ -162,6 +177,20 @@ export function RoomPanel({
   const needsAttention = room?.status === 'needs_attention'
   const toolEntries = preflight ? Object.values(preflight.tools) : []
 
+  useEffect(() => {
+    if (
+      !room ||
+      room.status === 'not_started' ||
+      room.status === 'stopped' ||
+      room.status === 'error'
+    ) {
+      return
+    }
+
+    const interval = window.setInterval(onUpdate, 3000)
+    return () => window.clearInterval(interval)
+  }, [onUpdate, room])
+
   return (
     <section aria-label="agent-room">
       <h2>Agent Room</h2>
@@ -192,6 +221,19 @@ export function RoomPanel({
           <p>Attach: {room.attach_command}</p>
           {room.last_error ? <p role="alert">{room.last_error}</p> : null}
         </>
+      ) : null}
+
+      {room?.input_prompt ? (
+        <div role="alert" aria-label="agent-input-prompt">
+          <h3>{room.input_prompt.agent} is waiting for input</h3>
+          <pre>{room.input_prompt.excerpt}</pre>
+          <button type="button" onClick={() => handleInputResponse('yes')}>
+            Send Yes
+          </button>
+          <button type="button" onClick={() => handleInputResponse('no')}>
+            Send No
+          </button>
+        </div>
       ) : null}
 
       <form onSubmit={handleStart} aria-label="start-room">

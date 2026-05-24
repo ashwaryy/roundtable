@@ -61,6 +61,7 @@ function makeRoom(status: AgentRoom['status'] = 'not_started'): AgentRoom {
     last_error: null,
     active_job_id: status === 'running' || status === 'needs_attention' ? 'job-001' : null,
     auto: null,
+    input_prompt: null,
   }
 }
 
@@ -301,6 +302,35 @@ describe('RoomPanel', () => {
     expect(mockedApi.extendAutoDiscussion).toHaveBeenCalledWith('thread-1', {
       turn_count: 3,
     })
+  })
+
+  it('surfaces a detected input prompt and sends yes or no', async () => {
+    const onUpdate = vi.fn()
+    mockedApi.sendRoomInputResponse.mockResolvedValue(makeRoom('running'))
+    render(
+      <RoomPanel
+        threadId="thread-1"
+        room={{
+          ...makeRoom('running'),
+          input_prompt: {
+            agent: 'codex',
+            excerpt: 'This command requires approval\nDo you want to proceed?',
+            detected_at: '2026-05-23T00:00:00Z',
+          },
+        }}
+        preflight={makePreflight()}
+        onUpdate={onUpdate}
+      />,
+    )
+
+    expect(screen.getByText('codex is waiting for input')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /send yes/i }))
+
+    expect(mockedApi.sendRoomInputResponse).toHaveBeenCalledWith('thread-1', {
+      agent: 'codex',
+      response: 'yes',
+    })
+    await waitFor(() => expect(onUpdate).toHaveBeenCalled())
   })
 
   it('stops an active room', async () => {

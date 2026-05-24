@@ -11,6 +11,7 @@ import {
   extendAutoDiscussionInputSchema,
   helperCommentInputSchema,
   helperPendingDiscussionInputSchema,
+  sendRoomInputResponseInputSchema,
   startAutoDiscussionInputSchema,
 } from './index'
 
@@ -188,6 +189,26 @@ describe('extendAutoDiscussionInputSchema', () => {
   it('accepts an extension turn count', () => {
     const parsed = extendAutoDiscussionInputSchema.parse({ turn_count: 2 })
     expect(parsed.turn_count).toBe(2)
+  })
+})
+
+describe('sendRoomInputResponseInputSchema', () => {
+  it('accepts yes/no input responses', () => {
+    const parsed = sendRoomInputResponseInputSchema.parse({
+      agent: 'codex',
+      response: 'yes',
+    })
+    expect(parsed.agent).toBe('codex')
+    expect(parsed.response).toBe('yes')
+  })
+
+  it('rejects unsupported input responses', () => {
+    expect(() =>
+      sendRoomInputResponseInputSchema.parse({
+        agent: 'codex',
+        response: 'maybe',
+      }),
+    ).toThrow()
   })
 })
 

@@ -20,6 +20,7 @@ import type {
   ExtendAutoDiscussionInput,
   NudgeRoomInput,
   RoomPreflight,
+  SendRoomInputResponseInput,
   StartRoomInput,
   StartAutoDiscussionInput,
 } from '@roundtable/shared'
@@ -250,6 +251,17 @@ export function extendAutoDiscussion(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
   }).then((r) => json<AgentTurnResult>(r))
+}
+
+export function sendRoomInputResponse(
+  threadId: string,
+  input: SendRoomInputResponseInput,
+): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room/input-response`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<AgentRoom>(r))
 }
 
 export function retryTurn(threadId: string): Promise<AgentTurnResult> {

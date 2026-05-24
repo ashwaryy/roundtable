@@ -17,6 +17,7 @@ import type {
   RoomPreflight,
   RoomToolPreflight,
   ExtendAutoDiscussionInput,
+  SendRoomInputResponseInput,
   StartAutoDiscussionInput,
   StartRoomInput,
 } from '@roundtable/shared'
@@ -90,6 +91,10 @@ export interface RoomManager {
     threadId: string,
     input: ExtendAutoDiscussionInput,
   ): AgentTurnResult
+  sendInputResponse(
+    threadId: string,
+    input: SendRoomInputResponseInput,
+  ): AgentRoom
   submitComment(
     threadId: string,
     input: HelperCommentInput,
@@ -168,6 +173,7 @@ function defaultRoom(threadId: string): InternalRoom {
     last_error: null,
     active_job_id: null,
     auto: null,
+    input_prompt: null,
     token: '',
   }
 }
@@ -184,6 +190,7 @@ function readRoom(dataDir: string, threadId: string): InternalRoom {
       codex: parsed.agents?.codex ?? { ready_at: null },
     },
     auto: parsed.auto ?? null,
+    input_prompt: parsed.input_prompt ?? null,
   }
 }
 
@@ -260,6 +267,26 @@ function sendLineToPane(
   executor.execFile('tmux', ['send-keys', '-t', target, 'Enter'])
 }
 
+function sendKeysToPane(
+  executor: CommandExecutor,
+  target: string,
+  keys: string[],
+): void {
+  executor.execFile('tmux', ['send-keys', '-t', target, ...keys])
+}
+
+function promptAnswerKeys(
+  excerpt: string | null,
+  response: 'yes' | 'no',
+): string[] {
+  if (excerpt && /1\.\s*Yes/i.test(excerpt)) {
+    if (response === 'yes') return ['1', 'Enter']
+    if (/3\.\s*No/i.test(excerpt)) return ['3', 'Enter']
+    if (/2\.\s*No/i.test(excerpt)) return ['2', 'Enter']
+  }
+  return [response === 'yes' ? 'y' : 'n', 'Enter']
+}
+
 function startupPrompt(agent: AgentName): string {
   return [
     '# Roundtable Agent Room',
@@ -325,7 +352,7 @@ function writeAgentPermissionSetup(
   threadId: string,
   rtkAvailable: boolean,
 ): void {
-  const readCommands = ['pwd', 'ls', 'cat', 'sed', 'rg']
+  const readCommands = ['pwd', 'ls', 'cat', 'sed', 'rg', 'read', 'head', 'tail']
   const workflowCommands = [
     'git status',
     'git diff',
@@ -424,7 +451,7 @@ domains = { "localhost" = "allow", "127.0.0.1" = "allow" }
       'allow',
       allowReason,
     ),
-    ...['pwd', 'ls', 'cat', 'sed', 'rg'].flatMap((command) =>
+    ...readCommands.flatMap((command) =>
       codexRulesForCommand([command], rtkAvailable, 'allow', allowReason),
     ),
     ...codexRulesForCommand(['git', 'status'], rtkAvailable, 'allow', allowReason),
@@ -720,6 +747,23 @@ function paneContainsStartupTrustPrompt(
   )
 }
 
+function detectInputPrompt(output: string): string | null {
+  if (
+    !/(requires approval|Do you want to proceed\?|Continue\?|Proceed\?|Allow\?|\[[yY]\/[nN]\]|\[[nN]\/[yY]\]|1\.\s*Yes)/i.test(
+      output,
+    )
+  ) {
+    return null
+  }
+
+  const lines = output
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+  const excerpt = lines.slice(-12).join('\n').trim()
+  return excerpt.length > 1200 ? excerpt.slice(-1200) : excerpt
+}
+
 function markError(dataDir: string, room: InternalRoom, message: string): AgentRoom {
   const updated: InternalRoom = {
     ...room,
@@ -858,6 +902,58 @@ export function createRoomManager(options: {
 
   function broadcast(event: RoundtableEvent): void {
     options.onUpdate?.(event)
+  }
+
+  function refreshInputPrompt(room: InternalRoom): InternalRoom {
+    if (
+      room.status === 'not_started' ||
+      room.status === 'stopped' ||
+      room.status === 'error' ||
+      !sessionExists(executor, room.tmux_session)
+    ) {
+      if (!room.input_prompt) return room
+      const updated: InternalRoom = { ...room, input_prompt: null }
+      writeRoom(dataDir, updated)
+      return updated
+    }
+
+    for (const agent of ['claude', 'codex'] as const) {
+      const output = executor.execFile('tmux', [
+        'capture-pane',
+        '-t',
+        `${room.tmux_session}:${paneForAgent(agent)}`,
+        '-p',
+        '-S',
+        '-80',
+      ])
+      const excerpt = detectInputPrompt(output)
+      if (excerpt) {
+        const existing = room.input_prompt
+        if (existing?.agent === agent && existing.excerpt === excerpt) {
+          return room
+        }
+        const updated: InternalRoom = {
+          ...room,
+          input_prompt: {
+            agent,
+            excerpt,
+            detected_at: now(),
+          },
+          updated_at: now(),
+        }
+        writeRoom(dataDir, updated)
+        return updated
+      }
+    }
+
+    if (!room.input_prompt) return room
+    const updated: InternalRoom = {
+      ...room,
+      input_prompt: null,
+      updated_at: now(),
+    }
+    writeRoom(dataDir, updated)
+    return updated
   }
 
   function expireActiveTurn(threadId: string): InternalRoom {
@@ -1146,7 +1242,7 @@ export function createRoomManager(options: {
 
     getRoom(threadId: string): AgentRoom {
       ensureThread(dataDir, threadId)
-      return stripToken(expireActiveTurn(threadId))
+      return stripToken(refreshInputPrompt(expireActiveTurn(threadId)))
     },
 
     startRoom(threadId: string, input: StartRoomInput): AgentRoom {
@@ -1412,6 +1508,34 @@ export function createRoomManager(options: {
         ended_at: null,
       }
       return startNextAutoTurn(room, auto)
+    },
+
+    sendInputResponse(
+      threadId: string,
+      input: SendRoomInputResponseInput,
+    ): AgentRoom {
+      ensureThread(dataDir, threadId)
+      const room = refreshInputPrompt(expireActiveTurn(threadId))
+      if (!sessionExists(executor, room.tmux_session)) {
+        return markError(dataDir, room, 'tmux session is not running')
+      }
+
+      const excerpt =
+        room.input_prompt?.agent === input.agent ? room.input_prompt.excerpt : null
+      sendKeysToPane(
+        executor,
+        `${room.tmux_session}:${paneForAgent(input.agent)}`,
+        promptAnswerKeys(excerpt, input.response),
+      )
+
+      const updated: InternalRoom = {
+        ...room,
+        input_prompt: null,
+        updated_at: now(),
+        last_error: null,
+      }
+      writeRoom(dataDir, updated)
+      return stripToken(updated)
     },
 
     submitComment(

@@ -14,6 +14,7 @@ import {
   readyInputSchema,
   snapshotPreflightInputSchema,
   extendAutoDiscussionInputSchema,
+  sendRoomInputResponseInputSchema,
   startAutoDiscussionInputSchema,
   startRoomInputSchema,
   type RoundtableEvent,
@@ -470,6 +471,23 @@ export function createApp(deps: {
       broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
       broadcast({ type: 'room_updated', thread_id: req.params.id })
       res.json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/input-response', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = sendRoomInputResponseInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const room = rooms.sendInputResponse(req.params.id, parsed.data)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
     } catch (err) {
       if (handleStorageError(err, res)) return
       throw err
