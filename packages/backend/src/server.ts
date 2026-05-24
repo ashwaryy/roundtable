@@ -4,18 +4,24 @@ import {
   createThreadInputSchema,
   createCommentInputSchema,
   createPendingDiscussionInputSchema,
+  createProposalRevisionInputSchema,
   editPendingDiscussionInputSchema,
   createProjectSnapshotInputSchema,
   createUrlContextInputSchema,
   askAgentInputSchema,
   helperCommentInputSchema,
   helperPendingDiscussionInputSchema,
+  helperProposalInputSchema,
+  helperReviewInputSchema,
   nudgeRoomInputSchema,
   readyInputSchema,
+  requestProposalReviewInputSchema,
+  requestProposalRevisionInputSchema,
   snapshotPreflightInputSchema,
   extendAutoDiscussionInputSchema,
   sendRoomInputResponseInputSchema,
   startAutoDiscussionInputSchema,
+  startConsolidationInputSchema,
   startRoomInputSchema,
   type RoundtableEvent,
 } from '@roundtable/shared'
@@ -31,6 +37,7 @@ import type { RoomManager } from './rooms/manager'
 const THREAD_ID_RE = /^thread-\d+$/
 const PENDING_ID_RE = /^pd\d+$/
 const JOB_ID_RE = /^job-\d+$/
+const PROPOSAL_ID_RE = /^consolidation-\d+$/
 
 function flattenFiles(files: Record<string, FormidableFile | FormidableFile[]>): FormidableFile[] {
   return Object.values(files).flatMap((file) => (Array.isArray(file) ? file : [file]))
@@ -102,6 +109,13 @@ export function createApp(deps: {
   app.param('jobId', (_req, res, next, value: string) => {
     if (!JOB_ID_RE.test(value)) {
       return res.status(404).json({ error: 'job not found' })
+    }
+    next()
+  })
+
+  app.param('proposalId', (_req, res, next, value: string) => {
+    if (!PROPOSAL_ID_RE.test(value)) {
+      return res.status(404).json({ error: 'proposal not found' })
     }
     next()
   })
@@ -347,6 +361,206 @@ export function createApp(deps: {
     }
   })
 
+  app.get('/api/threads/:id/consolidations', (req, res) => {
+    try {
+      if (!storage.getThread(req.params.id)) {
+        return res.status(404).json({ error: 'thread not found' })
+      }
+      res.json(storage.listProposals(req.params.id))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/consolidations', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = startConsolidationInputSchema.safeParse(req.body ?? {})
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const result = rooms.startConsolidation(req.params.id, parsed.data)
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: req.params.id,
+        proposal_id: result.proposal.id,
+      })
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.status(201).json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/consolidations/finish-and-start', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = startConsolidationInputSchema.safeParse(req.body ?? {})
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const room = rooms.finishAndStartConsolidation(req.params.id, parsed.data)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.get('/api/threads/:id/consolidations/:proposalId', (req, res) => {
+    try {
+      const detail = storage.getConsolidationDetail(
+        req.params.id,
+        req.params.proposalId,
+      )
+      if (!detail) return res.status(404).json({ error: 'proposal not found' })
+      res.json(detail)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/consolidations/:proposalId/revisions', (req, res) => {
+    const parsed = createProposalRevisionInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const revision = storage.addProposalRevision(
+        req.params.id,
+        req.params.proposalId,
+        parsed.data.body,
+        'human',
+      )
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: req.params.id,
+        proposal_id: req.params.proposalId,
+      })
+      res.status(201).json(revision)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/consolidations/:proposalId/review', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = requestProposalReviewInputSchema.safeParse(req.body ?? {})
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const result = rooms.requestProposalReview(
+        req.params.id,
+        req.params.proposalId,
+        parsed.data,
+      )
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: req.params.id,
+        proposal_id: req.params.proposalId,
+      })
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.status(201).json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/consolidations/:proposalId/revise', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = requestProposalRevisionInputSchema.safeParse(req.body ?? {})
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const result = rooms.requestProposalRevision(
+        req.params.id,
+        req.params.proposalId,
+        parsed.data,
+      )
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: req.params.id,
+        proposal_id: req.params.proposalId,
+      })
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.status(201).json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/consolidations/:proposalId/reject', (req, res) => {
+    try {
+      const proposal = storage.rejectProposal(req.params.id, req.params.proposalId)
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: req.params.id,
+        proposal_id: req.params.proposalId,
+      })
+      res.json(proposal)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/consolidations/:proposalId/save', (req, res) => {
+    try {
+      const saved = storage.saveProposalOutput(req.params.id, req.params.proposalId)
+      if (rooms) {
+        rooms.stopRoom(req.params.id)
+        broadcast({ type: 'room_updated', thread_id: req.params.id })
+      }
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: req.params.id,
+        proposal_id: req.params.proposalId,
+      })
+      broadcast({ type: 'thread_context_updated', thread_id: req.params.id })
+      res.json(saved)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/consolidations/:proposalId/next-iteration', (req, res) => {
+    try {
+      const thread = storage.applyProposalNextIteration(req.params.id, req.params.proposalId)
+      if (rooms) {
+        rooms.stopRoom(req.params.id)
+        broadcast({ type: 'room_updated', thread_id: req.params.id })
+      }
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: req.params.id,
+        proposal_id: req.params.proposalId,
+      })
+      broadcast({ type: 'thread_created', thread_id: thread.id })
+      res.status(201).json(thread)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
   app.get('/api/threads/:id/room/preflight', (req, res) => {
     if (!storage.getThread(req.params.id)) {
       return res.status(404).json({ error: 'thread not found' })
@@ -527,6 +741,52 @@ export function createApp(deps: {
         bearerToken(req),
       )
       broadcast({ type: 'pending_discussion_created', thread_id: req.params.id })
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.status(201).json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/proposal', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = helperProposalInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const result = rooms.submitProposal(req.params.id, parsed.data, bearerToken(req))
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: req.params.id,
+        proposal_id: result.proposal.id,
+      })
+      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.status(201).json(result)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/review', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = helperReviewInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const result = rooms.submitReview(req.params.id, parsed.data, bearerToken(req))
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: req.params.id,
+        proposal_id: result.proposal.id,
+      })
       broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
       broadcast({ type: 'room_updated', thread_id: req.params.id })
       res.status(201).json(result)

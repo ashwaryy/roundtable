@@ -165,7 +165,7 @@ describe('createRoomManager', () => {
       'utf8',
     )
     expect(codexStartup).toContain(
-      'except the exact comment draft path named in a Roundtable Ask turn',
+      'except the exact draft path named in a Roundtable turn',
     )
     expect(codexStartup).toContain(
       'Attachments are optional; if present, they live under `attachments/`',

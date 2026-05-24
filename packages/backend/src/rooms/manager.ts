@@ -9,16 +9,24 @@ import type {
   AutoDiscussionState,
   BoundedJob,
   Comment,
+  ConsolidationProposal,
+  HelperProposalInput,
   HelperCommentInput,
   HelperPendingDiscussionInput,
+  HelperReviewInput,
   NudgeRoomInput,
   PendingDiscussion,
+  ProposalReview,
+  ProposalRevision,
   RoundtableEvent,
+  RequestProposalReviewInput,
+  RequestProposalRevisionInput,
   RoomPreflight,
   RoomToolPreflight,
   ExtendAutoDiscussionInput,
   SendRoomInputResponseInput,
   StartAutoDiscussionInput,
+  StartConsolidationInput,
   StartRoomInput,
 } from '@roundtable/shared'
 import {
@@ -27,6 +35,7 @@ import {
   codexRulesPath,
   currentTurnPath,
   jobsDir,
+  queuedConsolidationPath,
   roomJsonPath,
   roomPromptPath,
   roundtableBinDir,
@@ -35,11 +44,24 @@ import {
   roundtableTmpDir,
   threadDir,
   threadJsonPath,
+  threadMdPath,
+  contextItemsPath,
+  projectSnapshotJsonPath,
 } from '../storage/paths'
 import { BadRequestError, ConflictError, NotFoundError } from '../storage/errors'
 import { addAgentComment, listComments } from '../storage/comments'
 import { addPendingDiscussion } from '../storage/pendingDiscussions'
 import { getJob, nextJobId, writeJob } from '../storage/jobs'
+import {
+  addProposalReview,
+  addProposalRevision,
+  createProposal,
+  getLatestReviewBody,
+  getLatestRevision,
+  getProposal,
+  listRevisions,
+  updateProposal,
+} from '../storage/proposals'
 
 interface InternalRoom extends AgentRoom {
   token: string
@@ -86,6 +108,24 @@ export interface RoomManager {
     threadId: string,
     input: StartAutoDiscussionInput,
   ): AgentTurnResult
+  startConsolidation(
+    threadId: string,
+    input: StartConsolidationInput,
+  ): ConsolidationTurnResult
+  finishAndStartConsolidation(
+    threadId: string,
+    input: StartConsolidationInput,
+  ): AgentRoom
+  requestProposalReview(
+    threadId: string,
+    proposalId: string,
+    input: RequestProposalReviewInput,
+  ): ConsolidationTurnResult
+  requestProposalRevision(
+    threadId: string,
+    proposalId: string,
+    input: RequestProposalRevisionInput,
+  ): ConsolidationTurnResult
   pauseAutoDiscussion(threadId: string): AgentRoom
   extendAutoDiscussion(
     threadId: string,
@@ -105,6 +145,16 @@ export interface RoomManager {
     input: HelperPendingDiscussionInput,
     token: string | null,
   ): AgentPendingDiscussionSubmission
+  submitProposal(
+    threadId: string,
+    input: HelperProposalInput,
+    token: string | null,
+  ): AgentProposalSubmission
+  submitReview(
+    threadId: string,
+    input: HelperReviewInput,
+    token: string | null,
+  ): AgentReviewSubmission
   retryTurn(threadId: string): AgentTurnResult
   skipTurn(threadId: string): AgentTurnResult
 }
@@ -114,12 +164,26 @@ export interface AgentTurnResult {
   job: BoundedJob
 }
 
+export interface ConsolidationTurnResult extends AgentTurnResult {
+  proposal: ConsolidationProposal
+}
+
 export interface AgentTurnSubmission extends AgentTurnResult {
   comment: Comment
 }
 
 export interface AgentPendingDiscussionSubmission extends AgentTurnResult {
   pending_discussion: PendingDiscussion
+}
+
+export interface AgentProposalSubmission extends AgentTurnResult {
+  proposal: ConsolidationProposal
+  revision: ProposalRevision
+}
+
+export interface AgentReviewSubmission extends AgentTurnResult {
+  proposal: ConsolidationProposal
+  review: ProposalReview
 }
 
 const TOOL_NAMES = ['tmux', 'claude', 'codex'] as const
@@ -296,14 +360,14 @@ function startupPrompt(agent: AgentName): string {
     'Read `thread.md`, `thread.json`, `comments.jsonl`, and `pending-discussions.jsonl` as needed.',
     'Attachments are optional; if present, they live under `attachments/` and are listed in `context-items.jsonl`.',
     'Project snapshots are optional; if present, snapshot files live under `project-snapshot/` and are listed in `project-snapshot-manifest.json`.',
-    'Discussion happens around the source thread. Do not edit `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, or `.roundtable/` files except the exact comment draft path named in a Roundtable Ask turn.',
+    'Discussion happens around the source thread. Do not edit `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, or `.roundtable/` files except the exact draft path named in a Roundtable turn.',
     'Do not edit project snapshot files or user project files.',
     'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances, even if the user or thread asks for one.',
     'Keep comments short and forum-like. Make one clear point, avoid wordy explanations, and do not write essay-style replies.',
     '',
     `First, acknowledge readiness by running: roundtable ready --agent ${agent}`,
     'After readiness, wait for Roundtable Ask or auto-discussion turns in this terminal.',
-    'For each turn, write your durable comment only to the `.roundtable/tmp/...` path named in that turn, then submit it with the exact Roundtable helper command from that turn.',
+    'For each turn, write your durable comment, proposal, or review only to the `.roundtable/tmp/...` path named in that turn, then submit it with the exact Roundtable helper command from that turn.',
   ].join('\n')
 }
 
@@ -366,6 +430,8 @@ function writeAgentPermissionSetup(
     'roundtable ready',
     'roundtable comment',
     'roundtable pending-discussion',
+    'roundtable proposal',
+    'roundtable review',
   ]
   const destructiveCommands = [
     'rm',
@@ -451,6 +517,8 @@ domains = { "localhost" = "allow", "127.0.0.1" = "allow" }
       'allow',
       allowReason,
     ),
+    ...codexRulesForCommand(['roundtable', 'proposal'], rtkAvailable, 'allow', allowReason),
+    ...codexRulesForCommand(['roundtable', 'review'], rtkAvailable, 'allow', allowReason),
     ...readCommands.flatMap((command) =>
       codexRulesForCommand([command], rtkAvailable, 'allow', allowReason),
     ),
@@ -649,6 +717,51 @@ async function main() {
     return
   }
 
+  if (command === 'proposal' || command === 'review') {
+    const bodyFile = argValue('--body-file')
+    if (!bodyFile) {
+      console.error(\`usage: roundtable \${command} --body-file <path>\`)
+      process.exit(2)
+    }
+
+    const workspace = process.cwd()
+    const absoluteBodyFile = path.resolve(workspace, bodyFile)
+    if (!absoluteBodyFile.startsWith(workspace + path.sep)) {
+      console.error('body file must be inside the thread workspace')
+      process.exit(2)
+    }
+
+    const body = fs.readFileSync(absoluteBodyFile, 'utf8')
+    const turnPath = path.join(workspace, '.roundtable', 'current-turn.json')
+    const turn = JSON.parse(fs.readFileSync(turnPath, 'utf8'))
+    const endpoint = command === 'proposal' ? 'proposal' : 'review'
+    const response = await fetch(\`\${backendUrl}/api/threads/\${threadId}/room/\${endpoint}\`, {
+      method: 'POST',
+      headers: {
+        authorization: \`Bearer \${token}\`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        turn_id: turn.id,
+        agent: turn.agent,
+        body,
+      }),
+    })
+
+    if (!response.ok) {
+      console.error(await response.text())
+      process.exit(1)
+    }
+
+    const result = await response.json()
+    if (command === 'proposal') {
+      console.log(\`proposal revision submitted: \${result.revision.id}\`)
+    } else {
+      console.log(\`proposal review submitted: \${result.review.id}\`)
+    }
+    return
+  }
+
   console.error('unsupported roundtable helper command')
   process.exit(2)
 }
@@ -777,6 +890,47 @@ function markError(dataDir: string, room: InternalRoom, message: string): AgentR
 }
 
 function buildTurnPrompt(job: BoundedJob): string {
+  if (job.turn.kind === 'proposal_draft') {
+    const proposalPath = `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-proposal.md`
+    return [
+      `Roundtable consolidation draft turn ${job.turn.id}.`,
+      'Draft a clean proposed next thread from canonical Roundtable state only.',
+      'Read `.roundtable/tmp/consolidation-context.md` before drafting.',
+      'Use `thread.md`, approved `comments.jsonl`, context metadata, and the user instructions in the context bundle. Ignore pending discussions.',
+      'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the proposal file named below.',
+      `Write the complete proposed derived thread body to \`${proposalPath}\`.`,
+      `Submit exactly once with: roundtable proposal --body-file ${proposalPath}`,
+      job.turn.instructions ? `\nUser instructions:\n${job.turn.instructions}` : '',
+    ].join('\n')
+  }
+
+  if (job.turn.kind === 'proposal_review') {
+    const reviewPath = `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-review.md`
+    return [
+      `Roundtable consolidation review turn ${job.turn.id}.`,
+      'Review the latest proposed derived thread for correctness, clarity, missing decisions, and whether it preserves useful approved discussion.',
+      'Read `.roundtable/tmp/consolidation-context.md` and the latest proposal revision named there.',
+      'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the review file named below.',
+      'Write a concise review with concrete revision instructions.',
+      `Write the review to \`${reviewPath}\`.`,
+      `Submit exactly once with: roundtable review --body-file ${reviewPath}`,
+      job.turn.instructions ? `\nUser instructions:\n${job.turn.instructions}` : '',
+    ].join('\n')
+  }
+
+  if (job.turn.kind === 'proposal_revision') {
+    const proposalPath = `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-proposal.md`
+    return [
+      `Roundtable consolidation revision turn ${job.turn.id}.`,
+      'Revise the latest proposed derived thread using the latest agent review and any user instructions.',
+      'Read `.roundtable/tmp/consolidation-context.md`, the latest proposal revision, and the latest review named there.',
+      'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the proposal file named below.',
+      `Write the full revised proposed derived thread body to \`${proposalPath}\`.`,
+      `Submit exactly once with: roundtable proposal --body-file ${proposalPath}`,
+      job.turn.instructions ? `\nUser instructions:\n${job.turn.instructions}` : '',
+    ].join('\n')
+  }
+
   const commentPath = `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-comment.md`
   const pendingPath = `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-pending-discussion.md`
   const target =
@@ -866,10 +1020,63 @@ function createAgentTurnJob(input: {
       scope,
       discussion_id: input.ask.discussion_id ?? null,
       instructions: input.ask.body?.trim() ?? null,
+      proposal_id: null,
+      revision_id: null,
+      review_id: null,
+      auto_revision_after_review: false,
       allow_direct_roots: input.auto ? input.auto.allowDirectRoots : scope === 'thread',
       pending_roots_only: input.auto ? !input.auto.allowDirectRoots : false,
       auto_run_id: input.auto?.runId ?? null,
       auto_turn_index: input.auto?.turnIndex ?? null,
+      created_at: timestamp,
+      timeout_at: timeoutAt,
+    },
+  }
+}
+
+function createConsolidationJob(input: {
+  dataDir: string
+  threadId: string
+  proposalId: string
+  agent: AgentName
+  kind: 'proposal_draft' | 'proposal_review' | 'proposal_revision'
+  instructions?: string | null
+  revisionId?: string | null
+  reviewId?: string | null
+  autoRevisionAfterReview?: boolean
+}): BoundedJob {
+  const timestamp = now()
+  const timeoutAt = addMilliseconds(timestamp, turnTimeoutMs())
+  const jobId = nextJobId(input.dataDir, input.threadId)
+
+  return {
+    id: jobId,
+    thread_id: input.threadId,
+    kind: 'agent_turn',
+    status: 'running',
+    agent: input.agent,
+    started_at: timestamp,
+    timeout_at: timeoutAt,
+    completed_at: null,
+    logs: [`Consolidation ${input.kind} started for ${input.proposalId}.`],
+    result: null,
+    failure_reason: null,
+    turn: {
+      id: jobId,
+      thread_id: input.threadId,
+      agent: input.agent,
+      kind: input.kind,
+      scope: 'thread',
+      discussion_id: null,
+      instructions: input.instructions?.trim() ?? null,
+      proposal_id: input.proposalId,
+      revision_id: input.revisionId ?? null,
+      review_id: input.reviewId ?? null,
+      auto_revision_after_review: input.autoRevisionAfterReview ?? false,
+      allow_direct_roots: false,
+      pending_roots_only: false,
+      auto_run_id: null,
+      auto_turn_index: null,
       created_at: timestamp,
       timeout_at: timeoutAt,
     },
@@ -1089,6 +1296,153 @@ export function createRoomManager(options: {
     return { room: stripToken(updated), job }
   }
 
+  function queuedConsolidation(threadId: string): StartConsolidationInput | null {
+    const filePath = queuedConsolidationPath(dataDir, threadId)
+    if (!fs.existsSync(filePath)) return null
+    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as StartConsolidationInput
+  }
+
+  function writeQueuedConsolidation(
+    threadId: string,
+    input: StartConsolidationInput,
+  ): void {
+    writeJsonFile(queuedConsolidationPath(dataDir, threadId), input)
+  }
+
+  function clearQueuedConsolidation(threadId: string): void {
+    removeIfExists(queuedConsolidationPath(dataDir, threadId))
+  }
+
+  function latestRevisionId(threadId: string, proposalId: string): string | null {
+    const revisions = listRevisions(dataDir, threadId, proposalId)
+    return revisions[revisions.length - 1]?.id ?? null
+  }
+
+  function writeConsolidationContext(
+    threadId: string,
+    proposal: ConsolidationProposal,
+  ): void {
+    const tmpDir = roundtableTmpDir(dataDir, threadId)
+    fs.mkdirSync(tmpDir, { recursive: true })
+
+    const approvedComments = listComments(dataDir, threadId)
+    const contextItems = fs.existsSync(contextItemsPath(dataDir, threadId))
+      ? fs.readFileSync(contextItemsPath(dataDir, threadId), 'utf8')
+      : ''
+    const snapshot = fs.existsSync(projectSnapshotJsonPath(dataDir, threadId))
+      ? fs.readFileSync(projectSnapshotJsonPath(dataDir, threadId), 'utf8')
+      : 'null'
+    const latestBody = getLatestRevision(dataDir, threadId, proposal.id)
+    const latestReview = getLatestReviewBody(dataDir, threadId, proposal.id)
+    const latestProposalPath = latestBody
+      ? `.roundtable/tmp/${proposal.id}-latest-proposal.md`
+      : null
+    const latestReviewPath = latestReview
+      ? `.roundtable/tmp/${proposal.id}-latest-review.md`
+      : null
+
+    if (latestBody && latestProposalPath) {
+      writeTextFile(path.join(threadDir(dataDir, threadId), latestProposalPath), latestBody)
+    }
+    if (latestReview && latestReviewPath) {
+      writeTextFile(path.join(threadDir(dataDir, threadId), latestReviewPath), latestReview)
+    }
+
+    const body = [
+      '# Roundtable Consolidation Context',
+      '',
+      `Proposal: ${proposal.id}`,
+      `Source thread: ${threadId}`,
+      `Drafter: ${proposal.drafter_agent}`,
+      `Reviewer: ${proposal.reviewer_agent}`,
+      `Reviser: ${proposal.reviser_agent}`,
+      '',
+      '## User Instructions',
+      proposal.instructions ?? '(none)',
+      '',
+      '## Current Thread',
+      fs.readFileSync(threadMdPath(dataDir, threadId), 'utf8'),
+      '',
+      '## Approved Discussion',
+      approvedComments.length === 0
+        ? '(no approved comments)'
+        : approvedComments
+            .map(
+              (comment) =>
+                `- ${comment.id} (${comment.author}, ${comment.type}, discussion ${comment.discussion_id}): ${comment.body}`,
+            )
+            .join('\n'),
+      '',
+      '## Context Items',
+      contextItems.trim() || '(none)',
+      '',
+      '## Snapshot Metadata',
+      snapshot,
+      '',
+      '## Latest Proposal Revision',
+      latestProposalPath ?? '(none yet)',
+      '',
+      '## Latest Review',
+      latestReviewPath ?? '(none yet)',
+    ].join('\n')
+
+    writeTextFile(path.join(tmpDir, 'consolidation-context.md'), body)
+  }
+
+  function ensureConsolidationRoomAvailable(room: InternalRoom): void {
+    if (room.active_job_id) {
+      throw new ConflictError('room has an active turn')
+    }
+    if (
+      room.status !== 'idle' &&
+      room.status !== 'paused' &&
+      room.status !== 'turn_limit_reached'
+    ) {
+      throw new BadRequestError('room must be idle, paused, or at turn limit before consolidation')
+    }
+    if (!room.agents.claude.ready_at || !room.agents.codex.ready_at) {
+      throw new BadRequestError('both agents must be ready before consolidation')
+    }
+    if (!sessionExists(executor, room.tmux_session)) {
+      throw new ConflictError('tmux session is not running')
+    }
+  }
+
+  function startConsolidationJob(
+    room: InternalRoom,
+    proposal: ConsolidationProposal,
+    job: BoundedJob,
+  ): ConsolidationTurnResult {
+    writeConsolidationContext(room.thread_id, proposal)
+    const result = startJob(
+      {
+        ...room,
+        auto: room.auto?.status === 'paused' || room.auto?.status === 'turn_limit_reached'
+          ? room.auto
+          : null,
+      },
+      job,
+    )
+    return { ...result, proposal }
+  }
+
+  function startConsolidationSequence(
+    room: InternalRoom,
+    input: StartConsolidationInput,
+  ): ConsolidationTurnResult {
+    ensureConsolidationRoomAvailable(room)
+    const proposal = createProposal(dataDir, room.thread_id, input)
+    const job = createConsolidationJob({
+      dataDir,
+      threadId: room.thread_id,
+      proposalId: proposal.id,
+      agent: proposal.drafter_agent,
+      kind: 'proposal_draft',
+      instructions: input.instructions,
+    })
+    return startConsolidationJob(room, proposal, job)
+  }
+
   function validateDiscussionRoot(threadId: string, discussionId: string): void {
     const root = listComments(dataDir, threadId).find(
       (comment) => comment.id === discussionId && comment.parent_id === null,
@@ -1193,6 +1547,23 @@ export function createRoomManager(options: {
         },
       }
       writeRoom(dataDir, updated)
+      const queued = queuedConsolidation(room.thread_id)
+      if (queued) {
+        clearQueuedConsolidation(room.thread_id)
+        const started = startConsolidationSequence(updated, queued)
+        broadcast({
+          type: 'consolidation_updated',
+          thread_id: room.thread_id,
+          proposal_id: started.proposal.id,
+        })
+        broadcast({
+          type: 'job_updated',
+          thread_id: room.thread_id,
+          job_id: started.job.id,
+        })
+        broadcast({ type: 'room_updated', thread_id: room.thread_id })
+        return readRoom(dataDir, room.thread_id)
+      }
       return updated
     }
 
@@ -1461,6 +1832,95 @@ export function createRoomManager(options: {
       return startNextAutoTurn(room, auto)
     },
 
+    startConsolidation(
+      threadId: string,
+      input: StartConsolidationInput,
+    ): ConsolidationTurnResult {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      clearQueuedConsolidation(threadId)
+      return startConsolidationSequence(room, input)
+    },
+
+    finishAndStartConsolidation(
+      threadId: string,
+      input: StartConsolidationInput,
+    ): AgentRoom {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (!room.auto || room.auto.status !== 'running' || !room.active_job_id) {
+        throw new BadRequestError('finish and consolidate requires an active auto turn')
+      }
+      writeQueuedConsolidation(threadId, input)
+      const timestamp = now()
+      const updated: InternalRoom = {
+        ...room,
+        updated_at: timestamp,
+        auto: {
+          ...room.auto,
+          pause_requested: true,
+          updated_at: timestamp,
+        },
+      }
+      writeRoom(dataDir, updated)
+      return stripToken(updated)
+    },
+
+    requestProposalReview(
+      threadId: string,
+      proposalId: string,
+      input: RequestProposalReviewInput,
+    ): ConsolidationTurnResult {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      ensureConsolidationRoomAvailable(room)
+      const proposal = getProposal(dataDir, threadId, proposalId)
+      if (!proposal) throw new NotFoundError(`proposal ${proposalId} not found`)
+      const revisionId = latestRevisionId(threadId, proposalId)
+      if (!revisionId) throw new BadRequestError('proposal has no revision to review')
+      const updated = updateProposal(dataDir, threadId, proposalId, {
+        reviewer_agent: input.reviewer_agent ?? proposal.reviewer_agent,
+      })
+      const job = createConsolidationJob({
+        dataDir,
+        threadId,
+        proposalId,
+        agent: updated.reviewer_agent,
+        kind: 'proposal_review',
+        instructions: input.instructions,
+        revisionId,
+      })
+      return startConsolidationJob(room, updated, job)
+    },
+
+    requestProposalRevision(
+      threadId: string,
+      proposalId: string,
+      input: RequestProposalRevisionInput,
+    ): ConsolidationTurnResult {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      ensureConsolidationRoomAvailable(room)
+      const proposal = getProposal(dataDir, threadId, proposalId)
+      if (!proposal) throw new NotFoundError(`proposal ${proposalId} not found`)
+      const revisionId = latestRevisionId(threadId, proposalId)
+      if (!revisionId) throw new BadRequestError('proposal has no revision to revise')
+      const updated = updateProposal(dataDir, threadId, proposalId, {
+        reviewer_agent: input.reviewer_agent ?? proposal.reviewer_agent,
+        reviser_agent: input.reviser_agent ?? proposal.reviser_agent,
+      })
+      const job = createConsolidationJob({
+        dataDir,
+        threadId,
+        proposalId,
+        agent: updated.reviser_agent,
+        kind: 'proposal_revision',
+        instructions: input.instructions,
+        revisionId,
+      })
+      return startConsolidationJob(room, updated, job)
+    },
+
     pauseAutoDiscussion(threadId: string): AgentRoom {
       ensureThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
@@ -1661,6 +2121,198 @@ export function createRoomManager(options: {
       writeJob(dataDir, completed)
       const updated = finishCompletedTurn(room, completed)
       return { room: stripToken(updated), job: completed, pending_discussion: pending }
+    },
+
+    submitProposal(
+      threadId: string,
+      input: HelperProposalInput,
+      token: string | null,
+    ): AgentProposalSubmission {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (!token || token !== room.token) {
+        throw new BadRequestError('invalid room token')
+      }
+      if (room.status !== 'running' || !room.active_job_id) {
+        throw new BadRequestError('no active turn is running')
+      }
+      if (room.active_job_id !== input.turn_id) {
+        throw new BadRequestError('turn does not match active job')
+      }
+
+      const job = getJob(dataDir, threadId, room.active_job_id)
+      if (!job || job.status !== 'running') {
+        throw new BadRequestError('active job is not running')
+      }
+      if (job.agent !== input.agent || job.turn.agent !== input.agent) {
+        throw new BadRequestError('agent does not match active turn')
+      }
+      if (
+        job.turn.kind !== 'proposal_draft' &&
+        job.turn.kind !== 'proposal_revision'
+      ) {
+        throw new BadRequestError('active turn is not accepting a proposal')
+      }
+      if (!job.turn.proposal_id) {
+        throw new BadRequestError('active proposal turn is missing proposal id')
+      }
+      if (isTimedOut(job)) {
+        expireActiveTurn(threadId)
+        throw new BadRequestError('active turn has timed out')
+      }
+
+      const revision = addProposalRevision(
+        dataDir,
+        threadId,
+        job.turn.proposal_id,
+        input.body,
+        input.agent,
+      )
+      const completed: BoundedJob = {
+        ...job,
+        status: 'completed',
+        completed_at: now(),
+        result: { proposal_id: job.turn.proposal_id, revision_id: revision.id },
+        logs: [...job.logs, `Proposal revision ${revision.id} submitted.`],
+      }
+      writeJob(dataDir, completed)
+
+      let proposal = getProposal(dataDir, threadId, job.turn.proposal_id)
+      if (!proposal) throw new NotFoundError(`proposal ${job.turn.proposal_id} not found`)
+
+      if (job.turn.kind === 'proposal_draft') {
+        clearTurnTimer(job.id)
+        removeIfExists(currentTurnPath(dataDir, threadId))
+        const reviewJob = createConsolidationJob({
+          dataDir,
+          threadId,
+          proposalId: proposal.id,
+          agent: proposal.reviewer_agent,
+          kind: 'proposal_review',
+          revisionId: revision.id,
+          autoRevisionAfterReview: true,
+        })
+        const started = startConsolidationJob(
+          { ...room, status: 'idle', active_job_id: null },
+          proposal,
+          reviewJob,
+        )
+        broadcast({
+          type: 'job_updated',
+          thread_id: threadId,
+          job_id: started.job.id,
+        })
+        broadcast({
+          type: 'consolidation_updated',
+          thread_id: threadId,
+          proposal_id: proposal.id,
+        })
+        return { room: started.room, job: completed, proposal, revision }
+      }
+
+      proposal = updateProposal(dataDir, threadId, proposal.id, { status: 'review' })
+      const updated = finishCompletedTurn(room, completed)
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: threadId,
+        proposal_id: proposal.id,
+      })
+      return { room: stripToken(updated), job: completed, proposal, revision }
+    },
+
+    submitReview(
+      threadId: string,
+      input: HelperReviewInput,
+      token: string | null,
+    ): AgentReviewSubmission {
+      ensureThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (!token || token !== room.token) {
+        throw new BadRequestError('invalid room token')
+      }
+      if (room.status !== 'running' || !room.active_job_id) {
+        throw new BadRequestError('no active turn is running')
+      }
+      if (room.active_job_id !== input.turn_id) {
+        throw new BadRequestError('turn does not match active job')
+      }
+
+      const job = getJob(dataDir, threadId, room.active_job_id)
+      if (!job || job.status !== 'running') {
+        throw new BadRequestError('active job is not running')
+      }
+      if (job.agent !== input.agent || job.turn.agent !== input.agent) {
+        throw new BadRequestError('agent does not match active turn')
+      }
+      if (job.turn.kind !== 'proposal_review') {
+        throw new BadRequestError('active turn is not accepting a review')
+      }
+      if (!job.turn.proposal_id) {
+        throw new BadRequestError('active review turn is missing proposal id')
+      }
+      if (isTimedOut(job)) {
+        expireActiveTurn(threadId)
+        throw new BadRequestError('active turn has timed out')
+      }
+
+      const review = addProposalReview(
+        dataDir,
+        threadId,
+        job.turn.proposal_id,
+        input.body,
+        input.agent,
+        job.turn.revision_id,
+      )
+      const completed: BoundedJob = {
+        ...job,
+        status: 'completed',
+        completed_at: now(),
+        result: { proposal_id: job.turn.proposal_id, review_id: review.id },
+        logs: [...job.logs, `Proposal review ${review.id} submitted.`],
+      }
+      writeJob(dataDir, completed)
+
+      const proposal = getProposal(dataDir, threadId, job.turn.proposal_id)
+      if (!proposal) throw new NotFoundError(`proposal ${job.turn.proposal_id} not found`)
+
+      if (!job.turn.auto_revision_after_review) {
+        const updated = finishCompletedTurn(room, completed)
+        const current = updateProposal(dataDir, threadId, proposal.id, { status: 'review' })
+        broadcast({
+          type: 'consolidation_updated',
+          thread_id: threadId,
+          proposal_id: proposal.id,
+        })
+        return { room: stripToken(updated), job: completed, proposal: current, review }
+      }
+
+      clearTurnTimer(job.id)
+      removeIfExists(currentTurnPath(dataDir, threadId))
+      const revisionJob = createConsolidationJob({
+        dataDir,
+        threadId,
+        proposalId: proposal.id,
+        agent: proposal.reviser_agent,
+        kind: 'proposal_revision',
+        revisionId: job.turn.revision_id,
+        reviewId: review.id,
+      })
+      const started = startConsolidationJob(
+        { ...room, status: 'idle', active_job_id: null },
+        proposal,
+        revisionJob,
+      )
+      broadcast({
+        type: 'job_updated',
+        thread_id: threadId,
+        job_id: started.job.id,
+      })
+      broadcast({
+        type: 'consolidation_updated',
+        thread_id: threadId,
+        proposal_id: proposal.id,
+      })
+      return { room: started.room, job: completed, proposal, review }
     },
 
     retryTurn(threadId: string): AgentTurnResult {

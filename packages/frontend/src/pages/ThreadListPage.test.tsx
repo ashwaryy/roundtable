@@ -33,6 +33,7 @@ describe('ThreadListPage', () => {
         created_from_consolidation_id: null,
         created_at: '2026-05-23T00:00:00Z',
         archived_at: null,
+        closed_at: null,
       },
     ])
     renderPage()
@@ -48,6 +49,7 @@ describe('ThreadListPage', () => {
       created_from_consolidation_id: null,
       created_at: '2026-05-23T00:00:00Z',
       archived_at: null,
+      closed_at: null,
     }
     mockedApi.listThreads.mockResolvedValueOnce([]).mockResolvedValue([created])
     mockedApi.createThread.mockResolvedValue(created)

@@ -9,6 +9,14 @@ export function threadsDir(dataDir: string): string {
   return path.join(dataDir, 'threads')
 }
 
+export function savedDir(dataDir: string): string {
+  return path.join(dataDir, 'saved')
+}
+
+export function savedConsolidationDir(dataDir: string, savedId: string): string {
+  return path.join(savedDir(dataDir), savedId)
+}
+
 export function threadDir(dataDir: string, threadId: string): string {
   return path.join(threadsDir(dataDir), threadId)
 }
@@ -66,6 +74,10 @@ export function roomJsonPath(dataDir: string, threadId: string): string {
 
 export function currentTurnPath(dataDir: string, threadId: string): string {
   return path.join(roundtableInternalDir(dataDir, threadId), 'current-turn.json')
+}
+
+export function queuedConsolidationPath(dataDir: string, threadId: string): string {
+  return path.join(roundtableInternalDir(dataDir, threadId), 'queued-consolidation.json')
 }
 
 export function roundtableTmpDir(dataDir: string, threadId: string): string {
@@ -160,4 +172,13 @@ export function reviewPath(
   reviewId: string,
 ): string {
   return path.join(reviewsDir(dataDir, threadId, proposalId), `${reviewId}.md`)
+}
+
+export function reviewJsonPath(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+  reviewId: string,
+): string {
+  return path.join(reviewsDir(dataDir, threadId, proposalId), `${reviewId}.json`)
 }

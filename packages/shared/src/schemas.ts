@@ -128,3 +128,38 @@ export const helperPendingDiscussionInputSchema = z.object({
   origin_discussion_id: z.string().min(1).nullish(),
   origin_comment_id: z.string().min(1).nullish(),
 })
+
+export const startConsolidationInputSchema = z.object({
+  summary: z.string().trim().min(1).nullish(),
+  instructions: z.string().trim().min(1).nullish(),
+  drafter_agent: agentNameSchema.optional(),
+  reviewer_agent: agentNameSchema.optional(),
+  reviser_agent: agentNameSchema.optional(),
+})
+
+export const createProposalRevisionInputSchema = z.object({
+  body: z.string().trim().min(1, 'body is required'),
+})
+
+export const requestProposalReviewInputSchema = z.object({
+  instructions: z.string().trim().min(1).nullish(),
+  reviewer_agent: agentNameSchema.optional(),
+})
+
+export const requestProposalRevisionInputSchema = z.object({
+  instructions: z.string().trim().min(1).nullish(),
+  reviewer_agent: agentNameSchema.optional(),
+  reviser_agent: agentNameSchema.optional(),
+})
+
+export const helperProposalInputSchema = z.object({
+  turn_id: z.string().min(1, 'turn_id is required'),
+  agent: agentNameSchema,
+  body: z.string().trim().min(1, 'body is required'),
+})
+
+export const helperReviewInputSchema = z.object({
+  turn_id: z.string().min(1, 'turn_id is required'),
+  agent: agentNameSchema,
+  body: z.string().trim().min(1, 'body is required'),
+})

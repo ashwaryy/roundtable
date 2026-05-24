@@ -1,4 +1,4 @@
-export type ThreadStatus = 'open' | 'archived'
+export type ThreadStatus = 'open' | 'archived' | 'closed'
 
 export interface Thread {
   id: string
@@ -8,6 +8,7 @@ export interface Thread {
   created_from_consolidation_id: string | null
   created_at: string
   archived_at: string | null
+  closed_at: string | null
 }
 
 /** A thread plus its markdown body (read from thread.md). */
@@ -78,19 +79,34 @@ export interface EditPendingDiscussionInput {
   type?: CommentType
 }
 
-export type ConsolidationStatus = 'drafting' | 'review' | 'rejected' | 'applied'
+export type ConsolidationStatus =
+  | 'drafting'
+  | 'review'
+  | 'rejected'
+  | 'applied'
+  | 'saved'
 
 export interface ConsolidationProposal {
   id: string
   thread_id: string
   status: ConsolidationStatus
   summary: string | null
+  instructions: string | null
+  drafter_agent: AgentName
+  reviewer_agent: AgentName
+  reviser_agent: AgentName
   created_at: string
+  updated_at: string
   applied_thread_id: string | null
+  saved_artifact_id: string | null
 }
 
 export interface CreateConsolidationInput {
   summary?: string | null
+  instructions?: string | null
+  drafter_agent?: AgentName
+  reviewer_agent?: AgentName
+  reviser_agent?: AgentName
 }
 
 /** Metadata for one revision of a consolidation proposal. Body is in a sibling .md file. */
@@ -99,6 +115,50 @@ export interface ProposalRevision {
   proposal_id: string
   thread_id: string
   author: CommentAuthor
+  created_at: string
+}
+
+/** Metadata for one agent review. Body is in a sibling .md file. */
+export interface ProposalReview {
+  id: string
+  proposal_id: string
+  thread_id: string
+  author: AgentName
+  revision_id: string | null
+  created_at: string
+}
+
+export interface ConsolidationDetail {
+  proposal: ConsolidationProposal
+  revisions: ProposalRevision[]
+  latest_body: string | null
+  reviews: ProposalReview[]
+  latest_review_body: string | null
+}
+
+export interface CreateProposalRevisionInput {
+  body: string
+}
+
+export interface StartConsolidationInput extends CreateConsolidationInput {}
+
+export interface RequestProposalRevisionInput {
+  instructions?: string | null
+  reviewer_agent?: AgentName
+  reviser_agent?: AgentName
+}
+
+export interface RequestProposalReviewInput {
+  instructions?: string | null
+  reviewer_agent?: AgentName
+}
+
+export interface SavedConsolidation {
+  id: string
+  source_thread_id: string
+  proposal_id: string
+  title: string
+  body_path: string
   created_at: string
 }
 
@@ -289,10 +349,14 @@ export interface AgentTurn {
   id: string
   thread_id: string
   agent: AgentName
-  kind: 'comment'
+  kind: 'comment' | 'proposal_draft' | 'proposal_review' | 'proposal_revision'
   scope: AgentTurnScope
   discussion_id: string | null
   instructions: string | null
+  proposal_id: string | null
+  revision_id: string | null
+  review_id: string | null
+  auto_revision_after_review: boolean
   allow_direct_roots: boolean
   pending_roots_only: boolean
   auto_run_id: string | null
@@ -318,7 +382,14 @@ export interface BoundedJob {
   timeout_at: string
   completed_at: string | null
   logs: string[]
-  result: { comment_id: string } | { pending_discussion_id: string } | null
+  result:
+    | { comment_id: string }
+    | { pending_discussion_id: string }
+    | { proposal_id: string; revision_id: string }
+    | { proposal_id: string; review_id: string }
+    | { applied_thread_id: string }
+    | { saved_artifact_id: string }
+    | null
   failure_reason: string | null
   turn: AgentTurn
 }
@@ -338,4 +409,16 @@ export interface HelperPendingDiscussionInput {
   type?: CommentType
   origin_discussion_id?: string | null
   origin_comment_id?: string | null
+}
+
+export interface HelperProposalInput {
+  turn_id: string
+  agent: AgentName
+  body: string
+}
+
+export interface HelperReviewInput {
+  turn_id: string
+  agent: AgentName
+  body: string
 }

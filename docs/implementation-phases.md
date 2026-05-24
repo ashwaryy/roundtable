@@ -146,6 +146,7 @@ Harden only after the full loop works.
 - Add snapshot reports
 - Add storage cleanup
 - Add focused tests around state machines and storage
+- Add saved-output discovery for closed threads, including a direct UI link/panel for the final saved revision
 - Polish the UI
 
 Exit criteria:

@@ -12,6 +12,7 @@ import type {
   RoomPreflight,
   ThreadContext,
   AgentName,
+  ConsolidationProposal,
 } from '@roundtable/shared'
 import {
   getThread,
@@ -22,6 +23,7 @@ import {
   getRoom,
   getRoomPreflight,
   askAgent,
+  listConsolidations,
 } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { CommentForm } from '../components/CommentForm'
@@ -29,6 +31,7 @@ import { CommentTree } from '../components/CommentTree'
 import { PendingDiscussionQueue } from '../components/PendingDiscussionQueue'
 import { ThreadContextPanel } from '../components/ThreadContextPanel'
 import { RoomPanel } from '../components/RoomPanel'
+import { ConsolidationPanel } from '../components/ConsolidationPanel'
 
 export function ThreadPage() {
   const { id } = useParams<{ id: string }>()
@@ -38,6 +41,7 @@ export function ThreadPage() {
   const [threadContext, setThreadContext] = useState<ThreadContext | null>(null)
   const [room, setRoom] = useState<AgentRoom | null>(null)
   const [roomPreflight, setRoomPreflight] = useState<RoomPreflight | null>(null)
+  const [proposals, setProposals] = useState<ConsolidationProposal[]>([])
 
   const refresh = useCallback(() => {
     if (!id) return
@@ -47,6 +51,7 @@ export function ThreadPage() {
     getThreadContext(id).then(setThreadContext)
     getRoom(id).then(setRoom)
     getRoomPreflight(id).then(setRoomPreflight)
+    listConsolidations(id).then(setProposals)
   }, [id])
 
   useEffect(() => {
@@ -104,11 +109,14 @@ export function ThreadPage() {
               <h2>Discussion</h2>
               <span>{comments.length} comments</span>
             </div>
-            <CommentForm label="Add discussion point" onSubmit={addTopLevel} />
+            {thread.status === 'open' ? (
+              <CommentForm label="Add discussion point" onSubmit={addTopLevel} />
+            ) : null}
             <CommentTree
               comments={comments}
               onReply={addReply}
               onAskDiscussion={askDiscussion}
+              readOnly={thread.status !== 'open'}
             />
           </section>
         </div>
@@ -135,6 +143,15 @@ export function ThreadPage() {
             preflight={roomPreflight}
             onUpdate={refresh}
           />
+
+          {thread.status === 'open' ? (
+            <ConsolidationPanel
+              threadId={thread.id}
+              room={room}
+              proposals={proposals}
+              onUpdate={refresh}
+            />
+          ) : null}
         </aside>
       </div>
     </main>

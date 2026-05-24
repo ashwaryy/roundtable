@@ -23,11 +23,22 @@ import type {
   SendRoomInputResponseInput,
   StartRoomInput,
   StartAutoDiscussionInput,
+  ConsolidationDetail,
+  ConsolidationProposal,
+  CreateProposalRevisionInput,
+  RequestProposalReviewInput,
+  RequestProposalRevisionInput,
+  SavedConsolidation,
+  StartConsolidationInput,
 } from '@roundtable/shared'
 
 export interface AgentTurnResult {
   room: AgentRoom
   job: BoundedJob
+}
+
+export interface ConsolidationTurnResult extends AgentTurnResult {
+  proposal: ConsolidationProposal
 }
 
 export interface AgentTurnSubmission extends AgentTurnResult {
@@ -278,4 +289,104 @@ export function skipTurn(threadId: string): Promise<AgentTurnResult> {
 
 export function listJobs(threadId: string): Promise<BoundedJob[]> {
   return fetch(`/api/threads/${threadId}/jobs`).then((r) => json<BoundedJob[]>(r))
+}
+
+export function listConsolidations(threadId: string): Promise<ConsolidationProposal[]> {
+  return fetch(`/api/threads/${threadId}/consolidations`).then((r) =>
+    json<ConsolidationProposal[]>(r),
+  )
+}
+
+export function startConsolidation(
+  threadId: string,
+  input: StartConsolidationInput,
+): Promise<ConsolidationTurnResult> {
+  return fetch(`/api/threads/${threadId}/consolidations`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<ConsolidationTurnResult>(r))
+}
+
+export function finishAndStartConsolidation(
+  threadId: string,
+  input: StartConsolidationInput,
+): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/consolidations/finish-and-start`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<AgentRoom>(r))
+}
+
+export function getConsolidation(
+  threadId: string,
+  proposalId: string,
+): Promise<ConsolidationDetail> {
+  return fetch(`/api/threads/${threadId}/consolidations/${proposalId}`).then((r) =>
+    json<ConsolidationDetail>(r),
+  )
+}
+
+export function saveProposalRevision(
+  threadId: string,
+  proposalId: string,
+  input: CreateProposalRevisionInput,
+) {
+  return fetch(`/api/threads/${threadId}/consolidations/${proposalId}/revisions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json(r))
+}
+
+export function requestProposalReview(
+  threadId: string,
+  proposalId: string,
+  input: RequestProposalReviewInput,
+): Promise<ConsolidationTurnResult> {
+  return fetch(`/api/threads/${threadId}/consolidations/${proposalId}/review`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<ConsolidationTurnResult>(r))
+}
+
+export function requestProposalRevision(
+  threadId: string,
+  proposalId: string,
+  input: RequestProposalRevisionInput,
+): Promise<ConsolidationTurnResult> {
+  return fetch(`/api/threads/${threadId}/consolidations/${proposalId}/revise`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<ConsolidationTurnResult>(r))
+}
+
+export function rejectProposal(
+  threadId: string,
+  proposalId: string,
+): Promise<ConsolidationProposal> {
+  return fetch(`/api/threads/${threadId}/consolidations/${proposalId}/reject`, {
+    method: 'POST',
+  }).then((r) => json<ConsolidationProposal>(r))
+}
+
+export function saveConsolidatedOutput(
+  threadId: string,
+  proposalId: string,
+): Promise<SavedConsolidation> {
+  return fetch(`/api/threads/${threadId}/consolidations/${proposalId}/save`, {
+    method: 'POST',
+  }).then((r) => json<SavedConsolidation>(r))
+}
+
+export function startNextIteration(
+  threadId: string,
+  proposalId: string,
+): Promise<Thread> {
+  return fetch(`/api/threads/${threadId}/consolidations/${proposalId}/next-iteration`, {
+    method: 'POST',
+  }).then((r) => json<Thread>(r))
 }

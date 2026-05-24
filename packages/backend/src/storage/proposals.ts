@@ -1,19 +1,58 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type {
-  ConsolidationProposal,
-  CreateConsolidationInput,
-  ProposalRevision,
+  AgentName,
   CommentAuthor,
+  ConsolidationProposal,
+  ConsolidationStatus,
+  CreateConsolidationInput,
+  ProposalReview,
+  ProposalRevision,
+  SavedConsolidation,
 } from '@roundtable/shared'
 import {
+  consolidationDir,
   consolidationsDir,
   proposalJsonPath,
+  reviewJsonPath,
+  reviewPath,
+  reviewsDir,
   revisionsDir,
   revisionPath,
+  savedConsolidationDir,
   threadJsonPath,
 } from './paths'
-import { NotFoundError } from './errors'
+import { BadRequestError, ConflictError, NotFoundError } from './errors'
+
+const DEFAULT_DRAFTER: AgentName = 'codex'
+const DEFAULT_REVIEWER: AgentName = 'claude'
+const DEFAULT_REVISER: AgentName = 'codex'
+
+function writeJsonAtomic(filePath: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const tmp = `${filePath}.tmp`
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2))
+  fs.renameSync(tmp, filePath)
+}
+
+function writeTextAtomic(filePath: string, value: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  const tmp = `${filePath}.tmp`
+  fs.writeFileSync(tmp, value)
+  fs.renameSync(tmp, filePath)
+}
+
+function normalizeProposal(proposal: ConsolidationProposal): ConsolidationProposal {
+  return {
+    ...proposal,
+    instructions: proposal.instructions ?? null,
+    drafter_agent: proposal.drafter_agent ?? DEFAULT_DRAFTER,
+    reviewer_agent: proposal.reviewer_agent ?? DEFAULT_REVIEWER,
+    reviser_agent: proposal.reviser_agent ?? DEFAULT_REVISER,
+    updated_at: proposal.updated_at ?? proposal.created_at,
+    saved_artifact_id: proposal.saved_artifact_id ?? null,
+  }
+}
 
 function nextConsolidationId(proposals: ConsolidationProposal[]): string {
   let max = 0
@@ -35,6 +74,37 @@ function nextRevisionId(revDir: string): string {
   return `r${String(max + 1).padStart(3, '0')}`
 }
 
+function nextReviewId(reviewDir: string): string {
+  if (!fs.existsSync(reviewDir)) return 'review-001'
+
+  let max = 0
+  for (const file of fs.readdirSync(reviewDir)) {
+    const match = /^review-(\d+)\.md$/.exec(file)
+    if (match) max = Math.max(max, Number(match[1]))
+  }
+  return `review-${String(max + 1).padStart(3, '0')}`
+}
+
+function ensureProposal(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+): ConsolidationProposal {
+  const proposal = getProposal(dataDir, threadId, proposalId)
+  if (!proposal) throw new NotFoundError(`proposal ${proposalId} not found`)
+  return proposal
+}
+
+function ensureEditable(proposal: ConsolidationProposal): void {
+  if (
+    proposal.status === 'applied' ||
+    proposal.status === 'saved' ||
+    proposal.status === 'rejected'
+  ) {
+    throw new ConflictError(`proposal ${proposal.id} is ${proposal.status}`)
+  }
+}
+
 export function createProposal(
   dataDir: string,
   threadId: string,
@@ -46,20 +116,25 @@ export function createProposal(
 
   const id = nextConsolidationId(listProposals(dataDir, threadId))
   fs.mkdirSync(revisionsDir(dataDir, threadId, id), { recursive: true })
+  fs.mkdirSync(reviewsDir(dataDir, threadId, id), { recursive: true })
+  const timestamp = new Date().toISOString()
 
   const proposal: ConsolidationProposal = {
     id,
     thread_id: threadId,
     status: 'drafting',
     summary: input.summary ?? null,
-    created_at: new Date().toISOString(),
+    instructions: input.instructions ?? null,
+    drafter_agent: input.drafter_agent ?? DEFAULT_DRAFTER,
+    reviewer_agent: input.reviewer_agent ?? DEFAULT_REVIEWER,
+    reviser_agent: input.reviser_agent ?? DEFAULT_REVISER,
+    created_at: timestamp,
+    updated_at: timestamp,
     applied_thread_id: null,
+    saved_artifact_id: null,
   }
 
-  fs.writeFileSync(
-    proposalJsonPath(dataDir, threadId, id),
-    JSON.stringify(proposal, null, 2),
-  )
+  writeJsonAtomic(proposalJsonPath(dataDir, threadId, id), proposal)
   return proposal
 }
 
@@ -70,7 +145,9 @@ export function getProposal(
 ): ConsolidationProposal | null {
   const jsonPath = proposalJsonPath(dataDir, threadId, proposalId)
   if (!fs.existsSync(jsonPath)) return null
-  return JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as ConsolidationProposal
+  return normalizeProposal(
+    JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as ConsolidationProposal,
+  )
 }
 
 export function listProposals(
@@ -85,11 +162,42 @@ export function listProposals(
     if (!entry.isDirectory()) continue
     const jsonPath = proposalJsonPath(dataDir, threadId, entry.name)
     if (!fs.existsSync(jsonPath)) continue
-    proposals.push(JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as ConsolidationProposal)
+    proposals.push(
+      normalizeProposal(
+        JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as ConsolidationProposal,
+      ),
+    )
   }
 
   proposals.sort((a, b) => a.created_at.localeCompare(b.created_at))
   return proposals
+}
+
+export function updateProposal(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+  patch: Partial<ConsolidationProposal>,
+): ConsolidationProposal {
+  const proposal = ensureProposal(dataDir, threadId, proposalId)
+  const updated = normalizeProposal({
+    ...proposal,
+    ...patch,
+    id: proposal.id,
+    thread_id: proposal.thread_id,
+    updated_at: new Date().toISOString(),
+  })
+  writeJsonAtomic(proposalJsonPath(dataDir, threadId, proposalId), updated)
+  return updated
+}
+
+export function setProposalStatus(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+  status: ConsolidationStatus,
+): ConsolidationProposal {
+  return updateProposal(dataDir, threadId, proposalId, { status })
 }
 
 export function addProposalRevision(
@@ -99,11 +207,10 @@ export function addProposalRevision(
   body: string,
   author: CommentAuthor,
 ): ProposalRevision {
-  if (!body.trim()) throw new Error('revision body cannot be empty')
+  if (!body.trim()) throw new BadRequestError('revision body cannot be empty')
 
-  if (!getProposal(dataDir, threadId, proposalId)) {
-    throw new NotFoundError(`proposal ${proposalId} not found`)
-  }
+  const proposal = ensureProposal(dataDir, threadId, proposalId)
+  ensureEditable(proposal)
 
   const revDir = revisionsDir(dataDir, threadId, proposalId)
   fs.mkdirSync(revDir, { recursive: true })
@@ -117,9 +224,21 @@ export function addProposalRevision(
     created_at: new Date().toISOString(),
   }
 
-  fs.writeFileSync(revisionPath(dataDir, threadId, proposalId, id), body)
-  fs.writeFileSync(path.join(revDir, `${id}.json`), JSON.stringify(revision, null, 2))
+  writeTextAtomic(revisionPath(dataDir, threadId, proposalId, id), body)
+  writeJsonAtomic(path.join(revDir, `${id}.json`), revision)
+  updateProposal(dataDir, threadId, proposalId, {})
   return revision
+}
+
+export function getRevisionBody(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+  revisionId: string,
+): string | null {
+  const filePath = revisionPath(dataDir, threadId, proposalId, revisionId)
+  if (!fs.existsSync(filePath)) return null
+  return fs.readFileSync(filePath, 'utf8')
 }
 
 export function listRevisions(
@@ -145,18 +264,145 @@ export function getLatestRevision(
   threadId: string,
   proposalId: string,
 ): string | null {
-  const revDir = revisionsDir(dataDir, threadId, proposalId)
-  if (!fs.existsSync(revDir)) return null
+  const revisions = listRevisions(dataDir, threadId, proposalId)
+  const latest = revisions[revisions.length - 1]
+  return latest ? getRevisionBody(dataDir, threadId, proposalId, latest.id) : null
+}
 
-  const files = fs
-    .readdirSync(revDir)
-    .filter((file) => /^r\d+\.md$/.test(file))
+export function addProposalReview(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+  body: string,
+  author: AgentName,
+  revisionId: string | null,
+): ProposalReview {
+  if (!body.trim()) throw new BadRequestError('review body cannot be empty')
+
+  const proposal = ensureProposal(dataDir, threadId, proposalId)
+  ensureEditable(proposal)
+
+  if (revisionId && !getRevisionBody(dataDir, threadId, proposalId, revisionId)) {
+    throw new NotFoundError(`revision ${revisionId} not found`)
+  }
+
+  const reviewDir = reviewsDir(dataDir, threadId, proposalId)
+  fs.mkdirSync(reviewDir, { recursive: true })
+  const id = nextReviewId(reviewDir)
+  const review: ProposalReview = {
+    id,
+    proposal_id: proposalId,
+    thread_id: threadId,
+    author,
+    revision_id: revisionId,
+    created_at: new Date().toISOString(),
+  }
+
+  writeTextAtomic(reviewPath(dataDir, threadId, proposalId, id), body)
+  writeJsonAtomic(reviewJsonPath(dataDir, threadId, proposalId, id), review)
+  updateProposal(dataDir, threadId, proposalId, {})
+  return review
+}
+
+export function getReviewBody(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+  reviewId: string,
+): string | null {
+  const filePath = reviewPath(dataDir, threadId, proposalId, reviewId)
+  if (!fs.existsSync(filePath)) return null
+  return fs.readFileSync(filePath, 'utf8')
+}
+
+export function listReviews(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+): ProposalReview[] {
+  const reviewDir = reviewsDir(dataDir, threadId, proposalId)
+  if (!fs.existsSync(reviewDir)) return []
+
+  return fs
+    .readdirSync(reviewDir)
+    .filter((file) => /^review-\d+\.json$/.test(file))
     .sort()
-  if (files.length === 0) return null
+    .map(
+      (file) =>
+        JSON.parse(fs.readFileSync(path.join(reviewDir, file), 'utf8')) as ProposalReview,
+    )
+}
 
-  const latestRevisionId = files[files.length - 1].replace(/\.md$/, '')
-  return fs.readFileSync(
-    revisionPath(dataDir, threadId, proposalId, latestRevisionId),
-    'utf8',
-  )
+export function getLatestReviewBody(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+): string | null {
+  const reviews = listReviews(dataDir, threadId, proposalId)
+  const latest = reviews[reviews.length - 1]
+  return latest ? getReviewBody(dataDir, threadId, proposalId, latest.id) : null
+}
+
+export function rejectProposal(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+): ConsolidationProposal {
+  const proposal = ensureProposal(dataDir, threadId, proposalId)
+  ensureEditable(proposal)
+  return setProposalStatus(dataDir, threadId, proposalId, 'rejected')
+}
+
+export function markApplied(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+  appliedThreadId: string,
+): ConsolidationProposal {
+  const proposal = ensureProposal(dataDir, threadId, proposalId)
+  ensureEditable(proposal)
+  return updateProposal(dataDir, threadId, proposalId, {
+    status: 'applied',
+    applied_thread_id: appliedThreadId,
+  })
+}
+
+export function saveProposalOutput(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+  input: {
+    title: string
+    body: string
+  },
+): SavedConsolidation {
+  const proposal = ensureProposal(dataDir, threadId, proposalId)
+  ensureEditable(proposal)
+  if (!input.body.trim()) throw new BadRequestError('proposal body cannot be empty')
+
+  const savedId = `${threadId}-${proposalId}`
+  const dir = savedConsolidationDir(dataDir, savedId)
+  fs.mkdirSync(dir, { recursive: true })
+  const saved: SavedConsolidation = {
+    id: savedId,
+    source_thread_id: threadId,
+    proposal_id: proposalId,
+    title: input.title,
+    body_path: path.join(dir, 'thread.md'),
+    created_at: new Date().toISOString(),
+  }
+  writeTextAtomic(path.join(dir, 'thread.md'), input.body)
+  writeJsonAtomic(path.join(dir, 'saved.json'), saved)
+  updateProposal(dataDir, threadId, proposalId, {
+    status: 'saved',
+    saved_artifact_id: savedId,
+  })
+  return saved
+}
+
+export function removeProposal(dataDir: string, threadId: string, proposalId: string): void {
+  fs.rmSync(consolidationDir(dataDir, threadId, proposalId), {
+    recursive: true,
+    force: true,
+  })
 }

@@ -296,6 +296,7 @@ section[aria-label="agent-room"] {
 }
 
 section[aria-label="agent-room"],
+section[aria-label="consolidation"],
 section[aria-label="thread-context"] {
   display: grid;
   gap: 1rem;
@@ -312,6 +313,7 @@ section[aria-label="thread-context"] > section:first-of-type {
 }
 
 section[aria-label="agent-room"] ul,
+section[aria-label="consolidation"] ul,
 section[aria-label="thread-context"] ul,
 .panel > ul:not(.thread-list) {
   margin: 0;
@@ -320,6 +322,7 @@ section[aria-label="thread-context"] ul,
 }
 
 section[aria-label="agent-room"] li,
+section[aria-label="consolidation"] li,
 section[aria-label="thread-context"] li,
 .panel > ul:not(.thread-list) > li {
   border-top: 1px solid #e4e9ef;
@@ -328,9 +331,51 @@ section[aria-label="thread-context"] li,
 }
 
 section[aria-label="agent-room"] li:first-child,
+section[aria-label="consolidation"] li:first-child,
 section[aria-label="thread-context"] li:first-child,
 .panel > ul:not(.thread-list) > li:first-child {
   border-top: 0;
+}
+
+section[aria-label="consolidation"] {
+  border: 1px solid #d4dce4;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(31, 41, 51, 0.06);
+}
+
+.review-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.85fr) minmax(0, 1.15fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.proposal-editor {
+  min-height: 48vh;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.92rem;
+}
+
+.proposal-actions {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 1rem;
+}
+
+.proposal-actions--final {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+pre {
+  overflow: auto;
+  border: 1px solid #d8e0e8;
+  border-radius: 6px;
+  padding: 0.8rem;
+  background: #f7f9fb;
+  white-space: pre-wrap;
 }
 
 article {
@@ -361,7 +406,8 @@ article + ul article {
 }
 
 @media (max-width: 980px) {
-  .thread-layout {
+  .thread-layout,
+  .review-layout {
     grid-template-columns: 1fr;
   }
 

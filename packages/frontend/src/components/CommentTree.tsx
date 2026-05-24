@@ -7,6 +7,7 @@ export function CommentTree({
   comments,
   onReply,
   onAskDiscussion,
+  readOnly = false,
 }: {
   comments: Comment[]
   onReply: (
@@ -14,6 +15,7 @@ export function CommentTree({
     input: { body: string; type: CommentType },
   ) => Promise<void>
   onAskDiscussion: (discussionId: string, agent: AgentName) => Promise<void>
+  readOnly?: boolean
 }) {
   const groups = groupComments(comments)
   const [openReply, setOpenReply] = useState<string | null>(null)
@@ -46,7 +48,7 @@ export function CommentTree({
             ))}
           </ul>
 
-          {openReply === root.id ? (
+          {!readOnly && openReply === root.id ? (
             <CommentForm
               label="Reply"
               onSubmit={async (input) => {
@@ -54,15 +56,20 @@ export function CommentTree({
                 setOpenReply(null)
               }}
             />
-          ) : (
+          ) : null}
+          {!readOnly && openReply !== root.id ? (
             <button onClick={() => setOpenReply(root.id)}>Reply</button>
-          )}
-          <button onClick={() => onAskDiscussion(root.id, 'claude')}>
-            Ask Claude
-          </button>
-          <button onClick={() => onAskDiscussion(root.id, 'codex')}>
-            Ask Codex
-          </button>
+          ) : null}
+          {!readOnly ? (
+            <>
+              <button onClick={() => onAskDiscussion(root.id, 'claude')}>
+                Ask Claude
+              </button>
+              <button onClick={() => onAskDiscussion(root.id, 'codex')}>
+                Ask Codex
+              </button>
+            </>
+          ) : null}
         </li>
       ))}
     </ul>

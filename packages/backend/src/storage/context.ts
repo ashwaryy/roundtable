@@ -511,3 +511,53 @@ export function getThreadContext(dataDir: string, threadId: string): ThreadConte
     workspace_added_files: listWorkspaceAddedFiles(dataDir, threadId),
   }
 }
+
+export function copyThreadContext(
+  dataDir: string,
+  sourceThreadId: string,
+  targetThreadId: string,
+): void {
+  ensureThread(dataDir, sourceThreadId)
+  ensureThread(dataDir, targetThreadId)
+
+  const sourceItems = listContextItems(dataDir, sourceThreadId)
+  const targetItems = sourceItems.map((item) => ({
+    ...item,
+    thread_id: targetThreadId,
+  }))
+  fs.writeFileSync(
+    contextItemsPath(dataDir, targetThreadId),
+    targetItems.map((item) => JSON.stringify(item)).join('\n') +
+      (targetItems.length > 0 ? '\n' : ''),
+  )
+
+  fs.rmSync(attachmentsDir(dataDir, targetThreadId), { recursive: true, force: true })
+  fs.mkdirSync(attachmentsDir(dataDir, targetThreadId), { recursive: true })
+  for (const item of sourceItems) {
+    if (item.kind !== 'file') continue
+    const source = path.join(threadDir(dataDir, sourceThreadId), item.path)
+    const destination = path.join(threadDir(dataDir, targetThreadId), item.path)
+    if (!fs.existsSync(source)) continue
+    fs.mkdirSync(path.dirname(destination), { recursive: true })
+    fs.copyFileSync(source, destination)
+  }
+
+  const sourceSnapshotDir = projectSnapshotDir(dataDir, sourceThreadId)
+  const targetSnapshotDir = projectSnapshotDir(dataDir, targetThreadId)
+  fs.rmSync(targetSnapshotDir, { recursive: true, force: true })
+  if (fs.existsSync(sourceSnapshotDir)) {
+    fs.cpSync(sourceSnapshotDir, targetSnapshotDir, { recursive: true })
+  } else {
+    fs.mkdirSync(targetSnapshotDir, { recursive: true })
+  }
+
+  for (const filePath of [
+    projectSnapshotJsonPath(dataDir, sourceThreadId),
+    projectSnapshotManifestPath(dataDir, sourceThreadId),
+  ]) {
+    if (!fs.existsSync(filePath)) continue
+    const targetPath = filePath
+      .replace(threadDir(dataDir, sourceThreadId), threadDir(dataDir, targetThreadId))
+    fs.copyFileSync(filePath, targetPath)
+  }
+}
