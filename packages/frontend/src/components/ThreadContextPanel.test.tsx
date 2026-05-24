@@ -34,6 +34,7 @@ function makeContext(): ThreadContext {
       total_bytes: 2048,
       warnings: [],
       added_since_last_refresh: ['src/new.ts'],
+      latest_report_id: 'snapshot-001',
     },
     workspace_added_files: [
       {
@@ -123,6 +124,7 @@ describe('ThreadContextPanel', () => {
       total_bytes: 10,
       warnings: [],
       added_since_last_refresh: ['notes.md'],
+      latest_report_id: 'snapshot-001',
     })
     render(
       <ThreadContextPanel threadId="thread-1" context={null} onUpdate={onUpdate} />,

@@ -237,17 +237,23 @@ export function ConsolidationReviewPage() {
             </button>
           </div>
 
-          <div className="proposal-actions proposal-actions--final">
-            <button type="button" onClick={nextIteration} disabled={locked || !body.trim()}>
-              Start Next Iteration
-            </button>
-            <button type="button" onClick={saveOutput} disabled={locked || !body.trim()}>
-              Save Output
-            </button>
-            <button type="button" onClick={reject} disabled={locked}>
-              Reject
-            </button>
-          </div>
+          {proposal.status === 'saved' && proposal.saved_artifact_id ? (
+            <p>
+              <Link to={`/saved/${proposal.saved_artifact_id}`}>View final saved revision</Link>
+            </p>
+          ) : locked ? null : (
+            <div className="proposal-actions proposal-actions--final">
+              <button type="button" onClick={nextIteration} disabled={!body.trim()}>
+                Start Next Iteration
+              </button>
+              <button type="button" onClick={saveOutput} disabled={!body.trim()}>
+                Save Output
+              </button>
+              <button type="button" onClick={reject}>
+                Reject
+              </button>
+            </div>
+          )}
 
           {error ? <p role="alert">{error}</p> : null}
         </section>

@@ -18,10 +18,14 @@ import type {
   CreateUrlContextInput,
   FileContextItem,
   ProjectSnapshot,
+  SnapshotReport,
   SnapshotPreflight,
   ThreadContext,
   BoundedJob,
   SavedConsolidation,
+  SavedOutput,
+  IntegrityReport,
+  RoundtableEvent,
 } from '@roundtable/shared'
 import * as threads from './threads'
 import * as comments from './comments'
@@ -29,6 +33,7 @@ import * as pending from './pendingDiscussions'
 import * as proposals from './proposals'
 import * as context from './context'
 import * as jobs from './jobs'
+import * as integrity from './integrity'
 import { BadRequestError, NotFoundError } from './errors'
 
 export {
@@ -36,12 +41,38 @@ export {
   ConfirmationRequiredError,
   ConflictError,
   NotFoundError,
+  IntegrityStorageError,
 } from './errors'
 
-export function createStorage(dataDir: string) {
+export function createStorage(
+  dataDir: string,
+  onIntegrityUpdate?: (event: RoundtableEvent) => void,
+) {
+  function inspect(threadId: string): void {
+    try {
+      const previousIssues = integrity.currentIntegrityIssueCount(dataDir, threadId)
+      const report = integrity.inspectIntegrity(dataDir, threadId)
+      if (report.issues.length > previousIssues) {
+        onIntegrityUpdate?.({ type: 'integrity_updated', thread_id: threadId })
+      }
+    } catch (err) {
+      if (!(err instanceof NotFoundError)) throw err
+    }
+  }
+
+  function mutate<T>(threadId: string, operation: () => T): T {
+    inspect(threadId)
+    const result = operation()
+    integrity.acceptApplicationWrite(dataDir, threadId)
+    return result
+  }
+
   return {
-    createThread: (input: CreateThreadInput): Thread =>
-      threads.createThread(dataDir, input),
+    createThread: (input: CreateThreadInput): Thread => {
+      const thread = threads.createThread(dataDir, input)
+      integrity.acceptApplicationWrite(dataDir, thread.id)
+      return thread
+    },
     createDerivedThread: (
       input: {
         title: string
@@ -55,45 +86,60 @@ export function createStorage(dataDir: string) {
       if (input.copyContext) {
         context.copyThreadContext(dataDir, input.parentThreadId, thread.id)
       }
+      integrity.acceptApplicationWrite(dataDir, thread.id)
       return thread
     },
-    archiveThread: (threadId: string): Thread => threads.archiveThread(dataDir, threadId),
-    closeThread: (threadId: string): Thread => threads.closeThread(dataDir, threadId),
+    archiveThread: (threadId: string): Thread =>
+      mutate(threadId, () => threads.archiveThread(dataDir, threadId)),
+    closeThread: (threadId: string): Thread =>
+      mutate(threadId, () => threads.closeThread(dataDir, threadId)),
     listThreads: (): Thread[] => threads.listThreads(dataDir),
-    getThread: (id: string): ThreadDetail | null => threads.getThread(dataDir, id),
-    listComments: (threadId: string): Comment[] =>
-      comments.listComments(dataDir, threadId),
+    getThread: (id: string): ThreadDetail | null => {
+      inspect(id)
+      return threads.getThread(dataDir, id)
+    },
+    listComments: (threadId: string): Comment[] => {
+      inspect(threadId)
+      return comments.listComments(dataDir, threadId)
+    },
     addComment: (threadId: string, input: CreateCommentInput): Comment =>
-      comments.addComment(dataDir, threadId, input),
-    listPendingDiscussions: (threadId: string): PendingDiscussion[] =>
-      pending.listPendingDiscussions(dataDir, threadId),
+      mutate(threadId, () => comments.addComment(dataDir, threadId, input)),
+    listPendingDiscussions: (threadId: string): PendingDiscussion[] => {
+      inspect(threadId)
+      return pending.listPendingDiscussions(dataDir, threadId)
+    },
     addPendingDiscussion: (
       threadId: string,
       input: CreatePendingDiscussionInput,
-    ): PendingDiscussion => pending.addPendingDiscussion(dataDir, threadId, input),
+    ): PendingDiscussion =>
+      mutate(threadId, () => pending.addPendingDiscussion(dataDir, threadId, input)),
     approvePendingDiscussion: (threadId: string, pendingId: string): Comment =>
-      pending.approvePendingDiscussion(dataDir, threadId, pendingId),
+      mutate(threadId, () => pending.approvePendingDiscussion(dataDir, threadId, pendingId)),
     editPendingDiscussion: (
       threadId: string,
       pendingId: string,
       input: EditPendingDiscussionInput,
-    ): PendingDiscussion =>
-      pending.editPendingDiscussion(dataDir, threadId, pendingId, input),
+    ): PendingDiscussion => mutate(threadId, () =>
+      pending.editPendingDiscussion(dataDir, threadId, pendingId, input)),
     rejectPendingDiscussion: (threadId: string, pendingId: string): void =>
-      pending.rejectPendingDiscussion(dataDir, threadId, pendingId),
+      mutate(threadId, () => pending.rejectPendingDiscussion(dataDir, threadId, pendingId)),
     createProposal: (
       threadId: string,
       input: CreateConsolidationInput,
-    ): ConsolidationProposal => proposals.createProposal(dataDir, threadId, input),
+    ): ConsolidationProposal =>
+      mutate(threadId, () => proposals.createProposal(dataDir, threadId, input)),
     getProposal: (
       threadId: string,
       proposalId: string,
-    ): ConsolidationProposal | null =>
-      proposals.getProposal(dataDir, threadId, proposalId),
+    ): ConsolidationProposal | null => {
+      inspect(threadId)
+      return proposals.getProposal(dataDir, threadId, proposalId)
+    },
     getConsolidationDetail: (
       threadId: string,
       proposalId: string,
     ): ConsolidationDetail | null => {
+      inspect(threadId)
       const proposal = proposals.getProposal(dataDir, threadId, proposalId)
       if (!proposal) return null
       return {
@@ -104,35 +150,38 @@ export function createStorage(dataDir: string) {
         latest_review_body: proposals.getLatestReviewBody(dataDir, threadId, proposalId),
       }
     },
-    listProposals: (threadId: string): ConsolidationProposal[] =>
-      proposals.listProposals(dataDir, threadId),
+    listProposals: (threadId: string): ConsolidationProposal[] => {
+      inspect(threadId)
+      return proposals.listProposals(dataDir, threadId)
+    },
     addProposalRevision: (
       threadId: string,
       proposalId: string,
       body: string,
       author: CommentAuthor,
-    ): ProposalRevision =>
-      proposals.addProposalRevision(dataDir, threadId, proposalId, body, author),
+    ): ProposalRevision => mutate(threadId, () =>
+      proposals.addProposalRevision(dataDir, threadId, proposalId, body, author)),
     addProposalReview: (
       threadId: string,
       proposalId: string,
       body: string,
       author: Parameters<typeof proposals.addProposalReview>[4],
       revisionId: string | null,
-    ): ProposalReview =>
-      proposals.addProposalReview(dataDir, threadId, proposalId, body, author, revisionId),
+    ): ProposalReview => mutate(threadId, () =>
+      proposals.addProposalReview(dataDir, threadId, proposalId, body, author, revisionId)),
     updateProposal: (
       threadId: string,
       proposalId: string,
       patch: Partial<ConsolidationProposal>,
-    ): ConsolidationProposal =>
-      proposals.updateProposal(dataDir, threadId, proposalId, patch),
+    ): ConsolidationProposal => mutate(threadId, () =>
+      proposals.updateProposal(dataDir, threadId, proposalId, patch)),
     rejectProposal: (threadId: string, proposalId: string): ConsolidationProposal =>
-      proposals.rejectProposal(dataDir, threadId, proposalId),
+      mutate(threadId, () => proposals.rejectProposal(dataDir, threadId, proposalId)),
     saveProposalOutput: (
       threadId: string,
       proposalId: string,
     ): SavedConsolidation => {
+      inspect(threadId)
       const thread = threads.getThread(dataDir, threadId)
       if (!thread) throw new NotFoundError(`thread ${threadId} not found`)
       const body = proposals.getLatestRevision(dataDir, threadId, proposalId)
@@ -142,12 +191,14 @@ export function createStorage(dataDir: string) {
         body,
       })
       threads.closeThread(dataDir, threadId)
+      integrity.acceptApplicationWrite(dataDir, threadId)
       return saved
     },
     applyProposalNextIteration: (
       threadId: string,
       proposalId: string,
     ): Thread => {
+      inspect(threadId)
       const thread = threads.getThread(dataDir, threadId)
       if (!thread) throw new NotFoundError(`thread ${threadId} not found`)
       const body = proposals.getLatestRevision(dataDir, threadId, proposalId)
@@ -161,18 +212,23 @@ export function createStorage(dataDir: string) {
       context.copyThreadContext(dataDir, threadId, next.id)
       threads.archiveThread(dataDir, threadId)
       proposals.markApplied(dataDir, threadId, proposalId, next.id)
+      integrity.acceptApplicationWrite(dataDir, threadId)
+      integrity.acceptApplicationWrite(dataDir, next.id)
       return next
     },
     getLatestRevision: (threadId: string, proposalId: string): string | null =>
       proposals.getLatestRevision(dataDir, threadId, proposalId),
     listRevisions: (threadId: string, proposalId: string): ProposalRevision[] =>
       proposals.listRevisions(dataDir, threadId, proposalId),
-    getThreadContext: (threadId: string): ThreadContext =>
-      context.getThreadContext(dataDir, threadId),
+    getThreadContext: (threadId: string): ThreadContext => {
+      inspect(threadId)
+      return context.getThreadContext(dataDir, threadId)
+    },
     addUrlContextItem: (
       threadId: string,
       input: CreateUrlContextInput,
-    ): ContextItem => context.addUrlContextItem(dataDir, threadId, input),
+    ): ContextItem =>
+      mutate(threadId, () => context.addUrlContextItem(dataDir, threadId, input)),
     addAttachmentFromFile: (
       threadId: string,
       input: {
@@ -181,7 +237,8 @@ export function createStorage(dataDir: string) {
         mediaType: string | null
         sizeBytes: number
       },
-    ): FileContextItem => context.addAttachmentFromFile(dataDir, threadId, input),
+    ): FileContextItem =>
+      mutate(threadId, () => context.addAttachmentFromFile(dataDir, threadId, input)),
     preflightProjectSnapshot: (
       threadId: string,
       sourcePath: string,
@@ -190,9 +247,32 @@ export function createStorage(dataDir: string) {
     createProjectSnapshot: (
       threadId: string,
       input: CreateProjectSnapshotInput,
-    ): ProjectSnapshot => context.createProjectSnapshot(dataDir, threadId, input),
+    ): ProjectSnapshot =>
+      mutate(threadId, () => context.createProjectSnapshot(dataDir, threadId, input)),
     refreshProjectSnapshot: (threadId: string): ProjectSnapshot =>
-      context.refreshProjectSnapshot(dataDir, threadId),
+      mutate(threadId, () => context.refreshProjectSnapshot(dataDir, threadId)),
+    listSnapshotReports: (threadId: string): SnapshotReport[] => {
+      inspect(threadId)
+      return context.listSnapshotReports(dataDir, threadId)
+    },
+    listSavedOutputs: (threadId: string): SavedConsolidation[] => {
+      inspect(threadId)
+      return proposals.listSavedOutputs(dataDir, threadId)
+    },
+    getSavedOutput: (savedId: string): SavedOutput | null =>
+      proposals.getSavedOutput(dataDir, savedId),
+    getIntegrity: (threadId: string): IntegrityReport => {
+      const previousIssues = integrity.currentIntegrityIssueCount(dataDir, threadId)
+      const report = integrity.inspectIntegrity(dataDir, threadId)
+      if (report.issues.length > previousIssues) {
+        onIntegrityUpdate?.({ type: 'integrity_updated', thread_id: threadId })
+      }
+      return report
+    },
+    acknowledgeIntegrity: (threadId: string): IntegrityReport =>
+      integrity.acknowledgeIntegrity(dataDir, threadId),
+    acceptIntegrity: (threadId: string): IntegrityReport =>
+      integrity.acceptApplicationWrite(dataDir, threadId),
     listJobs: (threadId: string): BoundedJob[] => jobs.listJobs(dataDir, threadId),
     getJob: (threadId: string, jobId: string): BoundedJob | null =>
       jobs.getJob(dataDir, threadId, jobId),

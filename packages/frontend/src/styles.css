@@ -270,6 +270,11 @@ section[aria-label="agent-room"] {
   background: #fff0f2;
 }
 
+.warning-panel {
+  border-color: #e6c57a;
+  background: #fffaf0;
+}
+
 .thread-list {
   display: grid;
   gap: 0.55rem;

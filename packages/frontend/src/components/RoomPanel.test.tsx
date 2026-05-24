@@ -62,6 +62,7 @@ function makeRoom(status: AgentRoom['status'] = 'not_started'): AgentRoom {
     active_job_id: status === 'running' || status === 'needs_attention' ? 'job-001' : null,
     auto: null,
     input_prompt: null,
+    session_state: status === 'not_started' ? 'not_started' : 'connected',
   }
 }
 

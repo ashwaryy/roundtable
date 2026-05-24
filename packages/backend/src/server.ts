@@ -29,6 +29,7 @@ import {
   BadRequestError,
   ConfirmationRequiredError,
   ConflictError,
+  IntegrityStorageError,
   NotFoundError,
   type Storage,
 } from './storage'
@@ -38,6 +39,7 @@ const THREAD_ID_RE = /^thread-\d+$/
 const PENDING_ID_RE = /^pd\d+$/
 const JOB_ID_RE = /^job-\d+$/
 const PROPOSAL_ID_RE = /^consolidation-\d+$/
+const SAVED_ID_RE = /^thread-\d+-consolidation-\d+$/
 
 function flattenFiles(files: Record<string, FormidableFile | FormidableFile[]>): FormidableFile[] {
   return Object.values(files).flatMap((file) => (Array.isArray(file) ? file : [file]))
@@ -71,6 +73,19 @@ function handleStorageError(err: unknown, res: express.Response): boolean {
   }
   if (err instanceof ConflictError) {
     res.status(409).json({ error: err.message })
+    return true
+  }
+  if (err instanceof IntegrityStorageError || err instanceof SyntaxError) {
+    res.status(409).json({ error: 'canonical storage contains malformed structured data' })
+    return true
+  }
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code?: string }).code === 'ENOENT'
+  ) {
+    res.status(409).json({ error: 'canonical storage is missing a required artifact' })
     return true
   }
   return false
@@ -118,6 +133,10 @@ export function createApp(deps: {
       return res.status(404).json({ error: 'proposal not found' })
     }
     next()
+  })
+
+  app.get('/api/health', (_req, res) => {
+    res.json({ ok: true })
   })
 
   app.post('/api/threads', (req, res) => {
@@ -361,6 +380,58 @@ export function createApp(deps: {
     }
   })
 
+  app.get('/api/threads/:id/project-snapshot/reports', (req, res) => {
+    try {
+      res.json(storage.listSnapshotReports(req.params.id))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.get('/api/threads/:id/integrity', (req, res) => {
+    try {
+      res.json(storage.getIntegrity(req.params.id))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/integrity/acknowledge', (req, res) => {
+    try {
+      const report = storage.acknowledgeIntegrity(req.params.id)
+      broadcast({ type: 'integrity_updated', thread_id: req.params.id })
+      res.json(report)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.get('/api/threads/:id/saved-outputs', (req, res) => {
+    try {
+      res.json(storage.listSavedOutputs(req.params.id))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.get('/api/saved/:savedId', (req, res) => {
+    if (!SAVED_ID_RE.test(req.params.savedId)) {
+      return res.status(404).json({ error: 'saved output not found' })
+    }
+    try {
+      const saved = storage.getSavedOutput(req.params.savedId)
+      if (!saved) return res.status(404).json({ error: 'saved output not found' })
+      res.json(saved)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
   app.get('/api/threads/:id/consolidations', (req, res) => {
     try {
       if (!storage.getThread(req.params.id)) {
@@ -590,6 +661,18 @@ export function createApp(deps: {
       const room = rooms.startRoom(req.params.id, parsed.data)
       broadcast({ type: 'room_updated', thread_id: req.params.id })
       res.status(201).json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/restart', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      const room = rooms.restartRoom(req.params.id)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
     } catch (err) {
       if (handleStorageError(err, res)) return
       throw err
@@ -861,6 +944,11 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
+  })
+
+  app.use((_err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (handleStorageError(_err, res)) return
+    next(_err)
   })
 
   return app

@@ -29,6 +29,9 @@ import type {
   RequestProposalReviewInput,
   RequestProposalRevisionInput,
   SavedConsolidation,
+  SavedOutput,
+  SnapshotReport,
+  IntegrityReport,
   StartConsolidationInput,
 } from '@roundtable/shared'
 
@@ -52,8 +55,33 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>
 }
 
+const READ_RETRY_DELAYS_MS = [200, 400, 800, 1000, 1000]
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+async function readJson<T>(url: string, attempt = 0): Promise<T> {
+  try {
+    const response = await fetch(url)
+    if (
+      !response.ok &&
+      response.status >= 500 &&
+      attempt < READ_RETRY_DELAYS_MS.length
+    ) {
+      await delay(READ_RETRY_DELAYS_MS[attempt])
+      return readJson<T>(url, attempt + 1)
+    }
+    return json<T>(response)
+  } catch (err) {
+    if (attempt >= READ_RETRY_DELAYS_MS.length) throw err
+    await delay(READ_RETRY_DELAYS_MS[attempt])
+    return readJson<T>(url, attempt + 1)
+  }
+}
+
 export function listThreads(): Promise<Thread[]> {
-  return fetch('/api/threads').then((r) => json<Thread[]>(r))
+  return readJson<Thread[]>('/api/threads')
 }
 
 export function createThread(input: CreateThreadInput): Promise<Thread> {
@@ -65,11 +93,11 @@ export function createThread(input: CreateThreadInput): Promise<Thread> {
 }
 
 export function getThread(id: string): Promise<ThreadDetail> {
-  return fetch(`/api/threads/${id}`).then((r) => json<ThreadDetail>(r))
+  return readJson<ThreadDetail>(`/api/threads/${id}`)
 }
 
 export function listComments(id: string): Promise<Comment[]> {
-  return fetch(`/api/threads/${id}/comments`).then((r) => json<Comment[]>(r))
+  return readJson<Comment[]>(`/api/threads/${id}/comments`)
 }
 
 export function createComment(
@@ -84,9 +112,7 @@ export function createComment(
 }
 
 export function listPendingDiscussions(threadId: string): Promise<PendingDiscussion[]> {
-  return fetch(`/api/threads/${threadId}/pending-discussions`).then((r) =>
-    json<PendingDiscussion[]>(r),
-  )
+  return readJson<PendingDiscussion[]>(`/api/threads/${threadId}/pending-discussions`)
 }
 
 export function createPendingDiscussion(
@@ -133,7 +159,7 @@ export function rejectPendingDiscussion(
 }
 
 export function getThreadContext(threadId: string): Promise<ThreadContext> {
-  return fetch(`/api/threads/${threadId}/context`).then((r) => json<ThreadContext>(r))
+  return readJson<ThreadContext>(`/api/threads/${threadId}/context`)
 }
 
 export function uploadAttachmentFiles(
@@ -187,14 +213,34 @@ export function refreshProjectSnapshot(threadId: string): Promise<ProjectSnapsho
   }).then((r) => json<ProjectSnapshot>(r))
 }
 
+export function listSnapshotReports(threadId: string): Promise<SnapshotReport[]> {
+  return readJson<SnapshotReport[]>(`/api/threads/${threadId}/project-snapshot/reports`)
+}
+
+export function getIntegrity(threadId: string): Promise<IntegrityReport> {
+  return readJson<IntegrityReport>(`/api/threads/${threadId}/integrity`)
+}
+
+export function acknowledgeIntegrity(threadId: string): Promise<IntegrityReport> {
+  return fetch(`/api/threads/${threadId}/integrity/acknowledge`, {
+    method: 'POST',
+  }).then((r) => json<IntegrityReport>(r))
+}
+
+export function listSavedOutputs(threadId: string): Promise<SavedConsolidation[]> {
+  return readJson<SavedConsolidation[]>(`/api/threads/${threadId}/saved-outputs`)
+}
+
+export function getSavedOutput(savedId: string): Promise<SavedOutput> {
+  return readJson<SavedOutput>(`/api/saved/${savedId}`)
+}
+
 export function getRoomPreflight(threadId: string): Promise<RoomPreflight> {
-  return fetch(`/api/threads/${threadId}/room/preflight`).then((r) =>
-    json<RoomPreflight>(r),
-  )
+  return readJson<RoomPreflight>(`/api/threads/${threadId}/room/preflight`)
 }
 
 export function getRoom(threadId: string): Promise<AgentRoom> {
-  return fetch(`/api/threads/${threadId}/room`).then((r) => json<AgentRoom>(r))
+  return readJson<AgentRoom>(`/api/threads/${threadId}/room`)
 }
 
 export function startRoom(
@@ -210,6 +256,12 @@ export function startRoom(
 
 export function stopRoom(threadId: string): Promise<AgentRoom> {
   return fetch(`/api/threads/${threadId}/room/stop`, {
+    method: 'POST',
+  }).then((r) => json<AgentRoom>(r))
+}
+
+export function restartRoom(threadId: string): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room/restart`, {
     method: 'POST',
   }).then((r) => json<AgentRoom>(r))
 }
@@ -288,13 +340,11 @@ export function skipTurn(threadId: string): Promise<AgentTurnResult> {
 }
 
 export function listJobs(threadId: string): Promise<BoundedJob[]> {
-  return fetch(`/api/threads/${threadId}/jobs`).then((r) => json<BoundedJob[]>(r))
+  return readJson<BoundedJob[]>(`/api/threads/${threadId}/jobs`)
 }
 
 export function listConsolidations(threadId: string): Promise<ConsolidationProposal[]> {
-  return fetch(`/api/threads/${threadId}/consolidations`).then((r) =>
-    json<ConsolidationProposal[]>(r),
-  )
+  return readJson<ConsolidationProposal[]>(`/api/threads/${threadId}/consolidations`)
 }
 
 export function startConsolidation(
@@ -323,8 +373,8 @@ export function getConsolidation(
   threadId: string,
   proposalId: string,
 ): Promise<ConsolidationDetail> {
-  return fetch(`/api/threads/${threadId}/consolidations/${proposalId}`).then((r) =>
-    json<ConsolidationDetail>(r),
+  return readJson<ConsolidationDetail>(
+    `/api/threads/${threadId}/consolidations/${proposalId}`,
   )
 }
 

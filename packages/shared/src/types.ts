@@ -162,6 +162,10 @@ export interface SavedConsolidation {
   created_at: string
 }
 
+export interface SavedOutput extends SavedConsolidation {
+  body: string
+}
+
 export type ContextItemKind = 'file' | 'url'
 
 export interface FileContextItem {
@@ -208,6 +212,20 @@ export interface ProjectSnapshot {
   total_bytes: number
   warnings: string[]
   added_since_last_refresh: string[]
+  latest_report_id: string | null
+}
+
+export interface SnapshotReport {
+  id: string
+  thread_id: string
+  created_at: string
+  mode: ProjectSnapshotMode
+  file_count: number
+  total_bytes: number
+  warnings: string[]
+  added_paths: string[]
+  modified_paths: string[]
+  removed_paths: string[]
 }
 
 export interface WorkspaceAddedFile {
@@ -248,6 +266,14 @@ export type RoomStatus =
   | 'needs_attention'
   | 'stopped'
   | 'error'
+
+export type RoomSessionState =
+  | 'not_started'
+  | 'connected'
+  | 'recovered'
+  | 'missing'
+  | 'untracked'
+  | 'stopped'
 
 export interface RoomAgentState {
   ready_at: string | null
@@ -294,6 +320,23 @@ export interface AgentRoom {
   active_job_id: string | null
   auto: AutoDiscussionState | null
   input_prompt: AgentInputPrompt | null
+  session_state: RoomSessionState
+}
+
+export type IntegrityIssueKind = 'added' | 'modified' | 'deleted' | 'invalid'
+
+export interface IntegrityIssue {
+  kind: IntegrityIssueKind
+  path: string
+  message: string
+  detected_at: string
+}
+
+export interface IntegrityReport {
+  thread_id: string
+  checked_at: string
+  acknowledged_at: string | null
+  issues: IntegrityIssue[]
 }
 
 export interface RoomToolPreflight {

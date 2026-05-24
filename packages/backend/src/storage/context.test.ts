@@ -12,6 +12,8 @@ import {
   listWorkspaceAddedFiles,
   preflightProjectSnapshot,
   refreshProjectSnapshot,
+  listSnapshotReports,
+  copyThreadContext,
 } from './context'
 import { attachmentsDir, projectSnapshotDir, threadDir } from './paths'
 import { ConfirmationRequiredError } from './errors'
@@ -124,6 +126,43 @@ describe('project snapshots', () => {
 
     const snapshot = refreshProjectSnapshot(dataDir, 'thread-1')
     expect(snapshot.added_since_last_refresh).toEqual(['b.md'])
+    fs.rmSync(project, { recursive: true, force: true })
+  })
+
+  it('reports same-size modified and removed files by content hash', () => {
+    const project = makeProject()
+    fs.writeFileSync(path.join(project, 'a.md'), 'one')
+    fs.writeFileSync(path.join(project, 'removed.md'), 'gone')
+    createProjectSnapshot(dataDir, 'thread-1', {
+      source_path: project,
+      confirmed: true,
+    })
+    fs.writeFileSync(path.join(project, 'a.md'), 'two')
+    fs.rmSync(path.join(project, 'removed.md'))
+
+    refreshProjectSnapshot(dataDir, 'thread-1')
+    const reports = listSnapshotReports(dataDir, 'thread-1')
+    expect(reports).toHaveLength(2)
+    expect(reports[1].modified_paths).toEqual(['a.md'])
+    expect(reports[1].removed_paths).toEqual(['removed.md'])
+    fs.rmSync(project, { recursive: true, force: true })
+  })
+
+  it('creates a fresh baseline report when copied to the next thread', () => {
+    const project = makeProject()
+    fs.writeFileSync(path.join(project, 'a.md'), 'one')
+    createProjectSnapshot(dataDir, 'thread-1', {
+      source_path: project,
+      confirmed: true,
+    })
+    createThread(dataDir, { title: 'Next', body: 'next' })
+
+    copyThreadContext(dataDir, 'thread-1', 'thread-2')
+
+    expect(listSnapshotReports(dataDir, 'thread-1')).toHaveLength(1)
+    const copied = listSnapshotReports(dataDir, 'thread-2')
+    expect(copied).toHaveLength(1)
+    expect(copied[0].added_paths).toEqual(['a.md'])
     fs.rmSync(project, { recursive: true, force: true })
   })
 })

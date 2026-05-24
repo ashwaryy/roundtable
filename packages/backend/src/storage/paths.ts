@@ -60,6 +60,18 @@ export function projectSnapshotManifestPath(
   return path.join(threadDir(dataDir, threadId), 'project-snapshot-manifest.json')
 }
 
+export function projectSnapshotReportsDir(dataDir: string, threadId: string): string {
+  return path.join(threadDir(dataDir, threadId), 'project-snapshot-reports')
+}
+
+export function projectSnapshotReportPath(
+  dataDir: string,
+  threadId: string,
+  reportId: string,
+): string {
+  return path.join(projectSnapshotReportsDir(dataDir, threadId), `${reportId}.json`)
+}
+
 export function roundtableInternalDir(dataDir: string, threadId: string): string {
   return path.join(threadDir(dataDir, threadId), '.roundtable')
 }
@@ -70,6 +82,10 @@ export function roundtableBinDir(dataDir: string, threadId: string): string {
 
 export function roomJsonPath(dataDir: string, threadId: string): string {
   return path.join(roundtableInternalDir(dataDir, threadId), 'room.json')
+}
+
+export function integrityPath(dataDir: string, threadId: string): string {
+  return path.join(roundtableInternalDir(dataDir, threadId), 'integrity.json')
 }
 
 export function currentTurnPath(dataDir: string, threadId: string): string {

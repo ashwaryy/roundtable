@@ -42,6 +42,7 @@ import {
   roundtableHelperPath,
   roundtableInternalDir,
   roundtableTmpDir,
+  threadsDir,
   threadDir,
   threadJsonPath,
   threadMdPath,
@@ -100,6 +101,7 @@ export interface RoomManager {
   preflight(): RoomPreflight
   getRoom(threadId: string): AgentRoom
   startRoom(threadId: string, input: StartRoomInput): AgentRoom
+  restartRoom(threadId: string): AgentRoom
   stopRoom(threadId: string): AgentRoom
   nudgeRoom(threadId: string, input: NudgeRoomInput): AgentRoom
   markReady(threadId: string, agent: AgentName, token: string | null): AgentRoom
@@ -238,6 +240,7 @@ function defaultRoom(threadId: string): InternalRoom {
     active_job_id: null,
     auto: null,
     input_prompt: null,
+    session_state: 'not_started',
     token: '',
   }
 }
@@ -296,6 +299,36 @@ function writeTextFile(filePath: string, contents: string): void {
 
 function removeIfExists(filePath: string): void {
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+}
+
+function cleanupResolvedTurnFiles(dataDir: string, job: BoundedJob): void {
+  if (job.status !== 'completed' && job.status !== 'skipped') return
+  const dir = roundtableTmpDir(dataDir, job.thread_id)
+  if (!fs.existsSync(dir)) return
+  for (const file of fs.readdirSync(dir)) {
+    if (file.startsWith(`${job.turn.id}-`)) {
+      fs.rmSync(path.join(dir, file), { force: true })
+    }
+  }
+}
+
+function cleanupStoppedRoomFiles(dataDir: string, threadId: string): void {
+  for (const filePath of [
+    currentTurnPath(dataDir, threadId),
+    queuedConsolidationPath(dataDir, threadId),
+    roomPromptPath(dataDir, threadId, 'claude'),
+    roomPromptPath(dataDir, threadId, 'codex'),
+    path.join(roundtableInternalDir(dataDir, threadId), 'launch-claude.sh'),
+    path.join(roundtableInternalDir(dataDir, threadId), 'launch-codex.sh'),
+    path.join(roundtableTmpDir(dataDir, threadId), 'consolidation-context.md'),
+    roundtableHelperPath(dataDir, threadId),
+    claudeLocalSettingsPath(dataDir, threadId),
+    codexProjectConfigPath(dataDir, threadId),
+    codexRulesPath(dataDir, threadId),
+  ]) {
+    removeIfExists(filePath)
+  }
+  fs.rmSync(roundtableTmpDir(dataDir, threadId), { recursive: true, force: true })
 }
 
 function turnTimeoutMs(): number {
@@ -884,6 +917,7 @@ function markError(dataDir: string, room: InternalRoom, message: string): AgentR
     updated_at: now(),
     last_error: message,
     active_job_id: null,
+    session_state: message.includes('tmux session') ? 'missing' : room.session_state,
   }
   writeRoom(dataDir, updated)
   return stripToken(updated)
@@ -1090,6 +1124,8 @@ export function createRoomManager(options: {
   onUpdate?: (event: RoundtableEvent) => void
   startupTrustPromptPollIntervalMs?: number
   startupTrustPromptTimeoutMs?: number
+  beforeCanonicalWrite?: (threadId: string) => void
+  onCanonicalWrite?: (threadId: string) => void
 }): RoomManager {
   const { dataDir, backendUrl } = options
   const executor = options.executor ?? new SystemCommandExecutor()
@@ -1431,7 +1467,9 @@ export function createRoomManager(options: {
     input: StartConsolidationInput,
   ): ConsolidationTurnResult {
     ensureConsolidationRoomAvailable(room)
+    options.beforeCanonicalWrite?.(room.thread_id)
     const proposal = createProposal(dataDir, room.thread_id, input)
+    options.onCanonicalWrite?.(room.thread_id)
     const job = createConsolidationJob({
       dataDir,
       threadId: room.thread_id,
@@ -1508,6 +1546,7 @@ export function createRoomManager(options: {
   function finishCompletedTurn(room: InternalRoom, job: BoundedJob): InternalRoom {
     clearTurnTimer(job.id)
     removeIfExists(currentTurnPath(dataDir, room.thread_id))
+    cleanupResolvedTurnFiles(dataDir, job)
 
     const auto = room.auto
     if (!auto || job.turn.auto_run_id !== auto.run_id) {
@@ -1598,7 +1637,99 @@ export function createRoomManager(options: {
     return readRoom(dataDir, room.thread_id)
   }
 
-  return {
+  function reconcileRoom(threadId: string, startup = false): InternalRoom {
+    const room = readRoom(dataDir, threadId)
+    const roomFileExists = fs.existsSync(roomJsonPath(dataDir, threadId))
+    const live = sessionExists(executor, room.tmux_session)
+    const thread = JSON.parse(fs.readFileSync(threadJsonPath(dataDir, threadId), 'utf8')) as {
+      status: string
+    }
+    if ((thread.status === 'closed' || thread.status === 'archived') && live) {
+      executor.execFile('tmux', ['kill-session', '-t', room.tmux_session])
+      const stopped = {
+        ...room,
+        status: 'stopped' as const,
+        session_state: 'stopped' as const,
+        stopped_at: now(),
+        updated_at: now(),
+        active_job_id: null,
+        auto: null,
+      }
+      writeRoom(dataDir, stopped)
+      cleanupStoppedRoomFiles(dataDir, threadId)
+      return stopped
+    }
+    if (!roomFileExists && live) {
+      const untracked: InternalRoom = {
+        ...room,
+        status: 'needs_attention',
+        session_state: 'untracked',
+        last_error: 'An untracked tmux session exists; stop it before restarting the room.',
+        updated_at: now(),
+      }
+      writeRoom(dataDir, untracked)
+      return untracked
+    }
+    if (!roomFileExists) return room
+    if (live && room.session_state === 'untracked') return room
+    if (live) {
+      const recovered: InternalRoom = {
+        ...room,
+        session_state:
+          startup
+            ? 'recovered'
+            : room.session_state === 'connected' || room.session_state === 'recovered'
+            ? room.session_state
+            : 'recovered',
+        updated_at: now(),
+      }
+      const active = recovered.active_job_id
+        ? getJob(dataDir, threadId, recovered.active_job_id)
+        : null
+      if (active?.status === 'running') scheduleTimeout(active)
+      writeRoom(dataDir, recovered)
+      return recovered
+    }
+    if (
+      room.status === 'not_started' ||
+      room.status === 'stopped' ||
+      room.session_state === 'stopped'
+    ) {
+      return room
+    }
+    const active = room.active_job_id ? getJob(dataDir, threadId, room.active_job_id) : null
+    if (active?.status === 'running') {
+      writeJob(dataDir, {
+        ...active,
+        status: 'failed',
+        completed_at: now(),
+        failure_reason: 'tmux session disappeared while the turn was running',
+        logs: [...active.logs, 'Room session missing after backend restart.'],
+      })
+    }
+    const missing: InternalRoom = {
+      ...room,
+      status: room.active_job_id ? 'needs_attention' : 'error',
+      session_state: 'missing',
+      updated_at: now(),
+      last_error: room.active_job_id
+        ? 'Room session is missing; restart the room, then retry or skip the interrupted turn.'
+        : 'Room session is missing; restart the room to continue.',
+    }
+    writeRoom(dataDir, missing)
+    return missing
+  }
+
+  function reconcilePersistedRooms(): void {
+    const dir = threadsDir(dataDir)
+    if (!fs.existsSync(dir)) return
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !fs.existsSync(threadJsonPath(dataDir, entry.name))) continue
+      reconcileRoom(entry.name, true)
+    }
+  }
+
+  const manager: RoomManager = {
     preflight(): RoomPreflight {
       const tools = {
         tmux: toolPreflight(executor, 'tmux'),
@@ -1613,6 +1744,10 @@ export function createRoomManager(options: {
 
     getRoom(threadId: string): AgentRoom {
       ensureThread(dataDir, threadId)
+      const reconciled = reconcileRoom(threadId)
+      if (reconciled.session_state === 'missing' || reconciled.session_state === 'untracked') {
+        return stripToken(reconciled)
+      }
       return stripToken(refreshInputPrompt(expireActiveTurn(threadId)))
     },
 
@@ -1663,6 +1798,7 @@ export function createRoomManager(options: {
         last_error: null,
         active_job_id: null,
         auto: null,
+        session_state: 'connected',
         token: randomToken(),
       }
       if (shouldResume.codex) {
@@ -1713,11 +1849,51 @@ export function createRoomManager(options: {
       return stripToken(room)
     },
 
+    restartRoom(threadId: string): AgentRoom {
+      ensureThread(dataDir, threadId)
+      const existing = reconcileRoom(threadId)
+      if (sessionExists(executor, existing.tmux_session)) {
+        throw new ConflictError('room session is already running')
+      }
+      const activeJobId = existing.active_job_id
+      const auto = existing.auto
+      manager.startRoom(threadId, {
+        claude_model: existing.claude_model,
+        codex_model: existing.codex_model,
+      })
+      const started = readRoom(dataDir, threadId)
+      const restarted: InternalRoom = {
+        ...started,
+        active_job_id: activeJobId,
+        auto,
+        session_state: 'connected',
+        last_error: activeJobId
+          ? 'Room restarted. Wait for readiness, then retry or skip the interrupted turn.'
+          : null,
+      }
+      writeRoom(dataDir, restarted)
+      return stripToken(restarted)
+    },
+
     stopRoom(threadId: string): AgentRoom {
       ensureThread(dataDir, threadId)
       const room = readRoom(dataDir, threadId)
       if (sessionExists(executor, room.tmux_session)) {
         executor.execFile('tmux', ['kill-session', '-t', room.tmux_session])
+      }
+      if (room.active_job_id) {
+        const job = getJob(dataDir, threadId, room.active_job_id)
+        if (job?.status === 'running') {
+          const skipped: BoundedJob = {
+            ...job,
+            status: 'skipped',
+            completed_at: now(),
+            failure_reason: 'room stopped before the active turn completed',
+            logs: [...job.logs, 'Room stopped; active turn skipped.'],
+          }
+          writeJob(dataDir, skipped)
+          cleanupResolvedTurnFiles(dataDir, skipped)
+        }
       }
       const timestamp = now()
       const updated: InternalRoom = {
@@ -1727,10 +1903,12 @@ export function createRoomManager(options: {
         stopped_at: timestamp,
         active_job_id: null,
         auto: null,
+        session_state: 'stopped',
       }
       if (room.active_job_id) clearTurnTimer(room.active_job_id)
       removeIfExists(currentTurnPath(dataDir, threadId))
       writeRoom(dataDir, updated)
+      cleanupStoppedRoomFiles(dataDir, threadId)
       return stripToken(updated)
     },
 
@@ -1764,7 +1942,11 @@ export function createRoomManager(options: {
       if (!token || token !== room.token) {
         throw new BadRequestError('invalid room token')
       }
-      if (room.status !== 'starting' && room.status !== 'idle') {
+      if (
+        room.status !== 'starting' &&
+        room.status !== 'idle' &&
+        !(room.status === 'needs_attention' && room.active_job_id)
+      ) {
         throw new BadRequestError('room is not starting')
       }
       const updated: InternalRoom = {
@@ -1779,8 +1961,9 @@ export function createRoomManager(options: {
         last_error: null,
       }
       if (updated.agents.claude.ready_at && updated.agents.codex.ready_at) {
-        updated.status = 'idle'
+        updated.status = updated.active_job_id ? 'needs_attention' : 'idle'
       }
+      updated.session_state = 'connected'
       writeRoom(dataDir, updated)
       return stripToken(updated)
     },
@@ -1878,9 +2061,11 @@ export function createRoomManager(options: {
       if (!proposal) throw new NotFoundError(`proposal ${proposalId} not found`)
       const revisionId = latestRevisionId(threadId, proposalId)
       if (!revisionId) throw new BadRequestError('proposal has no revision to review')
+      options.beforeCanonicalWrite?.(threadId)
       const updated = updateProposal(dataDir, threadId, proposalId, {
         reviewer_agent: input.reviewer_agent ?? proposal.reviewer_agent,
       })
+      options.onCanonicalWrite?.(threadId)
       const job = createConsolidationJob({
         dataDir,
         threadId,
@@ -1905,10 +2090,12 @@ export function createRoomManager(options: {
       if (!proposal) throw new NotFoundError(`proposal ${proposalId} not found`)
       const revisionId = latestRevisionId(threadId, proposalId)
       if (!revisionId) throw new BadRequestError('proposal has no revision to revise')
+      options.beforeCanonicalWrite?.(threadId)
       const updated = updateProposal(dataDir, threadId, proposalId, {
         reviewer_agent: input.reviewer_agent ?? proposal.reviewer_agent,
         reviser_agent: input.reviser_agent ?? proposal.reviser_agent,
       })
+      options.onCanonicalWrite?.(threadId)
       const job = createConsolidationJob({
         dataDir,
         threadId,
@@ -2051,12 +2238,14 @@ export function createRoomManager(options: {
       const replyTo =
         input.discussion_id ??
         (job.turn.scope === 'discussion' ? job.turn.discussion_id : null)
+      options.beforeCanonicalWrite?.(threadId)
       const comment = addAgentComment(dataDir, threadId, {
         author: input.agent,
         body: input.body,
         type: input.type,
         reply_to: replyTo,
       })
+      options.onCanonicalWrite?.(threadId)
 
       const completed: BoundedJob = {
         ...job,
@@ -2102,6 +2291,7 @@ export function createRoomManager(options: {
         throw new BadRequestError('active turn has timed out')
       }
 
+      options.beforeCanonicalWrite?.(threadId)
       const pending = addPendingDiscussion(dataDir, threadId, {
         author: input.agent,
         body: input.body,
@@ -2110,6 +2300,7 @@ export function createRoomManager(options: {
           input.origin_discussion_id ?? job.turn.discussion_id ?? null,
         origin_comment_id: input.origin_comment_id ?? null,
       })
+      options.onCanonicalWrite?.(threadId)
 
       const completed: BoundedJob = {
         ...job,
@@ -2161,6 +2352,7 @@ export function createRoomManager(options: {
         throw new BadRequestError('active turn has timed out')
       }
 
+      options.beforeCanonicalWrite?.(threadId)
       const revision = addProposalRevision(
         dataDir,
         threadId,
@@ -2168,6 +2360,7 @@ export function createRoomManager(options: {
         input.body,
         input.agent,
       )
+      options.onCanonicalWrite?.(threadId)
       const completed: BoundedJob = {
         ...job,
         status: 'completed',
@@ -2211,6 +2404,7 @@ export function createRoomManager(options: {
       }
 
       proposal = updateProposal(dataDir, threadId, proposal.id, { status: 'review' })
+      options.onCanonicalWrite?.(threadId)
       const updated = finishCompletedTurn(room, completed)
       broadcast({
         type: 'consolidation_updated',
@@ -2255,6 +2449,7 @@ export function createRoomManager(options: {
         throw new BadRequestError('active turn has timed out')
       }
 
+      options.beforeCanonicalWrite?.(threadId)
       const review = addProposalReview(
         dataDir,
         threadId,
@@ -2263,6 +2458,7 @@ export function createRoomManager(options: {
         input.agent,
         job.turn.revision_id,
       )
+      options.onCanonicalWrite?.(threadId)
       const completed: BoundedJob = {
         ...job,
         status: 'completed',
@@ -2278,6 +2474,7 @@ export function createRoomManager(options: {
       if (!job.turn.auto_revision_after_review) {
         const updated = finishCompletedTurn(room, completed)
         const current = updateProposal(dataDir, threadId, proposal.id, { status: 'review' })
+        options.onCanonicalWrite?.(threadId)
         broadcast({
           type: 'consolidation_updated',
           thread_id: threadId,
@@ -2366,6 +2563,9 @@ export function createRoomManager(options: {
       if (room.status !== 'needs_attention' || !room.active_job_id) {
         throw new BadRequestError('room does not have a turn needing attention')
       }
+      if (!sessionExists(executor, room.tmux_session)) {
+        throw new BadRequestError('restart the room before skipping the interrupted turn')
+      }
 
       const job = getJob(dataDir, threadId, room.active_job_id)
       if (!job) throw new NotFoundError(`job ${room.active_job_id} not found`)
@@ -2382,4 +2582,6 @@ export function createRoomManager(options: {
       return { room: stripToken(updated), job: skipped }
     },
   }
+  reconcilePersistedRooms()
+  return manager
 }

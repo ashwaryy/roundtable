@@ -25,3 +25,10 @@ export class ConflictError extends Error {
     this.name = 'ConflictError'
   }
 }
+
+export class IntegrityStorageError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'IntegrityStorageError'
+  }
+}

@@ -22,6 +22,14 @@ afterEach(() => {
   fs.rmSync(dataDir, { recursive: true, force: true })
 })
 
+describe('GET /api/health', () => {
+  it('reports backend readiness without thread data access', async () => {
+    const res = await request(app).get('/api/health')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ ok: true })
+  })
+})
+
 describe('POST /api/threads', () => {
   it('creates a thread and broadcasts thread_created', async () => {
     const res = await request(app)
@@ -345,6 +353,74 @@ describe('context routes', () => {
       .send({ source_path: path.join(dataDir, 'missing') })
     expect(res.status).toBe(400)
   })
+
+  it('returns immutable snapshot report history', async () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-server-project-'))
+    fs.writeFileSync(path.join(project, 'a.md'), 'one')
+    await request(app)
+      .put('/api/threads/thread-1/project-snapshot')
+      .send({ source_path: project, confirmed: true })
+    fs.writeFileSync(path.join(project, 'a.md'), 'two')
+    await request(app).post('/api/threads/thread-1/project-snapshot/refresh')
+
+    const res = await request(app).get('/api/threads/thread-1/project-snapshot/reports')
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(2)
+    expect(res.body[1].modified_paths).toEqual(['a.md'])
+    fs.rmSync(project, { recursive: true, force: true })
+  })
+})
+
+describe('integrity and saved output routes', () => {
+  beforeEach(async () => {
+    await request(app).post('/api/threads').send({ title: 'A', body: 'source' })
+  })
+
+  it('reports and acknowledges external canonical mutations without blocking writes', async () => {
+    fs.writeFileSync(path.join(dataDir, 'threads', 'thread-1', 'thread.md'), 'external')
+    const report = await request(app).get('/api/threads/thread-1/integrity')
+    expect(report.status).toBe(200)
+    expect(report.body.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'modified', path: 'thread.md' })]),
+    )
+
+    const comment = await request(app)
+      .post('/api/threads/thread-1/comments')
+      .send({ body: 'operation continues' })
+    expect(comment.status).toBe(201)
+
+    const acknowledged = await request(app).post(
+      '/api/threads/thread-1/integrity/acknowledge',
+    )
+    expect(acknowledged.body.issues).toEqual([])
+  })
+
+  it('returns a controlled error for malformed canonical JSONL', async () => {
+    fs.writeFileSync(path.join(dataDir, 'threads', 'thread-1', 'comments.jsonl'), '{bad}\n')
+    const report = await request(app).get('/api/threads/thread-1/integrity')
+    expect(report.body.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'invalid' })]),
+    )
+    const comments = await request(app).get('/api/threads/thread-1/comments')
+    expect(comments.status).toBe(409)
+  })
+
+  it('lists and retrieves saved final output bodies', async () => {
+    const storage = createStorage(dataDir)
+    const proposal = storage.createProposal('thread-1', {})
+    storage.addProposalRevision('thread-1', proposal.id, '# Final output', 'human')
+
+    const saved = await request(app).post(
+      `/api/threads/thread-1/consolidations/${proposal.id}/save`,
+    )
+    expect(saved.status).toBe(200)
+
+    const list = await request(app).get('/api/threads/thread-1/saved-outputs')
+    expect(list.body[0].id).toBe(saved.body.id)
+    const detail = await request(app).get(`/api/saved/${saved.body.id}`)
+    expect(detail.status).toBe(200)
+    expect(detail.body.body).toBe('# Final output')
+  })
 })
 
 function testRoom(status: AgentRoom['status'] = 'starting'): AgentRoom {
@@ -367,6 +443,7 @@ function testRoom(status: AgentRoom['status'] = 'starting'): AgentRoom {
     active_job_id: null,
     auto: null,
     input_prompt: null,
+    session_state: status === 'not_started' ? 'not_started' : 'connected',
   }
 }
 
@@ -442,6 +519,7 @@ describe('room routes', () => {
       preflight: vi.fn(() => testPreflight()),
       getRoom: vi.fn(() => testRoom('not_started')),
       startRoom: vi.fn(() => testRoom('starting')),
+      restartRoom: vi.fn(() => testRoom('starting')),
       stopRoom: vi.fn(() => testRoom('stopped')),
       nudgeRoom: vi.fn(() => testRoom('idle')),
       markReady: vi.fn(() => testRoom('idle')),
@@ -633,6 +711,12 @@ describe('room routes', () => {
     expect(res.status).toBe(200)
     expect(res.body.status).toBe('stopped')
     expect(rooms.stopRoom).toHaveBeenCalledWith('thread-1')
+  })
+
+  it('restarts a recoverable room', async () => {
+    const res = await request(app).post('/api/threads/thread-1/room/restart')
+    expect(res.status).toBe(200)
+    expect(rooms.restartRoom).toHaveBeenCalledWith('thread-1')
   })
 
   it('nudges an idle room', async () => {

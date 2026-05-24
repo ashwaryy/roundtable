@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
-import type { SnapshotPreflight, ThreadContext } from '@roundtable/shared'
+import type { SnapshotPreflight, SnapshotReport, ThreadContext } from '@roundtable/shared'
 import {
   addUrlContextItem,
   createProjectSnapshot,
@@ -17,10 +17,12 @@ function formatBytes(bytes: number): string {
 export function ThreadContextPanel({
   threadId,
   context,
+  reports = [],
   onUpdate,
 }: {
   threadId: string
   context: ThreadContext | null
+  reports?: SnapshotReport[]
   onUpdate: () => void
 }) {
   const [url, setUrl] = useState('')
@@ -142,6 +144,17 @@ export function ThreadContextPanel({
             </p>
             <p>Source: {context.snapshot.source_path}</p>
             <button onClick={handleRefreshSnapshot}>Refresh Snapshot</button>
+            {reports.length > 0 ? (
+              <div aria-label="snapshot-report-history">
+                <h3>Snapshot Changes</h3>
+                {[...reports].reverse().slice(0, 4).map((report) => (
+                  <p key={report.id}>
+                    {report.id}: +{report.added_paths.length} changed{' '}
+                    {report.modified_paths.length} removed {report.removed_paths.length}
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : (
           <p>No project snapshot.</p>

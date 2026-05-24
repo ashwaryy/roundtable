@@ -7,3 +7,4 @@ export type RoundtableEvent =
   | { type: 'consolidation_updated'; thread_id: string; proposal_id: string }
   | { type: 'room_updated'; thread_id: string }
   | { type: 'job_updated'; thread_id: string; job_id: string }
+  | { type: 'integrity_updated'; thread_id: string }

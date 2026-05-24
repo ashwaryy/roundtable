@@ -9,6 +9,7 @@ import type {
   ProposalReview,
   ProposalRevision,
   SavedConsolidation,
+  SavedOutput,
 } from '@roundtable/shared'
 import {
   consolidationDir,
@@ -20,6 +21,7 @@ import {
   revisionsDir,
   revisionPath,
   savedConsolidationDir,
+  savedDir,
   threadJsonPath,
 } from './paths'
 import { BadRequestError, ConflictError, NotFoundError } from './errors'
@@ -398,6 +400,31 @@ export function saveProposalOutput(
     saved_artifact_id: savedId,
   })
   return saved
+}
+
+export function listSavedOutputs(dataDir: string, threadId: string): SavedConsolidation[] {
+  const dir = savedDir(dataDir)
+  if (!fs.existsSync(dir)) return []
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(dir, entry.name, 'saved.json'))
+    .filter((filePath) => fs.existsSync(filePath))
+    .map(
+      (filePath) =>
+        JSON.parse(fs.readFileSync(filePath, 'utf8')) as SavedConsolidation,
+    )
+    .filter((saved) => saved.source_thread_id === threadId)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+}
+
+export function getSavedOutput(dataDir: string, savedId: string): SavedOutput | null {
+  const dir = savedConsolidationDir(dataDir, savedId)
+  const metadataPath = path.join(dir, 'saved.json')
+  const bodyPath = path.join(dir, 'thread.md')
+  if (!fs.existsSync(metadataPath) || !fs.existsSync(bodyPath)) return null
+  const saved = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as SavedConsolidation
+  return { ...saved, body: fs.readFileSync(bodyPath, 'utf8') }
 }
 
 export function removeProposal(dataDir: string, threadId: string, proposalId: string): void {

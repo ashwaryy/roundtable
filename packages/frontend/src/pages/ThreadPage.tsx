@@ -13,6 +13,9 @@ import type {
   ThreadContext,
   AgentName,
   ConsolidationProposal,
+  IntegrityReport,
+  SavedConsolidation,
+  SnapshotReport,
 } from '@roundtable/shared'
 import {
   getThread,
@@ -24,6 +27,9 @@ import {
   getRoomPreflight,
   askAgent,
   listConsolidations,
+  getIntegrity,
+  listSavedOutputs,
+  listSnapshotReports,
 } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { CommentForm } from '../components/CommentForm'
@@ -32,6 +38,7 @@ import { PendingDiscussionQueue } from '../components/PendingDiscussionQueue'
 import { ThreadContextPanel } from '../components/ThreadContextPanel'
 import { RoomPanel } from '../components/RoomPanel'
 import { ConsolidationPanel } from '../components/ConsolidationPanel'
+import { IntegrityPanel } from '../components/IntegrityPanel'
 
 export function ThreadPage() {
   const { id } = useParams<{ id: string }>()
@@ -42,6 +49,9 @@ export function ThreadPage() {
   const [room, setRoom] = useState<AgentRoom | null>(null)
   const [roomPreflight, setRoomPreflight] = useState<RoomPreflight | null>(null)
   const [proposals, setProposals] = useState<ConsolidationProposal[]>([])
+  const [integrity, setIntegrity] = useState<IntegrityReport | null>(null)
+  const [savedOutputs, setSavedOutputs] = useState<SavedConsolidation[]>([])
+  const [snapshotReports, setSnapshotReports] = useState<SnapshotReport[]>([])
 
   const refresh = useCallback(() => {
     if (!id) return
@@ -52,6 +62,9 @@ export function ThreadPage() {
     getRoom(id).then(setRoom)
     getRoomPreflight(id).then(setRoomPreflight)
     listConsolidations(id).then(setProposals)
+    getIntegrity(id).then(setIntegrity)
+    listSavedOutputs(id).then(setSavedOutputs)
+    listSnapshotReports(id).then(setSnapshotReports)
   }, [id])
 
   useEffect(() => {
@@ -100,9 +113,21 @@ export function ThreadPage() {
 
       <div className="thread-layout">
         <div className="thread-main">
+          <IntegrityPanel threadId={thread.id} report={integrity} onUpdate={refresh} />
           <section className="panel thread-body" aria-label="thread-body">
             <Markdown remarkPlugins={[remarkGfm]}>{thread.body}</Markdown>
           </section>
+
+          {thread.status === 'closed' && savedOutputs.length > 0 ? (
+            <section className="panel" aria-label="saved-outputs">
+              <h2>Saved Output</h2>
+              {savedOutputs.map((saved) => (
+                <p key={saved.id}>
+                  <Link to={`/saved/${saved.id}`}>View final saved revision</Link>
+                </p>
+              ))}
+            </section>
+          ) : null}
 
           <section className="panel">
             <div className="section-heading">
@@ -134,6 +159,7 @@ export function ThreadPage() {
           <ThreadContextPanel
             threadId={thread.id}
             context={threadContext}
+            reports={snapshotReports}
             onUpdate={refresh}
           />
 

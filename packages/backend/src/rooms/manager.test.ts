@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createThread } from '../storage/threads'
+import { archiveThread, createThread } from '../storage/threads'
 import {
   claudeLocalSettingsPath,
   codexProjectConfigPath,
@@ -865,6 +865,79 @@ describe('createRoomManager', () => {
 
     expect(stopped.status).toBe('stopped')
     expect(stoppedAgain.status).toBe('stopped')
+    expect(executor.sessions.has('roundtable-thread-1')).toBe(false)
+  })
+
+  it('records an active turn as skipped and removes disposable drafts when stopped', () => {
+    const { manager } = startReadyRoom()
+    manager.askAgent('thread-1', { agent: 'claude' })
+    const tempDir = path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'tmp')
+    expect(fs.existsSync(tempDir)).toBe(true)
+
+    manager.stopRoom('thread-1')
+
+    expect(getJob(dataDir, 'thread-1', 'job-001')?.status).toBe('skipped')
+    expect(fs.existsSync(tempDir)).toBe(false)
+  })
+
+  it('recovers a persisted live session and preserves an active turn', () => {
+    const { manager } = startReadyRoom()
+    manager.askAgent('thread-1', { agent: 'claude' })
+
+    const recovered = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    }).getRoom('thread-1')
+
+    expect(recovered.session_state).toBe('recovered')
+    expect(recovered.active_job_id).toBe('job-001')
+    expect(recovered.status).toBe('running')
+  })
+
+  it('retains an interrupted job through missing-session restart and retry', () => {
+    const { manager } = startReadyRoom()
+    manager.askAgent('thread-1', { agent: 'claude' })
+    executor.sessions.delete('roundtable-thread-1')
+
+    const restored = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    })
+    const missing = restored.getRoom('thread-1')
+    expect(missing.session_state).toBe('missing')
+    expect(missing.status).toBe('needs_attention')
+    expect(getJob(dataDir, 'thread-1', 'job-001')?.status).toBe('failed')
+    expect(() => restored.skipTurn('thread-1')).toThrow('restart the room')
+
+    restored.restartRoom('thread-1')
+    const token = roomToken()
+    restored.markReady('thread-1', 'claude', token)
+    const ready = restored.markReady('thread-1', 'codex', token)
+    expect(ready.status).toBe('needs_attention')
+
+    const retried = restored.retryTurn('thread-1')
+    expect(retried.job.id).toBe('job-002')
+    expect(retried.room.status).toBe('running')
+  })
+
+  it('does not adopt an untracked session and stops terminal-thread sessions', () => {
+    executor.sessions.add('roundtable-thread-1')
+    const untracked = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    }).getRoom('thread-1')
+    expect(untracked.session_state).toBe('untracked')
+
+    archiveThread(dataDir, 'thread-1')
+    const terminal = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    }).getRoom('thread-1')
+    expect(terminal.status).toBe('stopped')
     expect(executor.sessions.has('roundtable-thread-1')).toBe(false)
   })
 })

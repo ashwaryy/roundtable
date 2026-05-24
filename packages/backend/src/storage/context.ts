@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import type {
   ContextItem,
@@ -9,6 +10,7 @@ import type {
   FileContextItem,
   ProjectSnapshot,
   ProjectSnapshotMode,
+  SnapshotReport,
   SnapshotPreflight,
   ThreadContext,
   WorkspaceAddedFile,
@@ -19,6 +21,8 @@ import {
   projectSnapshotDir,
   projectSnapshotJsonPath,
   projectSnapshotManifestPath,
+  projectSnapshotReportPath,
+  projectSnapshotReportsDir,
   threadDir,
   threadJsonPath,
 } from './paths'
@@ -32,6 +36,7 @@ import { appendJsonl } from './jsonl'
 interface ManifestEntry {
   path: string
   size_bytes: number
+  sha256: string
 }
 
 interface CandidateFile {
@@ -266,16 +271,90 @@ function warningsFor(fileCount: number, totalBytes: number): string[] {
   return warnings
 }
 
+function fileHash(filePath: string): string {
+  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
+}
+
 function readManifest(dataDir: string, threadId: string): ManifestEntry[] {
   const manifestPath = projectSnapshotManifestPath(dataDir, threadId)
   if (!fs.existsSync(manifestPath)) return []
-  return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as ManifestEntry[]
+  const stored = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Array<
+    Omit<ManifestEntry, 'sha256'> & { sha256?: string }
+  >
+  return stored.map((entry) => {
+    if (entry.sha256) return { ...entry, sha256: entry.sha256 }
+    const snapshotFile = path.join(projectSnapshotDir(dataDir, threadId), entry.path)
+    return {
+      ...entry,
+      sha256: fs.existsSync(snapshotFile) ? fileHash(snapshotFile) : '',
+    }
+  })
 }
 
 function writeJsonAtomic(filePath: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
   const tmp = `${filePath}.tmp`
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2))
   fs.renameSync(tmp, filePath)
+}
+
+function nextSnapshotReportId(dataDir: string, threadId: string): string {
+  const dir = projectSnapshotReportsDir(dataDir, threadId)
+  if (!fs.existsSync(dir)) return 'snapshot-001'
+  let max = 0
+  for (const file of fs.readdirSync(dir)) {
+    const match = /^snapshot-(\d+)\.json$/.exec(file)
+    if (match) max = Math.max(max, Number(match[1]))
+  }
+  return `snapshot-${String(max + 1).padStart(3, '0')}`
+}
+
+function createSnapshotReport(
+  dataDir: string,
+  threadId: string,
+  snapshot: Omit<ProjectSnapshot, 'latest_report_id'>,
+  previousManifest: ManifestEntry[],
+  manifest: ManifestEntry[],
+): SnapshotReport {
+  const previous = new Map(previousManifest.map((entry) => [entry.path, entry]))
+  const current = new Set(manifest.map((entry) => entry.path))
+  const report: SnapshotReport = {
+    id: nextSnapshotReportId(dataDir, threadId),
+    thread_id: threadId,
+    created_at: snapshot.refreshed_at,
+    mode: snapshot.mode,
+    file_count: snapshot.file_count,
+    total_bytes: snapshot.total_bytes,
+    warnings: snapshot.warnings,
+    added_paths: manifest
+      .map((entry) => entry.path)
+      .filter((entryPath) => !previous.has(entryPath)),
+    modified_paths: manifest
+      .filter((entry) => {
+        const old = previous.get(entry.path)
+        return old !== undefined && old.sha256 !== entry.sha256
+      })
+      .map((entry) => entry.path),
+    removed_paths: previousManifest
+      .map((entry) => entry.path)
+      .filter((entryPath) => !current.has(entryPath)),
+  }
+  writeJsonAtomic(projectSnapshotReportPath(dataDir, threadId, report.id), report)
+  return report
+}
+
+export function listSnapshotReports(dataDir: string, threadId: string): SnapshotReport[] {
+  ensureThread(dataDir, threadId)
+  const dir = projectSnapshotReportsDir(dataDir, threadId)
+  if (!fs.existsSync(dir)) return []
+  return fs
+    .readdirSync(dir)
+    .filter((file) => /^snapshot-\d+\.json$/.test(file))
+    .sort()
+    .map(
+      (file) =>
+        JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as SnapshotReport,
+    )
 }
 
 export function listContextItems(dataDir: string, threadId: string): ContextItem[] {
@@ -378,7 +457,6 @@ export function createProjectSnapshot(
   const snapshotPath = projectSnapshotDir(dataDir, threadId)
   const tmpPath = `${snapshotPath}.tmp-${process.pid}-${Date.now()}`
   const previousManifest = readManifest(dataDir, threadId)
-  const previousPaths = new Set(previousManifest.map((entry) => entry.path))
   const manifest: ManifestEntry[] = []
 
   fs.rmSync(tmpPath, { recursive: true, force: true })
@@ -397,6 +475,7 @@ export function createProjectSnapshot(
       manifest.push({
         path: candidate.relativePath,
         size_bytes: candidate.size_bytes,
+        sha256: fileHash(candidate.absolutePath),
       })
     }
 
@@ -409,7 +488,7 @@ export function createProjectSnapshot(
 
   const existing = readProjectSnapshot(dataDir, threadId)
   const now = new Date().toISOString()
-  const snapshot: ProjectSnapshot = {
+  const snapshotBase: Omit<ProjectSnapshot, 'latest_report_id'> = {
     source_path: preflight.source_path,
     mode: preflight.mode,
     created_at: existing?.created_at ?? now,
@@ -417,9 +496,19 @@ export function createProjectSnapshot(
     file_count: manifest.length,
     total_bytes: manifest.reduce((sum, entry) => sum + entry.size_bytes, 0),
     warnings: preflight.warnings,
-    added_since_last_refresh: manifest
-      .map((entry) => entry.path)
-      .filter((entryPath) => !previousPaths.has(entryPath)),
+    added_since_last_refresh: [],
+  }
+  const report = createSnapshotReport(
+    dataDir,
+    threadId,
+    snapshotBase,
+    previousManifest,
+    manifest,
+  )
+  const snapshot: ProjectSnapshot = {
+    ...snapshotBase,
+    added_since_last_refresh: report.added_paths,
+    latest_report_id: report.id,
   }
 
   writeJsonAtomic(projectSnapshotManifestPath(dataDir, threadId), manifest)
@@ -446,7 +535,8 @@ export function readProjectSnapshot(
   ensureThread(dataDir, threadId)
   const file = projectSnapshotJsonPath(dataDir, threadId)
   if (!fs.existsSync(file)) return null
-  return JSON.parse(fs.readFileSync(file, 'utf8')) as ProjectSnapshot
+  const snapshot = JSON.parse(fs.readFileSync(file, 'utf8')) as ProjectSnapshot
+  return { ...snapshot, latest_report_id: snapshot.latest_report_id ?? null }
 }
 
 function listKnownWorkspacePaths(
@@ -469,6 +559,9 @@ function listKnownWorkspacePaths(
   for (const entry of readManifest(dataDir, threadId)) {
     known.add(toWorkspacePath('project-snapshot', entry.path))
   }
+  for (const report of listSnapshotReports(dataDir, threadId)) {
+    known.add(toWorkspacePath('project-snapshot-reports', `${report.id}.json`))
+  }
   return known
 }
 
@@ -486,7 +579,12 @@ export function listWorkspaceAddedFiles(
       const absolutePath = path.join(dir, entry.name)
       const relativePath = toWorkspacePath(path.relative(root, absolutePath))
       if (entry.isDirectory()) {
-        if (entry.name === 'consolidations' || entry.name === '.roundtable') continue
+        if (
+          entry.name === 'consolidations' ||
+          entry.name === '.roundtable' ||
+          entry.name === '.claude' ||
+          entry.name === '.codex'
+        ) continue
         walk(absolutePath)
         continue
       }
@@ -551,13 +649,28 @@ export function copyThreadContext(
     fs.mkdirSync(targetSnapshotDir, { recursive: true })
   }
 
-  for (const filePath of [
-    projectSnapshotJsonPath(dataDir, sourceThreadId),
-    projectSnapshotManifestPath(dataDir, sourceThreadId),
-  ]) {
+  for (const filePath of [projectSnapshotManifestPath(dataDir, sourceThreadId)]) {
     if (!fs.existsSync(filePath)) continue
     const targetPath = filePath
       .replace(threadDir(dataDir, sourceThreadId), threadDir(dataDir, targetThreadId))
     fs.copyFileSync(filePath, targetPath)
+  }
+
+  const sourceSnapshot = readProjectSnapshot(dataDir, sourceThreadId)
+  if (sourceSnapshot) {
+    const manifest = readManifest(dataDir, targetThreadId)
+    const timestamp = new Date().toISOString()
+    const snapshotBase: Omit<ProjectSnapshot, 'latest_report_id'> = {
+      ...sourceSnapshot,
+      created_at: timestamp,
+      refreshed_at: timestamp,
+      added_since_last_refresh: [],
+    }
+    const report = createSnapshotReport(dataDir, targetThreadId, snapshotBase, [], manifest)
+    writeJsonAtomic(projectSnapshotJsonPath(dataDir, targetThreadId), {
+      ...snapshotBase,
+      added_since_last_refresh: report.added_paths,
+      latest_report_id: report.id,
+    })
   }
 }

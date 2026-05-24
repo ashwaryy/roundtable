@@ -6,6 +6,7 @@ import {
   nudgeRoom,
   pauseAutoDiscussion,
   retryTurn,
+  restartRoom,
   sendRoomInputResponse,
   skipTurn,
   startAutoDiscussion,
@@ -57,6 +58,16 @@ export function RoomPanel({
     setError(null)
     try {
       await stopRoom(threadId)
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleRestart() {
+    setError(null)
+    try {
+      await restartRoom(threadId)
       onUpdate()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -175,6 +186,12 @@ export function RoomPanel({
   const canExtendAuto = room?.status === 'paused' || room?.status === 'turn_limit_reached'
   const canStop = room && room.status !== 'not_started' && room.status !== 'stopped'
   const needsAttention = room?.status === 'needs_attention'
+  const canRestart = room?.session_state === 'missing'
+  const canResolveTurn =
+    needsAttention &&
+    !!room?.active_job_id &&
+    room.session_state !== 'missing' &&
+    room.session_state !== 'untracked'
   const toolEntries = preflight ? Object.values(preflight.tools) : []
 
   useEffect(() => {
@@ -219,6 +236,7 @@ export function RoomPanel({
             </p>
           ) : null}
           <p>Attach: {room.attach_command}</p>
+          <p>Session: {room.session_state.replaceAll('_', ' ')}</p>
           {room.last_error ? <p role="alert">{room.last_error}</p> : null}
         </>
       ) : null}
@@ -263,6 +281,11 @@ export function RoomPanel({
       <button type="button" onClick={handleStop} disabled={!canStop}>
         Stop Room
       </button>
+      {canRestart ? (
+        <button type="button" onClick={handleRestart}>
+          Restart Room
+        </button>
+      ) : null}
 
       <form onSubmit={handleNudge} aria-label="nudge-room">
         <select
@@ -358,7 +381,7 @@ export function RoomPanel({
         </button>
       </form>
 
-      {needsAttention ? (
+      {canResolveTurn ? (
         <p>
           <button type="button" onClick={handleRetry}>
             Retry Turn
