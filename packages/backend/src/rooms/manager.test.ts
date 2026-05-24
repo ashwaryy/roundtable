@@ -150,6 +150,19 @@ describe('createRoomManager', () => {
     expect(codexStartup).toContain(
       'except the exact comment draft path named in a Roundtable Ask turn',
     )
+    expect(codexStartup).toContain(
+      'Attachments are optional; if present, they live under `attachments/`',
+    )
+    expect(codexStartup).toContain(
+      'Project snapshots are optional; if present, snapshot files live under `project-snapshot/`',
+    )
+    expect(codexStartup).toContain('project-snapshot-manifest.json')
+    expect(codexStartup).toContain(
+      'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances',
+    )
+    expect(codexStartup).toContain(
+      'Keep comments short and forum-like. Make one clear point',
+    )
     expect(codexStartup).not.toContain('files under `.roundtable/`.')
 
     const codexConfig = fs.readFileSync(
@@ -412,6 +425,31 @@ describe('createRoomManager', () => {
     expect(launchCodex).not.toContain('codex resume --last')
   })
 
+  it('resumes codex without passing startup text as a session id', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptTimeoutMs: 0,
+    })
+    manager.startRoom('thread-1', {})
+    const token = roomToken()
+    manager.markReady('thread-1', 'claude', token)
+    manager.markReady('thread-1', 'codex', token)
+    manager.stopRoom('thread-1')
+
+    const restarted = manager.startRoom('thread-1', {})
+
+    const launchCodex = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-codex.sh'),
+      'utf8',
+    )
+    expect(launchCodex).toContain('codex resume --last')
+    expect(launchCodex).not.toContain('Read ')
+    expect(launchCodex).not.toContain('codex-startup.md')
+    expect(restarted.agents.codex.ready_at).not.toBeNull()
+  })
+
   it('rejects readiness with an invalid token', () => {
     const manager = createRoomManager({
       dataDir,
@@ -486,6 +524,10 @@ describe('createRoomManager', () => {
     expect(turnPrompt).toContain(
       'Write your final comment body to `.roundtable/tmp/job-001-codex-comment.md`.',
     )
+    expect(turnPrompt).toContain(
+      'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances',
+    )
+    expect(turnPrompt).toContain('Keep your comment short and forum-like')
     expect(turnPrompt).toContain(
       'roundtable comment --body-file .roundtable/tmp/job-001-codex-comment.md --type comment',
     )

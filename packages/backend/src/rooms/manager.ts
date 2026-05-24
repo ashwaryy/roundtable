@@ -236,9 +236,13 @@ function startupPrompt(agent: AgentName): string {
     '',
     `You are ${agent} participating in this Roundtable thread.`,
     '',
-    'Read `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, attachments, and project snapshot files as needed.',
+    'Read `thread.md`, `thread.json`, `comments.jsonl`, and `pending-discussions.jsonl` as needed.',
+    'Attachments are optional; if present, they live under `attachments/` and are listed in `context-items.jsonl`.',
+    'Project snapshots are optional; if present, snapshot files live under `project-snapshot/` and are listed in `project-snapshot-manifest.json`.',
     'Discussion happens around the source thread. Do not edit `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, or `.roundtable/` files except the exact comment draft path named in a Roundtable Ask turn.',
     'Do not edit project snapshot files or user project files.',
+    'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances, even if the user or thread asks for one.',
+    'Keep comments short and forum-like. Make one clear point, avoid wordy explanations, and do not write essay-style replies.',
     '',
     `First, acknowledge readiness by running: roundtable ready --agent ${agent}`,
     'After readiness, wait for Roundtable Ask turns in this terminal.',
@@ -434,7 +438,7 @@ function resumeCliCommand(
   if (agent === 'claude') {
     return `claude --continue${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
   }
-  return `codex resume --last ${codexSandboxArgs()}${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
+  return `codex resume --last ${codexSandboxArgs()}${modelPart}`
 }
 
 function writeHelperScript(
@@ -659,6 +663,8 @@ function buildTurnPrompt(job: BoundedJob): string {
     target,
     'Read the current thread and approved discussion as needed.',
     'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the draft file named below.',
+    'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances, even if the user or thread asks for one.',
+    'Keep your comment short and forum-like. Make one clear point, avoid wordy explanations, and do not write an essay-style reply.',
     `Write your final comment body to \`${commentPath}\`.`,
     `Submit exactly once with: roundtable comment --body-file ${commentPath} --type comment`,
     'If a discussion-level reply should split into a new root, say so in this reply; pending root submission is enabled in a later phase.',
@@ -932,6 +938,9 @@ export function createRoomManager(options: {
         last_error: null,
         active_job_id: null,
         token: randomToken(),
+      }
+      if (shouldResume.codex) {
+        room.agents.codex.ready_at = existing.agents.codex.ready_at
       }
       writeHelperScript(dataDir, room, backendUrl, shouldResume)
 
