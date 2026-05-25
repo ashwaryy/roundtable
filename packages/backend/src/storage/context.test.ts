@@ -66,7 +66,7 @@ describe('context items', () => {
 })
 
 describe('project snapshots', () => {
-  it('copies only eligible git-tracked files', () => {
+  it('copies eligible folder files, including untracked files in git repos', () => {
     const project = makeProject()
     fs.mkdirSync(path.join(project, 'src'))
     fs.writeFileSync(path.join(project, 'src', 'main.ts'), 'export const x = 1\n')
@@ -80,25 +80,28 @@ describe('project snapshots', () => {
     })
 
     const preflight = preflightProjectSnapshot(dataDir, 'thread-1', project)
-    expect(preflight.mode).toBe('git-tracked')
-    expect(preflight.file_count).toBe(1)
+    expect(preflight.mode).toBe('folder')
+    expect(preflight.file_count).toBe(2)
 
-    const snapshot = createProjectSnapshot(dataDir, 'thread-1', { source_path: project })
+    const snapshot = createProjectSnapshot(dataDir, 'thread-1', {
+      source_path: project,
+      confirmed: true,
+    })
     const snapshotDir = projectSnapshotDir(dataDir, 'thread-1')
-    expect(snapshot.file_count).toBe(1)
+    expect(snapshot.file_count).toBe(2)
     expect(fs.existsSync(path.join(snapshotDir, 'src', 'main.ts'))).toBe(true)
     expect(fs.existsSync(path.join(snapshotDir, '.env'))).toBe(false)
     expect(fs.existsSync(path.join(snapshotDir, 'binary.dat'))).toBe(false)
-    expect(fs.existsSync(path.join(snapshotDir, 'untracked.ts'))).toBe(false)
+    expect(fs.existsSync(path.join(snapshotDir, 'untracked.ts'))).toBe(true)
     fs.rmSync(project, { recursive: true, force: true })
   })
 
-  it('requires confirmation for non-git snapshots', () => {
+  it('requires confirmation for folder snapshots', () => {
     const project = makeProject()
     fs.writeFileSync(path.join(project, 'notes.md'), '# Notes\n')
 
     const preflight = preflightProjectSnapshot(dataDir, 'thread-1', project)
-    expect(preflight.mode).toBe('non-git')
+    expect(preflight.mode).toBe('folder')
     expect(preflight.requires_confirmation).toBe(true)
     expect(() =>
       createProjectSnapshot(dataDir, 'thread-1', { source_path: project }),

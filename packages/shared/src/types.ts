@@ -1,5 +1,14 @@
 export type ThreadStatus = 'open' | 'archived' | 'closed'
 
+export type ThreadDisplayStatus =
+  | 'setup'
+  | 'discussing'
+  | 'consolidating'
+  | 'needs_attention'
+  | 'error'
+  | 'closed'
+  | 'archived'
+
 export interface Thread {
   id: string
   title: string
@@ -9,6 +18,12 @@ export interface Thread {
   created_at: string
   archived_at: string | null
   closed_at: string | null
+}
+
+export interface ThreadListItem extends Thread {
+  display_status: ThreadDisplayStatus
+  pending_count: number
+  recovery_action_label: string | null
 }
 
 /** A thread plus its markdown body (read from thread.md). */
@@ -191,7 +206,7 @@ export interface UrlContextItem {
 
 export type ContextItem = FileContextItem | UrlContextItem
 
-export type ProjectSnapshotMode = 'git-tracked' | 'non-git'
+export type ProjectSnapshotMode = 'folder' | 'git-tracked' | 'non-git'
 
 export interface SnapshotPreflight {
   source_path: string

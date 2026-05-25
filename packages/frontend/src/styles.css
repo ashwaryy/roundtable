@@ -249,6 +249,21 @@ section[aria-label="agent-room"] {
   background: #e9f7f1;
 }
 
+.status-pill--setup,
+.status-pill--discussing,
+.status-pill--closed,
+.status-pill--archived {
+  color: #334155;
+  border-color: #c4ced8;
+  background: #ffffff;
+}
+
+.status-pill--consolidating {
+  color: #33517a;
+  border-color: #a8bddb;
+  background: #eef5ff;
+}
+
 .status-pill--paused,
 .status-pill--turn_limit_reached {
   color: #33517a;
@@ -300,6 +315,12 @@ section[aria-label="agent-room"] {
   text-transform: uppercase;
 }
 
+.thread-card-action {
+  margin: 0.25rem 0 0;
+  color: #8a1f2d;
+  font-size: 0.86rem;
+}
+
 section[aria-label="agent-room"],
 section[aria-label="consolidation"],
 section[aria-label="thread-context"] {
@@ -348,6 +369,63 @@ section[aria-label="consolidation"] {
   padding: 18px;
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(31, 41, 51, 0.06);
+}
+
+.metadata-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.9rem;
+  margin: 0.45rem 0 0;
+  color: #627386;
+  font-size: 0.9rem;
+}
+
+.setup-flow,
+.setup-actions,
+.discussion-actions,
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.setup-flow {
+  display: grid;
+}
+
+.discussion-composer {
+  margin-top: 1rem;
+  border-top: 1px solid #e4e9ef;
+  padding-top: 1rem;
+}
+
+.pending-card {
+  margin-top: 0.7rem;
+  border-color: #e6c57a;
+  background: #fffaf0;
+}
+
+.pending-origin {
+  margin-bottom: 0.45rem;
+  color: #627386;
+  font-size: 0.86rem;
+}
+
+.pending-inline {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.sidebar-section--active > .panel,
+.sidebar-section--active > section,
+.panel.sidebar-section--active {
+  border-color: #7ab7d8;
+  box-shadow: 0 0 0 2px rgba(122, 183, 216, 0.24);
+}
+
+.recovery-card {
+  border-color: #e5a3ad;
+  background: #fff7f8;
 }
 
 .review-layout {

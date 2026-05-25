@@ -18,11 +18,15 @@ export function ThreadContextPanel({
   threadId,
   context,
   reports = [],
+  summary,
+  onSnapshotSelectionChange,
   onUpdate,
 }: {
   threadId: string
   context: ThreadContext | null
   reports?: SnapshotReport[]
+  summary?: string
+  onSnapshotSelectionChange?: (selected: boolean) => void
   onUpdate: () => void
 }) {
   const [url, setUrl] = useState('')
@@ -55,6 +59,7 @@ export function ThreadContextPanel({
     const result = await preflightProjectSnapshot(threadId, { source_path: sourcePath })
     setPreflight(result)
     setSourcePath(result.source_path)
+    onSnapshotSelectionChange?.(true)
   }
 
   async function handleCreateSnapshot(confirmed: boolean) {
@@ -64,6 +69,7 @@ export function ThreadContextPanel({
       confirmed,
     })
     setPreflight(null)
+    onSnapshotSelectionChange?.(false)
     setMessage('Snapshot updated.')
     onUpdate()
   }
@@ -76,7 +82,10 @@ export function ThreadContextPanel({
 
   return (
     <section aria-label="thread-context">
-      <h2>Context</h2>
+      <div className="section-heading">
+        <h2>Context</h2>
+        {summary ? <span>{summary}</span> : null}
+      </div>
 
       <section>
         <h3>Attachments</h3>

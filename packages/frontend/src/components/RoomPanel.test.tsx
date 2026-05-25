@@ -225,7 +225,7 @@ describe('RoomPanel', () => {
     )
 
     await userEvent.type(screen.getByLabelText('Ask body'), 'Look here')
-    await userEvent.click(screen.getByRole('button', { name: /ask agent/i }))
+    await userEvent.click(screen.getByRole('button', { name: /ask about a new topic/i }))
 
     expect(mockedApi.askAgent).toHaveBeenCalledWith('thread-1', {
       agent: 'claude',

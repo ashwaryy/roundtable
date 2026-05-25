@@ -14,11 +14,13 @@ export function ConsolidationPanel({
   threadId,
   room,
   proposals,
+  summary,
   onUpdate,
 }: {
   threadId: string
   room: AgentRoom | null
   proposals: ConsolidationProposal[]
+  summary?: string
   onUpdate: () => void
 }) {
   const [drafter, setDrafter] = useState<AgentName>('codex')
@@ -76,7 +78,10 @@ export function ConsolidationPanel({
 
   return (
     <section aria-label="consolidation">
-      <h2>Consolidation</h2>
+      <div className="section-heading">
+        <h2>Consolidation</h2>
+        {summary ? <span>{summary}</span> : null}
+      </div>
       <form onSubmit={submit}>
         <label>
           Drafter

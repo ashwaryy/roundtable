@@ -22,11 +22,15 @@ export function RoomPanel({
   threadId,
   room,
   preflight,
+  hideRecoveryControls = false,
+  summary,
   onUpdate,
 }: {
   threadId: string
   room: AgentRoom | null
   preflight: RoomPreflight | null
+  hideRecoveryControls?: boolean
+  summary?: string
   onUpdate: () => void
 }) {
   const [claudeModel, setClaudeModel] = useState('')
@@ -210,7 +214,10 @@ export function RoomPanel({
 
   return (
     <section aria-label="agent-room">
-      <h2>Agent Room</h2>
+      <div className="section-heading">
+        <h2>Agent Room</h2>
+        {summary ? <span>{summary}</span> : null}
+      </div>
 
       {toolEntries.length > 0 ? (
         <ul>
@@ -241,7 +248,7 @@ export function RoomPanel({
         </>
       ) : null}
 
-      {room?.input_prompt ? (
+      {!hideRecoveryControls && room?.input_prompt ? (
         <div role="alert" aria-label="agent-input-prompt">
           <h3>{room.input_prompt.agent} is waiting for input</h3>
           <pre>{room.input_prompt.excerpt}</pre>
@@ -281,7 +288,7 @@ export function RoomPanel({
       <button type="button" onClick={handleStop} disabled={!canStop}>
         Stop Room
       </button>
-      {canRestart ? (
+      {!hideRecoveryControls && canRestart ? (
         <button type="button" onClick={handleRestart}>
           Restart Room
         </button>
@@ -327,7 +334,7 @@ export function RoomPanel({
           disabled={!canAsk}
         />
         <button type="submit" disabled={!canAsk}>
-          Ask Agent
+          Ask about a new topic
         </button>
       </form>
 
@@ -381,7 +388,7 @@ export function RoomPanel({
         </button>
       </form>
 
-      {canResolveTurn ? (
+      {!hideRecoveryControls && canResolveTurn ? (
         <p>
           <button type="button" onClick={handleRetry}>
             Retry Turn

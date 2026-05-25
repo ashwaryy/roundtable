@@ -26,7 +26,13 @@ describe('CommentTree', () => {
       comment('c002', 'c001', '- a reply'),
     ]
     render(
-      <CommentTree comments={comments} onReply={vi.fn()} onAskDiscussion={vi.fn()} />,
+      <CommentTree
+        threadId="thread-1"
+        comments={comments}
+        onPendingUpdate={vi.fn()}
+        onReply={vi.fn()}
+        onAskDiscussion={vi.fn()}
+      />,
     )
     expect(screen.getByText('root')).toHaveProperty('tagName', 'STRONG')
     expect(screen.getByText('a reply')).toHaveProperty('tagName', 'LI')
@@ -41,7 +47,13 @@ describe('CommentTree', () => {
 
   it('shows an empty-state message when there are no comments', () => {
     render(
-      <CommentTree comments={[]} onReply={vi.fn()} onAskDiscussion={vi.fn()} />,
+      <CommentTree
+        threadId="thread-1"
+        comments={[]}
+        onPendingUpdate={vi.fn()}
+        onReply={vi.fn()}
+        onAskDiscussion={vi.fn()}
+      />,
     )
     expect(screen.getByText(/no discussion yet/i)).toBeInTheDocument()
   })
@@ -49,7 +61,9 @@ describe('CommentTree', () => {
   it('disables agent actions during auto discussion while keeping reply available', () => {
     render(
       <CommentTree
+        threadId="thread-1"
         comments={[comment('c001', null, 'root point')]}
+        onPendingUpdate={vi.fn()}
         onReply={vi.fn()}
         onAskDiscussion={vi.fn()}
         disableAgentActions
@@ -57,7 +71,7 @@ describe('CommentTree', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Ask Claude' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Ask Codex' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Ask Claude in this discussion' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Ask Codex in this discussion' })).toBeDisabled()
   })
 })

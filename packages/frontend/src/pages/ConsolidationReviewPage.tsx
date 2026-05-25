@@ -118,8 +118,8 @@ export function ConsolidationReviewPage() {
     if (!id || !proposalId) return
     setError(null)
     try {
-      await saveConsolidatedOutput(id, proposalId)
-      navigate(`/threads/${id}`)
+      const saved = await saveConsolidatedOutput(id, proposalId)
+      navigate(`/saved/${saved.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }

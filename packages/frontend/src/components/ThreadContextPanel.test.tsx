@@ -108,7 +108,7 @@ describe('ThreadContextPanel', () => {
     const onUpdate = vi.fn()
     mockedApi.preflightProjectSnapshot.mockResolvedValue({
       source_path: '/tmp/project',
-      mode: 'non-git',
+      mode: 'folder',
       requires_confirmation: true,
       file_count: 1,
       total_bytes: 10,
@@ -117,7 +117,7 @@ describe('ThreadContextPanel', () => {
     })
     mockedApi.createProjectSnapshot.mockResolvedValue({
       source_path: '/tmp/project',
-      mode: 'non-git',
+      mode: 'folder',
       created_at: '2026-05-23T00:00:00Z',
       refreshed_at: '2026-05-23T00:00:00Z',
       file_count: 1,
@@ -132,7 +132,7 @@ describe('ThreadContextPanel', () => {
 
     await userEvent.type(screen.getByLabelText(/project path/i), '/tmp/project')
     await userEvent.click(screen.getByRole('button', { name: /check snapshot/i }))
-    expect(await screen.findByText(/non-git snapshot: 1 files/)).toBeInTheDocument()
+    expect(await screen.findByText(/folder snapshot: 1 files/)).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: /confirm snapshot/i }))
     expect(mockedApi.createProjectSnapshot).toHaveBeenCalledWith('thread-1', {

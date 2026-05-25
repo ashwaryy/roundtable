@@ -22,37 +22,39 @@ function renderPage() {
   )
 }
 
+function threadListItem(title: string) {
+  return {
+    id: 'thread-1',
+    title,
+    status: 'open' as const,
+    parent_thread_id: null,
+    created_from_consolidation_id: null,
+    created_at: '2026-05-23T00:00:00Z',
+    archived_at: null,
+    closed_at: null,
+    display_status: 'setup' as const,
+    pending_count: 0,
+    recovery_action_label: null,
+  }
+}
+
 describe('ThreadListPage', () => {
   it('renders existing threads', async () => {
-    mockedApi.listThreads.mockResolvedValue([
-      {
-        id: 'thread-1',
-        title: 'Queue work',
-        status: 'open',
-        parent_thread_id: null,
-        created_from_consolidation_id: null,
-        created_at: '2026-05-23T00:00:00Z',
-        archived_at: null,
-        closed_at: null,
-      },
-    ])
+    mockedApi.listThreads.mockResolvedValue([threadListItem('Queue work')])
     renderPage()
     expect(await screen.findByText('Queue work')).toBeInTheDocument()
   })
 
   it('creates a thread from the form and shows it', async () => {
-    const created = {
-      id: 'thread-1',
-      title: 'New idea',
-      status: 'open' as const,
-      parent_thread_id: null,
-      created_from_consolidation_id: null,
-      created_at: '2026-05-23T00:00:00Z',
-      archived_at: null,
-      closed_at: null,
-    }
+    const created = threadListItem('New idea')
     mockedApi.listThreads.mockResolvedValueOnce([]).mockResolvedValue([created])
     mockedApi.createThread.mockResolvedValue(created)
+    mockedApi.getThreadContext.mockResolvedValue({
+      items: [],
+      snapshot: null,
+      workspace_added_files: [],
+    })
+    mockedApi.listSnapshotReports.mockResolvedValue([])
 
     renderPage()
     await userEvent.type(screen.getByLabelText('title'), 'New idea')

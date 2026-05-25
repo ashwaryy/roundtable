@@ -304,7 +304,7 @@ describe('context routes', () => {
     expect(res.body[0].path).toContain('attachments/')
   })
 
-  it('preflights and creates a confirmed non-git snapshot', async () => {
+  it('preflights and creates a confirmed folder snapshot', async () => {
     const project = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-server-project-'))
     fs.writeFileSync(path.join(project, 'notes.md'), '# Notes\n')
 
@@ -312,7 +312,7 @@ describe('context routes', () => {
       .post('/api/threads/thread-1/project-snapshot/preflight')
       .send({ source_path: project })
     expect(preflight.status).toBe(200)
-    expect(preflight.body.mode).toBe('non-git')
+    expect(preflight.body.mode).toBe('folder')
     expect(preflight.body.requires_confirmation).toBe(true)
 
     const rejected = await request(app)

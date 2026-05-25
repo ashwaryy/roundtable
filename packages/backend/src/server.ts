@@ -23,7 +23,12 @@ import {
   startAutoDiscussionInputSchema,
   startConsolidationInputSchema,
   startRoomInputSchema,
+  type AgentRoom,
+  type ConsolidationProposal,
   type RoundtableEvent,
+  type Thread,
+  type ThreadDisplayStatus,
+  type ThreadListItem,
 } from '@roundtable/shared'
 import {
   BadRequestError,
@@ -98,6 +103,50 @@ function bearerToken(req: express.Request): string | null {
   return match ? match[1] : null
 }
 
+function isActiveProposal(proposal: ConsolidationProposal): boolean {
+  return proposal.status === 'drafting' || proposal.status === 'review'
+}
+
+function computeDisplayStatus(input: {
+  thread: Thread
+  room: AgentRoom | null
+  proposals: ConsolidationProposal[]
+}): ThreadDisplayStatus {
+  if (input.thread.status === 'closed') return 'closed'
+  if (input.thread.status === 'archived') return 'archived'
+
+  const { room } = input
+  if (room?.status === 'error') return 'error'
+  if (
+    room?.status === 'needs_attention' ||
+    room?.input_prompt ||
+    room?.session_state === 'missing' ||
+    room?.session_state === 'untracked'
+  ) {
+    return 'needs_attention'
+  }
+
+  if (input.proposals.some(isActiveProposal)) return 'consolidating'
+  if (!room || room.status === 'not_started' || room.status === 'stopped') return 'setup'
+  return 'discussing'
+}
+
+function recoveryActionLabel(room: AgentRoom | null): string | null {
+  if (!room) return null
+  if (room.input_prompt) return `Respond to ${room.input_prompt.agent}`
+  if (room.session_state === 'missing') return 'Restart room'
+  if (
+    (room.status === 'needs_attention' || room.status === 'error') &&
+    room.active_job_id
+  ) {
+    return 'Retry or skip turn'
+  }
+  if (room.status === 'needs_attention' || room.status === 'error') {
+    return 'Open recovery'
+  }
+  return null
+}
+
 export function createApp(deps: {
   storage: Storage
   broadcast: (event: RoundtableEvent) => void
@@ -150,7 +199,21 @@ export function createApp(deps: {
   })
 
   app.get('/api/threads', (_req, res) => {
-    res.json(storage.listThreads())
+    const items: ThreadListItem[] = storage.listThreads().map((thread) => {
+      const room = rooms ? rooms.getRoom(thread.id) : null
+      const proposals = storage.listProposals(thread.id)
+      const display_status = computeDisplayStatus({ thread, room, proposals })
+      return {
+        ...thread,
+        display_status,
+        pending_count: storage.listPendingDiscussions(thread.id).length,
+        recovery_action_label:
+          display_status === 'needs_attention' || display_status === 'error'
+            ? recoveryActionLabel(room)
+            : null,
+      }
+    })
+    res.json(items)
   })
 
   app.get('/api/threads/:id', (req, res) => {

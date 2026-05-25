@@ -2,15 +2,20 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { SavedOutput } from '@roundtable/shared'
-import { getSavedOutput } from '../api'
+import type { SavedOutput, ThreadDetail } from '@roundtable/shared'
+import { getSavedOutput, getThread } from '../api'
 
 export function SavedOutputPage() {
   const { savedId } = useParams<{ savedId: string }>()
   const [saved, setSaved] = useState<SavedOutput | null>(null)
+  const [sourceThread, setSourceThread] = useState<ThreadDetail | null>(null)
 
   useEffect(() => {
-    if (savedId) getSavedOutput(savedId).then(setSaved)
+    if (!savedId) return
+    getSavedOutput(savedId).then((next) => {
+      setSaved(next)
+      getThread(next.source_thread_id).then(setSourceThread)
+    })
   }, [savedId])
 
   if (!saved) return <p>Loading...</p>
@@ -24,6 +29,12 @@ export function SavedOutputPage() {
         <div>
           <p className="eyebrow">Saved output</p>
           <h1>{saved.title}</h1>
+          <p className="metadata-row">
+            Source discussion:{' '}
+            <Link to={`/threads/${saved.source_thread_id}`}>
+              {sourceThread?.title ?? saved.source_thread_id}
+            </Link>
+          </p>
         </div>
       </header>
       <section className="panel thread-body" aria-label="saved-output-body">

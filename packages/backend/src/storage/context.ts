@@ -2,7 +2,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
 import type {
   ContextItem,
   CreateProjectSnapshotInput,
@@ -157,47 +156,6 @@ function isEligibleFile(absolutePath: string, relativePath: string): boolean {
   return !isBinaryFile(absolutePath)
 }
 
-function detectGitRoot(sourcePath: string): string | null {
-  try {
-    return execFileSync('git', ['-C', sourcePath, 'rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim()
-  } catch {
-    return null
-  }
-}
-
-function listGitTrackedCandidates(sourcePath: string, gitRoot: string): {
-  candidates: CandidateFile[]
-  excludedCount: number
-} {
-  const output = execFileSync('git', ['-C', sourcePath, 'ls-files', '-z', '--full-name'], {
-    encoding: 'buffer',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  })
-  const candidates: CandidateFile[] = []
-  let excludedCount = 0
-  const names = output.toString('utf8').split('\0').filter(Boolean)
-
-  for (const repoRelative of names) {
-    const absolutePath = path.join(gitRoot, repoRelative)
-    if (!isInside(sourcePath, absolutePath)) continue
-    const relativePath = toWorkspacePath(path.relative(sourcePath, absolutePath))
-    if (!isEligibleFile(absolutePath, relativePath)) {
-      excludedCount += 1
-      continue
-    }
-    candidates.push({
-      absolutePath,
-      relativePath,
-      size_bytes: fs.statSync(absolutePath).size,
-    })
-  }
-
-  return { candidates, excludedCount }
-}
-
 function listRecursiveCandidates(sourcePath: string): {
   candidates: CandidateFile[]
   excludedCount: number
@@ -242,19 +200,9 @@ function collectCandidates(sourcePath: string): {
   candidates: CandidateFile[]
   excludedCount: number
 } {
-  const gitRoot = detectGitRoot(sourcePath)
-  if (gitRoot) {
-    const result = listGitTrackedCandidates(sourcePath, gitRoot)
-    return {
-      mode: 'git-tracked',
-      candidates: result.candidates,
-      excludedCount: result.excludedCount,
-    }
-  }
-
   const result = listRecursiveCandidates(sourcePath)
   return {
-    mode: 'non-git',
+    mode: 'folder',
     candidates: result.candidates,
     excludedCount: result.excludedCount,
   }
@@ -435,7 +383,7 @@ export function preflightProjectSnapshot(
   return {
     source_path: sourcePath,
     mode,
-    requires_confirmation: mode === 'non-git' || warnings.length > 0,
+    requires_confirmation: true,
     file_count: candidates.length,
     total_bytes: totalBytes,
     excluded_count: excludedCount,
