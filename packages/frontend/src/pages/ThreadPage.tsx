@@ -335,7 +335,8 @@ export function ThreadPage() {
     (event: RoundtableEvent) => { if (event.thread_id === id) refresh() },
     [id, refresh],
   )
-  useLiveRefresh(onEvent)
+  const backendStatus = useLiveRefresh(onEvent)
+  const backendStatusLabel = `Backend ${backendStatus}`
 
   async function addTopLevel(input: { body: string; type: CommentType }) {
     if (!id) return
@@ -429,7 +430,12 @@ export function ThreadPage() {
         </Link>
 
         <Link to="/" className="workspace-brand" aria-label="Roundtable home">
-          <span className="workspace-brand__dot" aria-hidden="true" />
+          <span
+            className="workspace-brand__dot"
+            data-backend-status={backendStatus}
+            aria-label={backendStatusLabel}
+            title={backendStatusLabel}
+          />
           <span>Roundtable</span>
         </Link>
 

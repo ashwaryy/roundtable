@@ -11,6 +11,44 @@ import { NewThreadForm } from '../components/NewThreadForm'
 import { Icon, StatusPill } from '../components/primitives'
 import { ThemeToggle } from '../components/ThemeToggle'
 
+function ThreadListSkeleton() {
+  return (
+    <div className="threads-list" aria-label="Loading threads" aria-busy="true">
+      {[0, 1, 2].map((item) => (
+        <div key={item} className="thread-row thread-row--skeleton">
+          <span className="sk" style={{ width: 24, height: 12, justifySelf: 'end' }} />
+          <div>
+            <span className="sk" style={{ width: `${item === 1 ? 44 : 58}%`, height: 19, marginBottom: 8 }} />
+            <div className="row-meta">
+              <span className="sk" style={{ width: 64, height: 11 }} />
+              <span className="sk" style={{ width: 48, height: 11 }} />
+              <span className="sk" style={{ width: 42, height: 11 }} />
+            </div>
+          </div>
+          <span className="sk" style={{ width: 78, height: 24, borderRadius: 999 }} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ThreadFiltersSkeleton() {
+  return (
+    <div className="threads-filters-row" aria-label="Loading thread filters" aria-busy="true">
+      <div className="threads-filters">
+        {[46, 72, 104].map((width) => (
+          <span
+            key={width}
+            className="sk filter-tab-skeleton"
+            style={{ width, height: 26, borderRadius: 5 }}
+          />
+        ))}
+      </div>
+      <span className="sk" style={{ width: 52, height: 12 }} />
+    </div>
+  )
+}
+
 function relativeTime(iso: string): string {
   const then = new Date(iso).getTime()
   if (Number.isNaN(then)) return ''
@@ -28,10 +66,13 @@ function relativeTime(iso: string): string {
 export function ThreadListPage() {
   const navigate = useNavigate()
   const [threads, setThreads] = useState<ThreadListItem[]>([])
+  const [threadsLoaded, setThreadsLoaded] = useState(false)
   const [filter, setFilter] = useState<ThreadDisplayStatus | 'all'>('all')
 
   const refresh = useCallback(() => {
-    listThreads().then(setThreads)
+    listThreads()
+      .then(setThreads)
+      .finally(() => setThreadsLoaded(true))
   }, [])
 
   useEffect(() => {
@@ -52,7 +93,8 @@ export function ThreadListPage() {
     },
     [refresh],
   )
-  useLiveRefresh(onEvent)
+  const backendStatus = useLiveRefresh(onEvent)
+  const backendStatusLabel = `Backend ${backendStatus}`
 
   const counts = useMemo(() => {
     const base: Record<string, number> = { all: threads.length }
@@ -85,7 +127,12 @@ export function ThreadListPage() {
     <>
     <header className="topbar">
       <div className="brand">
-        <span className="dot" />
+        <span
+          className="dot"
+          data-backend-status={backendStatus}
+          aria-label={backendStatusLabel}
+          title={backendStatusLabel}
+        />
         <span>Roundtable</span>
       </div>
       <div className="spacer" />
@@ -99,26 +146,37 @@ export function ThreadListPage() {
           <div className="eyebrow tight">Local forum</div>
           <h1 className="h-display">Roundtable.</h1>
         </div>
-        <div className="home-stats">
-          <div className="stat">
-            <span className="stat-n">{threads.length}</span>
-            <span className="stat-l">threads</span>
-          </div>
-          <div className="stat">
-            <span className="stat-n">{activeCount}</span>
-            <span className="stat-l">active</span>
-          </div>
-          <div className="stat">
-            <span className="stat-n">{totalPending}</span>
-            <span className="stat-l">pending review</span>
-          </div>
-          {attentionCount > 0 ? (
-            <div className="stat warn">
-              <span className="stat-n">{attentionCount}</span>
-              <span className="stat-l">needs attention</span>
+        {threadsLoaded ? (
+          <div className="home-stats">
+            <div className="stat">
+              <span className="stat-n">{threads.length}</span>
+              <span className="stat-l">threads</span>
             </div>
-          ) : null}
-        </div>
+            <div className="stat">
+              <span className="stat-n">{activeCount}</span>
+              <span className="stat-l">active</span>
+            </div>
+            <div className="stat">
+              <span className="stat-n">{totalPending}</span>
+              <span className="stat-l">pending review</span>
+            </div>
+            {attentionCount > 0 ? (
+              <div className="stat warn">
+                <span className="stat-n">{attentionCount}</span>
+                <span className="stat-l">needs attention</span>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="home-stats" aria-label="Loading thread stats" aria-busy="true">
+            {[0, 1, 2].map((item) => (
+              <div className="stat stat--skeleton" key={item}>
+                <span className="sk" style={{ width: 28, height: 32, marginBottom: 4 }} />
+                <span className="sk" style={{ width: item === 2 ? 88 : 54, height: 12 }} />
+              </div>
+            ))}
+          </div>
+        )}
       </header>
 
       <NewThreadForm onCreated={refresh} nextNum={threads.length + 1} />
@@ -127,31 +185,39 @@ export function ThreadListPage() {
         <div className="threads-head">
           <div className="threads-head-top">
             <h2 className="h-2">Threads</h2>
-            <span className="threads-head-total">
-              {visibleThreads.length} of {threads.length}
-            </span>
           </div>
-          <div className="threads-filters" aria-label="thread filters">
-            {filters.map((item) => {
-              const count = counts[item.id] ?? 0
-              if (item.id !== 'all' && count === 0) return null
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="filter-tab"
-                  data-on={filter === item.id ? '1' : '0'}
-                  onClick={() => setFilter(item.id)}
-                >
-                  {item.label}
-                  <span className="count">{count}</span>
-                </button>
-              )
-            })}
-          </div>
+          {!threadsLoaded ? (
+            <ThreadFiltersSkeleton />
+          ) : (
+            <div className="threads-filters-row">
+              <div className="threads-filters" aria-label="thread filters">
+                {filters.map((item) => {
+                  const count = counts[item.id] ?? 0
+                  if (item.id !== 'all' && count === 0) return null
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="filter-tab"
+                      data-on={filter === item.id ? '1' : '0'}
+                      onClick={() => setFilter(item.id)}
+                    >
+                      {item.label}
+                      <span className="count">{count}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <span className="threads-head-total">
+                {visibleThreads.length} of {threads.length}
+              </span>
+            </div>
+          )}
         </div>
 
-        {visibleThreads.length > 0 ? (
+        {!threadsLoaded ? (
+          <ThreadListSkeleton />
+        ) : visibleThreads.length > 0 ? (
           <div className="threads-list">
             {visibleThreads.map((thread) => {
               const num = threads.length - threads.indexOf(thread)

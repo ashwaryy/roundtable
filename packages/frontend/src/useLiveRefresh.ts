@@ -1,7 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { RoundtableEvent } from '@roundtable/shared'
 
-export function useLiveRefresh(onEvent: (event: RoundtableEvent) => void): void {
+export type LiveRefreshStatus = 'connecting' | 'connected' | 'disconnected'
+
+export function useLiveRefresh(onEvent: (event: RoundtableEvent) => void): LiveRefreshStatus {
+  const [status, setStatus] = useState<LiveRefreshStatus>('connecting')
+
   useEffect(() => {
     const url = `ws://${window.location.host}/ws`
     let active = true
@@ -10,7 +14,11 @@ export function useLiveRefresh(onEvent: (event: RoundtableEvent) => void): void 
 
     function connect(): void {
       if (!active) return
+      setStatus('connecting')
       socket = new WebSocket(url)
+      socket.onopen = () => {
+        if (active) setStatus('connected')
+      }
       socket.onmessage = (msg) => {
         try {
           onEvent(JSON.parse(msg.data) as RoundtableEvent)
@@ -20,7 +28,9 @@ export function useLiveRefresh(onEvent: (event: RoundtableEvent) => void): void 
       }
       socket.onerror = () => socket?.close()
       socket.onclose = () => {
-        if (active) reconnectTimer = window.setTimeout(connect, 500)
+        if (!active) return
+        setStatus('disconnected')
+        reconnectTimer = window.setTimeout(connect, 500)
       }
     }
 
@@ -31,4 +41,6 @@ export function useLiveRefresh(onEvent: (event: RoundtableEvent) => void): void 
       socket?.close()
     }
   }, [onEvent])
+
+  return status
 }

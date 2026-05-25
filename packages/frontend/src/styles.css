@@ -1946,6 +1946,22 @@ input:focus, select:focus, textarea:focus {
   background: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+.workspace-brand__dot[data-backend-status="connected"],
+.topbar .brand .dot[data-backend-status="connected"] {
+  background: var(--good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent);
+}
+.workspace-brand__dot[data-backend-status="connecting"],
+.topbar .brand .dot[data-backend-status="connecting"] {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+.workspace-brand__dot[data-backend-status="disconnected"],
+.topbar .brand .dot[data-backend-status="disconnected"] {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px var(--bad-bg);
+}
 
 .workspace-crumbs {
   display: flex;
@@ -3102,6 +3118,12 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.threads-filters-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 .threads-filters {
   display: flex;
   gap: 4px;
@@ -3110,6 +3132,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   scrollbar-width: none;
   margin: 0 -4px;
   padding: 2px 4px 4px;
+  min-width: 0;
 }
 .threads-filters::-webkit-scrollbar { display: none; }
 .filter-tab {
@@ -3136,6 +3159,9 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   font-size: 11px;
   opacity: .7;
 }
+.filter-tab-skeleton {
+  flex-shrink: 0;
+}
 
 .thread-row {
   display: grid;
@@ -3150,6 +3176,15 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 }
 .thread-row:hover { background: var(--panel); }
 .thread-row:last-child { border-bottom: 1px solid var(--rule); }
+.thread-row--skeleton {
+  cursor: default;
+}
+.thread-row--skeleton:hover {
+  background: transparent;
+}
+.stat--skeleton {
+  align-items: flex-start;
+}
 .thread-row .num {
   font-family: 'JetBrains Mono', monospace;
   font-variant-numeric: tabular-nums;
