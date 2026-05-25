@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -484,7 +484,10 @@ export function ThreadPage() {
   }
 
   return (
-    <div className="workspace-root">
+    <div
+      className="workspace-root"
+      style={{ '--sidebar-w': railCollapsed ? '52px' : '340px' } as CSSProperties}
+    >
       {/* ── Header strip ─────────────────────────────────────── */}
       <header className="workspace-header" aria-label="thread workspace header">
         <Link to="/" className="workspace-back" aria-label="All threads" title="All threads">

@@ -5168,7 +5168,6 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .workspace-sidebar.rail > * { margin: 0; }
 .workspace-sidebar.rail--collapsed {
   width: 52px;
-  --sidebar-w: 52px;
 }
 .workspace-sidebar.rail .rail-body {
   flex: 1;
