@@ -556,8 +556,10 @@ function testPreflight(): RoomPreflight {
 
 describe('room routes', () => {
   let rooms: RoomManager
+  let terminalLauncher: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
+    terminalLauncher = vi.fn()
     rooms = {
       preflight: vi.fn(() => testPreflight()),
       getRoom: vi.fn(() => testRoom('not_started')),
@@ -720,7 +722,12 @@ describe('room routes', () => {
       retryTurn: vi.fn(() => ({ room: testRoom('running'), job: testJob() })),
       skipTurn: vi.fn(() => ({ room: testRoom('idle'), job: testJob('skipped') })),
     }
-    app = createApp({ storage: createStorage(dataDir), rooms, broadcast })
+    app = createApp({
+      storage: createStorage(dataDir),
+      rooms,
+      broadcast,
+      terminalLauncher,
+    })
     await request(app).post('/api/threads').send({ title: 'A', body: 'a' })
   })
 
@@ -760,6 +767,23 @@ describe('room routes', () => {
     const res = await request(app).post('/api/threads/thread-1/room/restart')
     expect(res.status).toBe(200)
     expect(rooms.restartRoom).toHaveBeenCalledWith('thread-1')
+  })
+
+  it('opens a terminal attached to a running room tmux session', async () => {
+    vi.mocked(rooms.getRoom).mockReturnValue(testRoom('idle'))
+
+    const res = await request(app).post('/api/threads/thread-1/room/open-terminal')
+
+    expect(res.status).toBe(202)
+    expect(res.body).toEqual({ ok: true })
+    expect(terminalLauncher).toHaveBeenCalledWith('roundtable-thread-1')
+  })
+
+  it('does not open a terminal when the room tmux session is not running', async () => {
+    const res = await request(app).post('/api/threads/thread-1/room/open-terminal')
+
+    expect(res.status).toBe(409)
+    expect(terminalLauncher).not.toHaveBeenCalled()
   })
 
   it('nudges an idle room', async () => {

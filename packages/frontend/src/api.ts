@@ -275,6 +275,14 @@ export function stopRoom(threadId: string): Promise<AgentRoom> {
   }).then((r) => json<AgentRoom>(r))
 }
 
+export function openRoomTerminal(threadId: string): Promise<void> {
+  return fetch(`/api/threads/${threadId}/room/open-terminal`, {
+    method: 'POST',
+  }).then((res) => {
+    if (!res.ok) throw new Error(`request failed: ${res.status}`)
+  })
+}
+
 export function restartRoom(threadId: string): Promise<AgentRoom> {
   return fetch(`/api/threads/${threadId}/room/restart`, {
     method: 'POST',

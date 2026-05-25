@@ -4,6 +4,7 @@ import {
   askAgent,
   extendAutoDiscussion,
   nudgeRoom,
+  openRoomTerminal,
   pauseAutoDiscussion,
   retryTurn,
   restartRoom,
@@ -24,6 +25,21 @@ function sessionLabel(room: AgentRoom | null, summary?: string): string {
   }
   if (room?.status) return room.status.replaceAll('_', ' ')
   return summary ?? 'idle'
+}
+
+function canStartRoom(
+  isThreadOpen: boolean,
+  preflight: RoomPreflight | null,
+  room: AgentRoom | null,
+): boolean {
+  return (
+    isThreadOpen &&
+    (preflight?.ok ?? false) &&
+    (!room ||
+      room.status === 'not_started' ||
+      room.status === 'stopped' ||
+      room.status === 'error')
+  )
 }
 
 export function RoomPanel({
@@ -54,12 +70,15 @@ export function RoomPanel({
   const [autoTurns, setAutoTurns] = useState(4)
   const [extendTurns, setExtendTurns] = useState(4)
   const [allowDirectRoots, setAllowDirectRoots] = useState(false)
+  const [startingRoom, setStartingRoom] = useState(false)
+  const [openingTerminal, setOpeningTerminal] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isThreadOpen = threadStatus === 'open'
 
   async function handleStart(event: FormEvent) {
     event.preventDefault()
     setError(null)
+    setStartingRoom(true)
     try {
       await startRoom(threadId, {
         claude_model: claudeModel || null,
@@ -68,6 +87,7 @@ export function RoomPanel({
       onUpdate()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      setStartingRoom(false)
     }
   }
 
@@ -78,6 +98,20 @@ export function RoomPanel({
       onUpdate()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleOpenTerminal() {
+    if (!room?.attach_command) return
+    setOpeningTerminal(true)
+    setError(null)
+    try {
+      await openRoomTerminal(threadId)
+    } catch (err) {
+      navigator.clipboard?.writeText(room.attach_command)
+      setError('Terminal could not be opened. Attach command copied.')
+    } finally {
+      setOpeningTerminal(false)
     }
   }
 
@@ -190,21 +224,19 @@ export function RoomPanel({
     }
   }
 
-  const canStart =
-    isThreadOpen &&
-    (preflight?.ok ?? false) &&
-    (!room ||
-      room.status === 'not_started' ||
-      room.status === 'stopped' ||
-      room.status === 'error')
+  const canStart = canStartRoom(isThreadOpen, preflight, room)
   const canNudge = isThreadOpen && room?.status === 'idle'
   const canAsk = isThreadOpen && room?.status === 'idle'
   const canStartAuto = isThreadOpen && room?.status === 'idle'
   const canPauseAuto = isThreadOpen && room?.auto?.status === 'running'
   const canExtendAuto =
-    isThreadOpen && (room?.status === 'paused' || room?.status === 'turn_limit_reached')
+    isThreadOpen &&
+    (room?.status === 'paused' || room?.status === 'turn_limit_reached')
   const canStop =
-    isThreadOpen && !!room && room.status !== 'not_started' && room.status !== 'stopped'
+    isThreadOpen &&
+    !!room &&
+    room.status !== 'not_started' &&
+    room.status !== 'stopped'
   const needsAttention = isThreadOpen && room?.status === 'needs_attention'
   const canRestart = isThreadOpen && room?.session_state === 'missing'
   const canResolveTurn =
@@ -212,12 +244,36 @@ export function RoomPanel({
     !!room?.active_job_id &&
     room.session_state !== 'missing' &&
     room.session_state !== 'untracked'
-  const toolEntries = preflight ? Object.values(preflight.tools) : []
+  const toolEntries = preflight
+    ? Object.values(preflight.tools)
+    : (['tmux', 'claude', 'codex'] as const).map((name) => ({
+        name,
+        available: false,
+        path: null,
+        version: null,
+        error: 'Checking tools...',
+      }))
   const allToolsOk = toolEntries.length > 0 && toolEntries.every((tool) => tool.available)
   const sessionText = sessionLabel(room, summary)
+  const canOpenTerminal =
+    isThreadOpen &&
+    !!room?.attach_command &&
+    (room.session_state === 'connected' || room.session_state === 'recovered')
+  const showAgentReadiness =
+    isThreadOpen &&
+    !!room &&
+    room.status !== 'not_started' &&
+    room.status !== 'stopped' &&
+    room.status !== 'error'
   const autoProgress = room?.auto && room.auto.total_turns > 0
     ? Math.min(100, Math.round((room.auto.completed_turns / room.auto.total_turns) * 100))
     : 0
+
+  useEffect(() => {
+    if (startingRoom && !canStartRoom(isThreadOpen, preflight, room)) {
+      setStartingRoom(false)
+    }
+  }, [isThreadOpen, preflight, room, startingRoom])
 
   useEffect(() => {
     if (
@@ -238,26 +294,22 @@ export function RoomPanel({
       <div className="room-status">
         <div className="session-line mono dim" title={sessionText}>{sessionText}</div>
 
-        {toolEntries.length > 0 ? (
-          <div className="tool-row" title={allToolsOk ? 'All tools available' : 'Some tools missing'}>
-            {toolEntries.map((tool) => (
-              <span
-                key={tool.name}
-                className={`tool-chip ${tool.available ? 'ok' : 'missing'}`}
-                title={tool.available ? (tool.version ?? tool.path ?? '') : (tool.error ?? 'missing')}
-              >
-                <Icon name={tool.available ? 'check' : 'close'} className="ic-sm" />
-                {tool.name}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p className="rail-hint" style={{ padding: 0 }}>Checking tools...</p>
-        )}
+        <div className="tool-row" title={allToolsOk ? 'All tools available' : 'Some tools missing'}>
+          {toolEntries.map((tool) => (
+            <span
+              key={tool.name}
+              className={`tool-chip ${tool.available ? 'ok' : 'missing'}`}
+              title={tool.available ? (tool.version ?? tool.path ?? '') : (tool.error ?? 'missing')}
+            >
+              <Icon name={tool.available ? 'check' : 'close'} className="ic-sm" />
+              {tool.name}
+            </span>
+          ))}
+        </div>
 
         <div className="agent-rows">
           {(['claude', 'codex'] as AgentName[]).map((agent) => {
-            const ready = Boolean(room?.agents[agent].ready_at)
+            const ready = showAgentReadiness && Boolean(room?.agents[agent].ready_at)
             const modelValue = agent === 'claude' ? claudeModel : codexModel
             const setModel = agent === 'claude' ? setClaudeModel : setCodexModel
             return (
@@ -317,8 +369,17 @@ export function RoomPanel({
               <Icon name="stop" className="ic-sm" /> Stop
             </button>
           ) : (
-            <button type="submit" className="btn primary" disabled={!canStart}>
-              <Icon name="play" className="ic-sm" /> Start Room
+            <button type="submit" className="btn primary" disabled={!canStart || startingRoom}>
+              {startingRoom ? (
+                <>
+                  <span className="button-spinner" aria-hidden="true" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Icon name="play" className="ic-sm" /> Start Room
+                </>
+              )}
             </button>
           )}
           <button type="button" className="btn" onClick={handleRestart} disabled={!isThreadOpen && !canRestart} title="Restart room">
@@ -326,18 +387,33 @@ export function RoomPanel({
           </button>
         </form>
 
-        {room?.attach_command ? (
+        <div className="tmux-attach" data-placeholder={room?.attach_command ? '0' : '1'}>
           <button
             type="button"
             className="tmux-cmd"
-            title="Click to copy"
-            onClick={() => navigator.clipboard?.writeText(room.attach_command)}
+            title={room?.attach_command ? 'Copy attach command' : 'Attach command unavailable'}
+            disabled={!room?.attach_command}
+            onClick={() => {
+              if (room?.attach_command) {
+                navigator.clipboard?.writeText(room.attach_command)
+              }
+            }}
           >
             <Icon name="terminal" className="ic-sm" />
-            <span>{room.attach_command}</span>
+            <span>{room?.attach_command ?? 'tmux attach command'}</span>
             <Icon name="link" className="ic-sm" />
           </button>
-        ) : null}
+          <button
+            type="button"
+            className="tmux-watch"
+            title="Open terminal attached to this tmux session"
+            aria-label="Open terminal attached to this tmux session"
+            disabled={openingTerminal || !canOpenTerminal}
+            onClick={handleOpenTerminal}
+          >
+            <Icon name="eye" className="ic-sm" />
+          </button>
+        </div>
 
         {!isThreadOpen ? (
           <p className="rail-hint" style={{ padding: 0 }}>Thread is {threadStatus}; room controls are disabled.</p>

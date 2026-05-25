@@ -39,6 +39,7 @@ import {
   type Storage,
 } from './storage'
 import type { RoomManager } from './rooms/manager'
+import { openTerminalForTmux } from './terminal'
 
 const THREAD_ID_RE = /^thread-\d+$/
 const COMMENT_ID_RE = /^c\d+$/
@@ -152,8 +153,9 @@ export function createApp(deps: {
   storage: Storage
   broadcast: (event: RoundtableEvent) => void
   rooms?: RoomManager
+  terminalLauncher?: (sessionName: string) => void
 }): express.Express {
-  const { storage, broadcast, rooms } = deps
+  const { storage, broadcast, rooms, terminalLauncher = openTerminalForTmux } = deps
   const app = express()
   app.use(express.json())
 
@@ -789,6 +791,23 @@ export function createApp(deps: {
       res.json(room)
     } catch (err) {
       if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/open-terminal', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      const room = rooms.getRoom(req.params.id)
+      if (room.session_state !== 'connected' && room.session_state !== 'recovered') {
+        return res.status(409).json({ error: 'room tmux session is not running' })
+      }
+
+      terminalLauncher(room.tmux_session)
+      res.status(202).json({ ok: true })
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      if (err instanceof Error) return res.status(409).json({ error: err.message })
       throw err
     }
   })
