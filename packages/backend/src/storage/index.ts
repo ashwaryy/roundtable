@@ -93,6 +93,10 @@ export function createStorage(
       mutate(threadId, () => threads.archiveThread(dataDir, threadId)),
     closeThread: (threadId: string): Thread =>
       mutate(threadId, () => threads.closeThread(dataDir, threadId)),
+    deleteThread: (threadId: string): void => {
+      inspect(threadId)
+      threads.deleteThread(dataDir, threadId)
+    },
     listThreads: (): Thread[] => threads.listThreads(dataDir),
     getThread: (id: string): ThreadDetail | null => {
       inspect(id)

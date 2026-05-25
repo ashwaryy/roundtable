@@ -222,6 +222,21 @@ export function createApp(deps: {
     res.json(thread)
   })
 
+  app.delete('/api/threads/:id', (req, res) => {
+    if (!storage.getThread(req.params.id)) {
+      return res.status(404).json({ error: 'thread not found' })
+    }
+    try {
+      rooms?.stopRoom(req.params.id)
+      storage.deleteThread(req.params.id)
+      broadcast({ type: 'thread_deleted', thread_id: req.params.id })
+      res.status(204).end()
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
   app.get('/api/threads/:id/comments', (req, res) => {
     if (!storage.getThread(req.params.id)) {
       return res.status(404).json({ error: 'thread not found' })

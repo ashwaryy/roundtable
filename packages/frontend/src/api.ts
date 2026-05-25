@@ -97,6 +97,12 @@ export function getThread(id: string): Promise<ThreadDetail> {
   return readJson<ThreadDetail>(`/api/threads/${id}`)
 }
 
+export function deleteThread(id: string): Promise<void> {
+  return fetch(`/api/threads/${id}`, { method: 'DELETE' }).then((res) => {
+    if (!res.ok) throw new Error(`request failed: ${res.status}`)
+  })
+}
+
 export function listComments(id: string): Promise<Comment[]> {
   return readJson<Comment[]>(`/api/threads/${id}/comments`)
 }

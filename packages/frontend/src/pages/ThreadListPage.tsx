@@ -5,7 +5,7 @@ import type {
   ThreadDisplayStatus,
   ThreadListItem,
 } from '@roundtable/shared'
-import { listThreads } from '../api'
+import { deleteThread, listThreads } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { NewThreadForm } from '../components/NewThreadForm'
 import { Icon, StatusPill } from '../components/primitives'
@@ -68,6 +68,8 @@ export function ThreadListPage() {
   const [threads, setThreads] = useState<ThreadListItem[]>([])
   const [threadsLoaded, setThreadsLoaded] = useState(false)
   const [filter, setFilter] = useState<ThreadDisplayStatus | 'all'>('all')
+  const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null)
+  const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null)
 
   const refresh = useCallback(() => {
     listThreads()
@@ -83,6 +85,7 @@ export function ThreadListPage() {
     (event: RoundtableEvent) => {
       if (
         event.type === 'thread_created' ||
+        event.type === 'thread_deleted' ||
         event.type === 'room_updated' ||
         event.type === 'consolidation_updated' ||
         event.type === 'pending_discussion_created' ||
@@ -122,6 +125,21 @@ export function ThreadListPage() {
     { id: 'closed', label: 'Closed' },
     { id: 'archived', label: 'Archived' },
   ]
+
+  async function onDeleteThread(thread: ThreadListItem) {
+    const confirmed = window.confirm(`Delete "${thread.title}"? This removes its local thread files.`)
+    if (!confirmed) return
+    setDeletingThreadId(thread.id)
+    setOpenMenuThreadId(null)
+    try {
+      await deleteThread(thread.id)
+      refresh()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to delete thread')
+    } finally {
+      setDeletingThreadId(null)
+    }
+  }
 
   return (
     <>
@@ -221,6 +239,8 @@ export function ThreadListPage() {
           <div className="threads-list">
             {visibleThreads.map((thread) => {
               const num = threads.length - threads.indexOf(thread)
+              const menuOpen = openMenuThreadId === thread.id
+              const isDeleting = deletingThreadId === thread.id
               const open = () => navigate(`/threads/${thread.id}`)
               return (
                 <div
@@ -273,6 +293,40 @@ export function ThreadListPage() {
                       status={thread.display_status}
                       pendingCount={thread.pending_count}
                     />
+                    <div className="thread-actions">
+                      <button
+                        type="button"
+                        className="thread-actions__trigger"
+                        aria-label={`Actions for ${thread.title}`}
+                        aria-expanded={menuOpen}
+                        disabled={isDeleting}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setOpenMenuThreadId(menuOpen ? null : thread.id)
+                        }}
+                      >
+                        <Icon name="more" className="ic-sm" />
+                      </button>
+                      {menuOpen ? (
+                        <div
+                          className="thread-actions__menu"
+                          role="menu"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="thread-actions__item danger"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void onDeleteThread(thread)
+                            }}
+                          >
+                            Delete thread
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               )

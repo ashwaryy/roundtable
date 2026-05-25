@@ -12,6 +12,7 @@ import {
   projectSnapshotDir,
 } from './paths'
 import { nextThreadId } from './ids'
+import { NotFoundError } from './errors'
 
 function writeJsonAtomic(filePath: string, value: unknown): void {
   const tmp = `${filePath}.tmp`
@@ -84,6 +85,13 @@ export function getThread(dataDir: string, threadId: string): ThreadDetail | nul
   const thread = normalizeThread(JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as Thread)
   const body = fs.readFileSync(threadMdPath(dataDir, threadId), 'utf8')
   return { ...thread, body }
+}
+
+export function deleteThread(dataDir: string, threadId: string): void {
+  if (!fs.existsSync(threadJsonPath(dataDir, threadId))) {
+    throw new NotFoundError(`thread ${threadId} not found`)
+  }
+  fs.rmSync(threadDir(dataDir, threadId), { recursive: true, force: true })
 }
 
 export function createDerivedThread(

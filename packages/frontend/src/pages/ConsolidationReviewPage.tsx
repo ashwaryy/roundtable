@@ -54,9 +54,14 @@ export function ConsolidationReviewPage() {
   useLiveRefresh(
     useCallback(
       (event: RoundtableEvent) => {
-        if (event.thread_id === id) refresh()
+        if (event.thread_id !== id) return
+        if (event.type === 'thread_deleted') {
+          navigate('/')
+          return
+        }
+        refresh()
       },
-      [id, refresh],
+      [id, navigate, refresh],
     ),
   )
 

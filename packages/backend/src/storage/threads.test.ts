@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createThread, listThreads, getThread } from './threads'
+import { createThread, deleteThread, listThreads, getThread } from './threads'
 import {
   threadDir,
   threadJsonPath,
@@ -107,5 +107,22 @@ describe('getThread', () => {
     const detail = getThread(dataDir, 'thread-1')
     expect(detail?.title).toBe('A')
     expect(detail?.body).toBe('# Heading')
+  })
+})
+
+describe('deleteThread', () => {
+  it('removes the thread workspace', () => {
+    createThread(dataDir, { title: 'A', body: 'a' })
+    expect(fs.existsSync(threadDir(dataDir, 'thread-1'))).toBe(true)
+
+    deleteThread(dataDir, 'thread-1')
+
+    expect(fs.existsSync(threadDir(dataDir, 'thread-1'))).toBe(false)
+    expect(getThread(dataDir, 'thread-1')).toBeNull()
+    expect(listThreads(dataDir)).toEqual([])
+  })
+
+  it('throws for a missing thread', () => {
+    expect(() => deleteThread(dataDir, 'thread-999')).toThrow('thread thread-999 not found')
   })
 })

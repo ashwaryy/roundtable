@@ -83,6 +83,29 @@ describe('GET /api/threads/:id', () => {
   })
 })
 
+describe('DELETE /api/threads/:id', () => {
+  it('deletes a thread and broadcasts thread_deleted', async () => {
+    await request(app).post('/api/threads').send({ title: 'A', body: '# H' })
+
+    const res = await request(app).delete('/api/threads/thread-1')
+    expect(res.status).toBe(204)
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'thread_deleted',
+      thread_id: 'thread-1',
+    })
+
+    const get = await request(app).get('/api/threads/thread-1')
+    expect(get.status).toBe(404)
+    const list = await request(app).get('/api/threads')
+    expect(list.body).toEqual([])
+  })
+
+  it('returns 404 for a missing thread', async () => {
+    const res = await request(app).delete('/api/threads/thread-999')
+    expect(res.status).toBe(404)
+  })
+})
+
 describe('comments routes', () => {
   beforeEach(async () => {
     await request(app).post('/api/threads').send({ title: 'A', body: 'a' })

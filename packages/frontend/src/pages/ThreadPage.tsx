@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useNavigate, useParams, Link } from 'react-router-dom'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type {
@@ -249,6 +249,7 @@ function SideRailContent({
 
 export function ThreadPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
 
   const [thread, setThread] = useState<ThreadDetail | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
@@ -326,14 +327,22 @@ export function ThreadPage() {
     if (!thread?.parent_thread_id || !thread.created_from_consolidation_id) {
       setSourceThread(null); setSourceProposal(null); return
     }
-    getThread(thread.parent_thread_id).then(setSourceThread)
+    getThread(thread.parent_thread_id).then(setSourceThread).catch(() => setSourceThread(null))
     getConsolidation(thread.parent_thread_id, thread.created_from_consolidation_id)
       .then((d) => setSourceProposal(d.proposal))
+      .catch(() => setSourceProposal(null))
   }, [thread?.created_from_consolidation_id, thread?.parent_thread_id])
 
   const onEvent = useCallback(
-    (event: RoundtableEvent) => { if (event.thread_id === id) refresh() },
-    [id, refresh],
+    (event: RoundtableEvent) => {
+      if (event.thread_id !== id) return
+      if (event.type === 'thread_deleted') {
+        navigate('/')
+        return
+      }
+      refresh()
+    },
+    [id, navigate, refresh],
   )
   const backendStatus = useLiveRefresh(onEvent)
   const backendStatusLabel = `Backend ${backendStatus}`
