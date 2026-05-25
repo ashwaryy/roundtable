@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -40,13 +40,13 @@ import {
 import { useLiveRefresh } from '../useLiveRefresh'
 import { CommentForm } from '../components/CommentForm'
 import { CommentTree } from '../components/CommentTree'
-import { ThreadContextPanel } from '../components/ThreadContextPanel'
+import { ThreadAttachmentsPanel, ThreadContextPanel } from '../components/ThreadContextPanel'
 import { RoomPanel } from '../components/RoomPanel'
 import { ConsolidationPanel } from '../components/ConsolidationPanel'
 import { IntegrityPanel } from '../components/IntegrityPanel'
 import { NewCommentsPill } from '../components/NewCommentsPill'
 import { ThreadSkeleton } from '../components/ThreadSkeleton'
-import { AgentStack, Icon, StatusPill } from '../components/primitives'
+import { AgentStack, Avatar, Icon, StatusPill } from '../components/primitives'
 import { ThemeToggle } from '../components/ThemeToggle'
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -155,6 +155,37 @@ function RecoveryCard({
   )
 }
 
+function RailSection({
+  label,
+  count,
+  defaultOpen = true,
+  right,
+  children,
+}: {
+  label: string
+  count?: number
+  defaultOpen?: boolean
+  right?: ReactNode
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <section className="rail-section" data-open={open ? '1' : '0'}>
+      <button type="button" className="rail-section-head" onClick={() => setOpen((value) => !value)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="lbl">{label}</span>
+          {count != null ? <span className="rail-section-count">{count}</span> : null}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {right}
+          <Icon name="chevronD" className="ic-sm chev" />
+        </div>
+      </button>
+      <div className="rail-section-body">{children}</div>
+    </section>
+  )
+}
+
 // ── SideRail content ──────────────────────────────────────────
 
 function SideRailContent({
@@ -207,7 +238,7 @@ function SideRailContent({
         onSkipTurn={onSkipTurn}
       />
 
-      <div className={`sidebar-section ${emphasizedSection === 'room' ? 'sidebar-section--active' : ''}`}>
+      <div className={emphasizedSection === 'room' ? 'sidebar-section--active' : ''}>
         <RoomPanel
           threadId={thread.id}
           threadStatus={thread.status}
@@ -220,7 +251,12 @@ function SideRailContent({
       </div>
 
       {thread.status === 'open' ? (
-        <div className={`sidebar-section ${emphasizedSection === 'consolidation' ? 'sidebar-section--active' : ''}`}>
+        <RailSection
+          label="Consolidate"
+          defaultOpen={displayStatus === 'consolidating'}
+          right={proposals.length > 0 ? <span className="rail-section-count">{proposals.length} past</span> : null}
+        >
+          <div className={emphasizedSection === 'consolidation' ? 'sidebar-section--active' : ''}>
           <ConsolidationPanel
             threadId={thread.id}
             room={room}
@@ -228,10 +264,16 @@ function SideRailContent({
             summary={consolidationSummary}
             onUpdate={onUpdate}
           />
-        </div>
+          </div>
+        </RailSection>
       ) : null}
 
-      <div className={`sidebar-section ${emphasizedSection === 'context' ? 'sidebar-section--active' : ''}`}>
+      <RailSection
+        label="Context"
+        defaultOpen={false}
+        right={<span className="mono rail-section-count">{contextChip}</span>}
+      >
+      <div className={emphasizedSection === 'context' ? 'sidebar-section--active' : ''}>
         <ThreadContextPanel
           threadId={thread.id}
           threadStatus={thread.status}
@@ -241,6 +283,16 @@ function SideRailContent({
           onUpdate={onUpdate}
         />
       </div>
+      </RailSection>
+
+      <RailSection label="Attachments" count={threadContext?.items.length ?? 0} defaultOpen={false}>
+        <ThreadAttachmentsPanel
+          threadId={thread.id}
+          threadStatus={thread.status}
+          context={threadContext}
+          onUpdate={onUpdate}
+        />
+      </RailSection>
     </>
   )
 }
@@ -268,6 +320,7 @@ export function ThreadPage() {
   // Layout state
   const [bodyCollapsed, setBodyCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [railCollapsed, setRailCollapsed] = useState(false)
 
   // Scroll / new-comments tracking
   const mainRef = useRef<HTMLDivElement>(null)
@@ -674,8 +727,39 @@ export function ThreadPage() {
         </main>
 
         {/* ── Desktop side rail ─────────────────────────────── */}
-        <aside className="workspace-sidebar" aria-label="thread details">
-          <SideRailContent {...sideRailProps} />
+        <aside className={`workspace-sidebar rail ${railCollapsed ? 'rail--collapsed' : ''}`} aria-label="thread details">
+          {railCollapsed ? (
+            <div className="rail-collapsed-strip">
+              <button type="button" className="strip-icon" onClick={() => setRailCollapsed(false)} title="Expand rail">
+                <Icon name="chevronL" className="ic-sm" />
+              </button>
+              <div className="strip-sep" />
+              <div className="vlabel">Room</div>
+              <Avatar author="claude" size={26} />
+              <Avatar author="codex" size={26} />
+              <span title={displayStatus} className="strip-state" data-state={displayStatus} />
+              {room?.auto?.status === 'running' ? <span className="strip-auto" title="Auto running">A</span> : null}
+              <div className="strip-sep" />
+              <button type="button" className="strip-icon" title="Nudge"><Icon name="send" className="ic-sm" /></button>
+              <button type="button" className="strip-icon" title="Ask"><Icon name="spark" className="ic-sm" /></button>
+              <button type="button" className="strip-icon" title="Auto"><Icon name="play" className="ic-sm" /></button>
+            </div>
+          ) : (
+            <>
+              <div className="rail-head">
+                <div className="title">
+                  <Icon name="terminal" className="ic-sm" />
+                  Agent Room
+                </div>
+                <button type="button" className="btn ghost icon" onClick={() => setRailCollapsed(true)} title="Collapse rail">
+                  <Icon name="chevronR" className="ic-sm" />
+                </button>
+              </div>
+              <div className="rail-body">
+                <SideRailContent {...sideRailProps} />
+              </div>
+            </>
+          )}
         </aside>
       </div>
 

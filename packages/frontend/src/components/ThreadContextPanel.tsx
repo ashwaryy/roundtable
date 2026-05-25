@@ -31,31 +31,10 @@ export function ThreadContextPanel({
   onSnapshotSelectionChange?: (selected: boolean) => void
   onUpdate: () => void
 }) {
-  const [url, setUrl] = useState('')
-  const [label, setLabel] = useState('')
   const [sourcePath, setSourcePath] = useState('')
   const [preflight, setPreflight] = useState<SnapshotPreflight | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const isThreadOpen = threadStatus === 'open'
-
-  async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
-    if (!isThreadOpen) return
-    const files = event.target.files
-    if (!files || files.length === 0) return
-    await uploadAttachmentFiles(threadId, files)
-    event.target.value = ''
-    onUpdate()
-  }
-
-  async function handleAddUrl(event: FormEvent) {
-    event.preventDefault()
-    if (!isThreadOpen) return
-    if (!url.trim()) return
-    await addUrlContextItem(threadId, { url, label: label || null })
-    setUrl('')
-    setLabel('')
-    onUpdate()
-  }
 
   async function handlePreflight(event: FormEvent) {
     event.preventDefault()
@@ -88,151 +67,138 @@ export function ThreadContextPanel({
     onUpdate()
   }
 
-  return (
-    <section aria-label="thread-context" className="room-card">
-      <div className="section-heading">
-        <h2>Context</h2>
-        {summary ? <span>{summary}</span> : null}
-      </div>
+  const addedFiles = [
+    ...(context?.snapshot?.added_since_last_refresh ?? []),
+    ...(context?.workspace_added_files.map((file) => file.path) ?? []),
+  ]
 
+  return (
+    <div className="rail-form">
       {!isThreadOpen ? (
-        <p className="room-card__muted">Thread is {threadStatus}; context controls are disabled.</p>
+        <p className="rail-hint" style={{ padding: 0 }}>Thread is {threadStatus}; context controls are disabled.</p>
       ) : null}
 
-      <section>
-        <h3>Attachments</h3>
-        <label>
-          Add files
-          <input type="file" multiple onChange={handleUpload} disabled={!isThreadOpen} />
-        </label>
-      </section>
+      {context?.snapshot ? (
+        <div className="kv-list">
+          <div className="kv-row"><span className="k">working dir</span><span className="v" title={context.snapshot.source_path}>{context.snapshot.source_path}</span></div>
+          <div className="kv-row"><span className="k">snapshot</span><span className="v">{context.snapshot.mode} · {context.snapshot.file_count} files</span></div>
+          <div className="kv-row"><span className="k">size</span><span className="v">{formatBytes(context.snapshot.total_bytes)}</span></div>
+          <div className="kv-row"><span className="k">thread.md</span><span className="v">{summary ?? 'thread.md'}</span></div>
+          <div className="kv-row"><span className="k">reports</span><span className="v">{reports.length}</span></div>
+        </div>
+      ) : (
+        <p className="rail-hint" style={{ padding: 0 }}>No project snapshot.</p>
+      )}
 
-      <section>
-        <h3>URLs</h3>
-        <form onSubmit={handleAddUrl} aria-label="add-url-context">
-          <input
-            aria-label="URL"
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://example.com"
-            disabled={!isThreadOpen}
-          />
-          <input
-            aria-label="URL label"
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-            placeholder="Optional label"
-            disabled={!isThreadOpen}
-          />
-          <button type="submit" disabled={!isThreadOpen}>Add URL</button>
-        </form>
-      </section>
+      {addedFiles.length > 0 ? (
+        <div className="snapshot-changes">
+          <div className="eyebrow tight" style={{ marginTop: 10, marginBottom: 4 }}>Added since last refresh</div>
+          {addedFiles.slice(0, 8).map((file) => (
+            <div key={file} className="snapshot-change">
+              <span>+</span>
+              <span className="mono">{file}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
-      <section>
-        <h3>Project Snapshot</h3>
-        <form onSubmit={handlePreflight} aria-label="snapshot-preflight">
-          <input
-            aria-label="Project path"
-            value={sourcePath}
-            onChange={(event) => setSourcePath(event.target.value)}
-            placeholder="/path/to/project"
-            disabled={!isThreadOpen}
-          />
-          <button type="submit" disabled={!isThreadOpen}>Check Snapshot</button>
-        </form>
+      <button type="button" className="btn sm" onClick={handleRefreshSnapshot} disabled={!isThreadOpen || !context?.snapshot}>
+        Refresh snapshot
+      </button>
 
-        {preflight ? (
-          <div role="status">
-            <p>
-              {preflight.mode} snapshot: {preflight.file_count} files,{' '}
-              {formatBytes(preflight.total_bytes)}, {preflight.excluded_count} excluded.
-            </p>
-            {preflight.warnings.length > 0 ? (
-              <ul>
-                {preflight.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            ) : null}
-            <button
-              onClick={() => handleCreateSnapshot(preflight.requires_confirmation)}
-              disabled={!isThreadOpen}
-            >
-              {preflight.requires_confirmation ? 'Confirm Snapshot' : 'Create Snapshot'}
-            </button>
+      <form onSubmit={handlePreflight} aria-label="snapshot-preflight" className="rail-row">
+        <input
+          className="rail-input"
+          aria-label="Project path"
+          value={sourcePath}
+          onChange={(event) => setSourcePath(event.target.value)}
+          placeholder="/path/to/project"
+          disabled={!isThreadOpen}
+        />
+        <button type="submit" className="btn sm" disabled={!isThreadOpen}>Check</button>
+      </form>
+
+      {preflight ? (
+        <div role="status" className="snap-preflight">
+          <div className="snap-preflight-head">
+            <b>{preflight.mode}</b>
+            <span>{preflight.file_count} files</span>
+            <span>{formatBytes(preflight.total_bytes)}</span>
           </div>
-        ) : null}
+          <button
+            type="button"
+            className="btn sm primary"
+            onClick={() => handleCreateSnapshot(preflight.requires_confirmation)}
+            disabled={!isThreadOpen}
+          >
+            {preflight.requires_confirmation ? 'Confirm Snapshot' : 'Create Snapshot'}
+          </button>
+        </div>
+      ) : null}
 
-        {context?.snapshot ? (
-          <div>
-            <p>
-              Latest: {context.snapshot.mode}, {context.snapshot.file_count} files,{' '}
-              {formatBytes(context.snapshot.total_bytes)}.
-            </p>
-            <p className="context-path" title={context.snapshot.source_path}>
-              {context.snapshot.source_path}
-            </p>
-            <button onClick={handleRefreshSnapshot} disabled={!isThreadOpen}>Refresh Snapshot</button>
-            {reports.length > 0 ? (
-              <div aria-label="snapshot-report-history">
-                <h3>Snapshot Changes</h3>
-                {[...reports].reverse().slice(0, 4).map((report) => (
-                  <p key={report.id}>
-                    {report.id}: +{report.added_paths.length} changed{' '}
-                    {report.modified_paths.length} removed {report.removed_paths.length}
-                  </p>
-                ))}
-              </div>
-            ) : null}
+      {message ? <p className="rail-hint" style={{ padding: 0 }}>{message}</p> : null}
+    </div>
+  )
+}
+
+export function ThreadAttachmentsPanel({
+  threadId,
+  threadStatus,
+  context,
+  onUpdate,
+}: {
+  threadId: string
+  threadStatus: ThreadStatus
+  context: ThreadContext | null
+  onUpdate: () => void
+}) {
+  const [url, setUrl] = useState('')
+  const [label, setLabel] = useState('')
+  const isThreadOpen = threadStatus === 'open'
+
+  async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
+    if (!isThreadOpen) return
+    const files = event.target.files
+    if (!files || files.length === 0) return
+    await uploadAttachmentFiles(threadId, files)
+    event.target.value = ''
+    onUpdate()
+  }
+
+  async function handleAddUrl(event: FormEvent) {
+    event.preventDefault()
+    if (!isThreadOpen || !url.trim()) return
+    await addUrlContextItem(threadId, { url, label: label || null })
+    setUrl('')
+    setLabel('')
+    onUpdate()
+  }
+
+  return (
+    <div className="attach-list-rail">
+      {context && context.items.length > 0 ? (
+        context.items.map((item) => (
+          <div key={item.id} className="attach">
+            <span className="name">
+              {item.kind === 'file' ? item.original_name : (item.label ?? item.url)}
+            </span>
+            {item.kind === 'file' ? <span className="sz">{formatBytes(item.size_bytes)}</span> : null}
           </div>
-        ) : (
-          <p>No project snapshot.</p>
-        )}
-        {message ? <p>{message}</p> : null}
-      </section>
+        ))
+      ) : (
+        <p className="rail-hint" style={{ padding: 0 }}>No attachments yet.</p>
+      )}
 
-      <section>
-        <h3>Context Items</h3>
-        {context && context.items.length > 0 ? (
-          <ul>
-            {context.items.map((item) => (
-              <li key={item.id}>
-                {item.kind === 'file'
-                  ? `${item.original_name} (${item.path}, ${formatBytes(item.size_bytes)})`
-                  : `${item.label ?? item.url} (${item.url})`}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No context items.</p>
-        )}
-      </section>
+      <label className="btn sm ghost" style={{ justifyContent: 'flex-start' }}>
+        Add file
+        <input type="file" multiple onChange={handleUpload} disabled={!isThreadOpen} style={{ display: 'none' }} />
+      </label>
 
-      <section>
-        <h3>Added Files</h3>
-        {context?.snapshot?.added_since_last_refresh.length ? (
-          <>
-            <p>Added in latest snapshot refresh:</p>
-            <ul>
-              {context.snapshot.added_since_last_refresh.map((file) => (
-                <li key={file}>{file}</li>
-              ))}
-            </ul>
-          </>
-        ) : null}
-
-        {context && context.workspace_added_files.length > 0 ? (
-          <ul>
-            {context.workspace_added_files.map((file) => (
-              <li key={file.path}>
-                {file.path} ({formatBytes(file.size_bytes)})
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No manually added files detected.</p>
-        )}
-      </section>
-    </section>
+      <form onSubmit={handleAddUrl} aria-label="add-url-context" className="rail-form" style={{ padding: 0 }}>
+        <input className="rail-input" aria-label="URL" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://example.com" disabled={!isThreadOpen} />
+        <input className="rail-input" aria-label="URL label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Optional label" disabled={!isThreadOpen} />
+        <button type="submit" className="btn sm" disabled={!isThreadOpen || !url.trim()}>Add URL</button>
+      </form>
+    </div>
   )
 }

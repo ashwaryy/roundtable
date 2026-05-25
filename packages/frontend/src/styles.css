@@ -5154,3 +5154,63 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .home-head-right { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; }
 .pending-indent { margin-left: 40px; margin-top: 10px; }
 @media (max-width: 640px) { .pending-indent { margin-left: 16px; } }
+
+/* ---- rail glue: use the mockup rail directly in the app shell ---- */
+.workspace-sidebar.rail {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  padding: 0;
+  gap: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--rule);
+}
+.workspace-sidebar.rail::before { display: none; }
+.workspace-sidebar.rail > * { margin: 0; }
+.workspace-sidebar.rail--collapsed {
+  width: 52px;
+  --sidebar-w: 52px;
+}
+.workspace-sidebar.rail .rail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.workspace-sidebar.rail .rail-section-head {
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+}
+.workspace-sidebar.rail .rail-section-head:hover {
+  background: var(--panel-2);
+}
+.workspace-sidebar.rail .rail-section-body > .tabbar {
+  margin: 0 0 12px;
+}
+.workspace-sidebar.rail .rail-section-body > .rail-form,
+.workspace-sidebar.rail .rail-section-body .rail-form {
+  padding-left: 0;
+  padding-right: 0;
+}
+.workspace-sidebar.rail .tmux-cmd {
+  width: 100%;
+  min-height: 0;
+  justify-content: flex-start;
+}
+.workspace-sidebar.rail .tmux-cmd span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-section-count {
+  color: var(--muted);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}

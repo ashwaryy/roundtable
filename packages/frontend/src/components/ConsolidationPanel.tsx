@@ -9,6 +9,7 @@ import {
   finishAndStartConsolidation,
   startConsolidation,
 } from '../api'
+import { Icon, StatusPill } from './primitives'
 
 export function ConsolidationPanel({
   threadId,
@@ -92,71 +93,87 @@ export function ConsolidationPanel({
     }
   }
 
+  const active = proposals.find((proposal) => proposal.status === 'drafting' || proposal.status === 'review')
+
   return (
-    <section aria-label="consolidation" className="room-card">
-      <div className="section-heading">
-        <h2>Consolidation</h2>
-        {summary ? <span>{summary}</span> : null}
+    <div className="rail-form">
+      <div className="rail-hint" style={{ padding: 0 }}>
+        When the discussion is useful, consolidate it into a proposed next thread for you to review.
+        {summary ? ` Current state: ${summary}.` : ''}
       </div>
-      <form onSubmit={submit}>
-        <label>
-          Drafter
-          <select value={drafter} onChange={(event) => setDrafter(event.target.value as AgentName)}>
-            <option value="codex">Codex</option>
-            <option value="claude">Claude</option>
-          </select>
-        </label>
-        <label>
-          Reviewer
-          <select value={reviewer} onChange={(event) => setReviewer(event.target.value as AgentName)}>
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
-          </select>
-        </label>
-        <label>
-          Reviser
-          <select value={reviser} onChange={(event) => setReviser(event.target.value as AgentName)}>
-            <option value="codex">Codex</option>
-            <option value="claude">Claude</option>
-          </select>
-        </label>
-        <label>
-          Instructions
+
+      {active ? (
+        <div className="proposal-card">
+          <div className="proposal-card-head">
+            <Icon name="file" className="ic-sm" />
+            <span style={{ fontWeight: 600 }}>{active.summary || active.id}</span>
+            <StatusPill status="consolidating" label={active.status} />
+          </div>
+          <div className="proposal-card-body">
+            Drafter: <b>{active.drafter_agent}</b> · Reviewer: <b>{active.reviewer_agent}</b>
+          </div>
+          <div className="pending-actions">
+            <Link className="btn sm primary" to={`/threads/${threadId}/consolidations/${active.id}`}>
+              <Icon name="eye" className="ic-sm" /> Open review
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="rail-form" style={{ padding: 0 }}>
+          <div className="rail-row three">
+            <div className="rail-mini">
+              <label>Drafter</label>
+              <select className="rail-input" value={drafter} onChange={(event) => setDrafter(event.target.value as AgentName)}>
+                <option value="codex">codex</option>
+                <option value="claude">claude</option>
+              </select>
+            </div>
+            <div className="rail-mini">
+              <label>Reviewer</label>
+              <select className="rail-input" value={reviewer} onChange={(event) => setReviewer(event.target.value as AgentName)}>
+                <option value="claude">claude</option>
+                <option value="codex">codex</option>
+              </select>
+            </div>
+            <div className="rail-mini">
+              <label>Reviser</label>
+              <select className="rail-input" value={reviser} onChange={(event) => setReviser(event.target.value as AgentName)}>
+                <option value="codex">codex</option>
+                <option value="claude">claude</option>
+              </select>
+            </div>
+          </div>
           <textarea
+            className="rail-input rail-textarea"
             value={instructions}
             onChange={(event) => setInstructions(event.target.value)}
             placeholder="Optional consolidation instructions"
           />
-        </label>
-        <button type="submit" disabled={!canStart}>
-          Consolidate
-        </button>
-      </form>
-      <button type="button" onClick={finishAndConsolidate} disabled={finishButtonDisabled}>
-        {consolidationRequested ? (
-          <span className="button-loading" aria-live="polite">
-            <span className="button-spinner" aria-hidden="true" />
-            Requested Consolidation
-          </span>
-        ) : (
-          'Finish & Consolidate'
-        )}
-      </button>
-      {proposals.length > 0 ? (
-        <ul>
-          {proposals.map((proposal) => (
-            <li key={proposal.id}>
-              <Link to={`/threads/${threadId}/consolidations/${proposal.id}`}>
-                {proposal.id}
-              </Link>{' '}
-              {proposal.status}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="empty-state">No consolidations yet.</p>
+          <div className="pending-actions">
+            <button type="submit" className="btn primary" disabled={!canStart} style={{ flex: 1 }}>
+              <Icon name="play" className="ic-sm" /> Consolidate
+            </button>
+            <button type="button" className="btn" onClick={finishAndConsolidate} disabled={finishButtonDisabled}>
+              {consolidationRequested ? 'Requested' : 'Finish & Consolidate'}
+            </button>
+          </div>
+        </form>
       )}
-      {error ? <p role="alert">{error}</p> : null}
-    </section>
+
+      {proposals.length > 0 ? (
+        <div className="proposal-history">
+          <div className="rail-hint" style={{ padding: 0 }}>Past proposals</div>
+          {proposals.map((proposal) => (
+            <div key={proposal.id} className="proposal-row">
+              <Link to={`/threads/${threadId}/consolidations/${proposal.id}`} className="mono" style={{ fontSize: 11 }}>
+                {proposal.id}
+              </Link>
+              <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>{proposal.status}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {error ? <p role="alert" className="room-card__error">{error}</p> : null}
+    </div>
   )
 }
