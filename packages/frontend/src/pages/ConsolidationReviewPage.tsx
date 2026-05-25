@@ -1,15 +1,8 @@
-import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import type {
-  AgentName,
-  ConsolidationDetail,
-  RoundtableEvent,
-  ThreadDetail,
-  AgentRoom,
-  BoundedJob,
-} from '@roundtable/shared'
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { AgentName, ConsolidationDetail, RoundtableEvent, ThreadDetail, AgentRoom, BoundedJob } from "@roundtable/shared";
 import {
   getConsolidation,
   getThread,
@@ -21,38 +14,22 @@ import {
   saveConsolidatedOutput,
   saveProposalRevision,
   startNextIteration,
-} from '../api'
-import { useLiveRefresh } from '../useLiveRefresh'
-import { Icon } from '../components/primitives'
-import { ThemeToggle } from '../components/ThemeToggle'
-import {
-  CONSOLIDATION_STEPS,
-  buildConsolidationUiState,
-} from '../lib/consolidationUi'
-import {
-  readStoredBoolean,
-  writeStoredBoolean,
-} from '../lib/uiStorage'
+} from "../api";
+import { useLiveRefresh } from "../useLiveRefresh";
+import { Icon } from "../components/primitives";
+import { ThemeToggle } from "../components/ThemeToggle";
+import { CONSOLIDATION_STEPS, buildConsolidationUiState } from "../lib/consolidationUi";
+import { readStoredBoolean, writeStoredBoolean } from "../lib/uiStorage";
 
-const REVIEW_RAIL_COLLAPSED_STORAGE_KEY = 'roundtable.reviewRailCollapsed'
+const REVIEW_RAIL_COLLAPSED_STORAGE_KEY = "roundtable.reviewRailCollapsed";
 
-function RailSection({
-  label,
-  count,
-  defaultOpen = true,
-  children,
-}: {
-  label: string
-  count?: number
-  defaultOpen?: boolean
-  children: ReactNode
-}) {
-  const [open, setOpen] = useState(defaultOpen)
+function RailSection({ label, count, defaultOpen = true, children }: { label: string; count?: number; defaultOpen?: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <section className="rail-section" data-open={open ? '1' : '0'}>
+    <section className="rail-section" data-open={open ? "1" : "0"}>
       <button type="button" className="rail-section-head" onClick={() => setOpen((value) => !value)}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="lbl">{label}</span>
           {count != null ? <span className="rail-section-count">{count}</span> : null}
         </div>
@@ -60,175 +37,162 @@ function RailSection({
       </button>
       <div className="rail-section-body">{children}</div>
     </section>
-  )
+  );
 }
 
 export function ConsolidationReviewPage() {
-  const { id, proposalId } = useParams<{ id: string; proposalId: string }>()
-  const navigate = useNavigate()
-  const [thread, setThread] = useState<ThreadDetail | null>(null)
-  const [detail, setDetail] = useState<ConsolidationDetail | null>(null)
-  const [room, setRoom] = useState<AgentRoom | null>(null)
-  const [jobs, setJobs] = useState<BoundedJob[]>([])
-  const [body, setBody] = useState('')
-  const [reviewInstructions, setReviewInstructions] = useState('')
-  const [revisionInstructions, setRevisionInstructions] = useState('')
-  const [reviewer, setReviewer] = useState<AgentName>('claude')
-  const [reviser, setReviser] = useState<AgentName>('codex')
-  const [error, setError] = useState<string | null>(null)
-  const [editing, setEditing] = useState(false)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [railCollapsed, setRailCollapsed] = useState(() =>
-    readStoredBoolean(REVIEW_RAIL_COLLAPSED_STORAGE_KEY, false),
-  )
+  const { id, proposalId } = useParams<{ id: string; proposalId: string }>();
+  const navigate = useNavigate();
+  const [thread, setThread] = useState<ThreadDetail | null>(null);
+  const [detail, setDetail] = useState<ConsolidationDetail | null>(null);
+  const [room, setRoom] = useState<AgentRoom | null>(null);
+  const [jobs, setJobs] = useState<BoundedJob[]>([]);
+  const [body, setBody] = useState("");
+  const [reviewInstructions, setReviewInstructions] = useState("");
+  const [revisionInstructions, setRevisionInstructions] = useState("");
+  const [reviewer, setReviewer] = useState<AgentName>("claude");
+  const [reviser, setReviser] = useState<AgentName>("codex");
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(() => readStoredBoolean(REVIEW_RAIL_COLLAPSED_STORAGE_KEY, false));
 
   const refresh = useCallback(() => {
-    if (!id || !proposalId) return
-    getThread(id).then(setThread)
-    getRoom(id).then(setRoom)
-    listJobs(id).then(setJobs)
+    if (!id || !proposalId) return;
+    getThread(id).then(setThread);
+    getRoom(id).then(setRoom);
+    listJobs(id).then(setJobs);
     getConsolidation(id, proposalId).then((next) => {
-      setDetail(next)
-      setBody(next.latest_body ?? '')
-      setReviewer(next.proposal.reviewer_agent)
-      setReviser(next.proposal.reviser_agent)
-    })
-  }, [id, proposalId])
+      setDetail(next);
+      setBody(next.latest_body ?? "");
+      setReviewer(next.proposal.reviewer_agent);
+      setReviser(next.proposal.reviser_agent);
+    });
+  }, [id, proposalId]);
 
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    refresh();
+  }, [refresh]);
 
   useEffect(() => {
-    writeStoredBoolean(REVIEW_RAIL_COLLAPSED_STORAGE_KEY, railCollapsed)
-  }, [railCollapsed])
+    writeStoredBoolean(REVIEW_RAIL_COLLAPSED_STORAGE_KEY, railCollapsed);
+  }, [railCollapsed]);
 
   const backendStatus = useLiveRefresh(
     useCallback(
       (event: RoundtableEvent) => {
-        if (!('thread_id' in event) || event.thread_id !== id) return
-        if (event.type === 'thread_deleted') {
-          navigate('/')
-          return
+        if (!("thread_id" in event) || event.thread_id !== id) return;
+        if (event.type === "thread_deleted") {
+          navigate("/");
+          return;
         }
-        refresh()
+        refresh();
       },
       [id, navigate, refresh],
     ),
-  )
+  );
 
   async function saveRevision(event: FormEvent) {
-    event.preventDefault()
-    if (!id || !proposalId) return
-    setError(null)
+    event.preventDefault();
+    if (!id || !proposalId) return;
+    setError(null);
     try {
-      await saveProposalRevision(id, proposalId, { body })
-      setEditing(false)
-      refresh()
+      await saveProposalRevision(id, proposalId, { body });
+      setEditing(false);
+      refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function askReview() {
-    if (!id || !proposalId) return
-    setError(null)
+    if (!id || !proposalId) return;
+    setError(null);
     try {
       await requestProposalReview(id, proposalId, {
         reviewer_agent: reviewer,
         instructions: reviewInstructions || null,
-      })
-      setReviewInstructions('')
-      refresh()
+      });
+      setReviewInstructions("");
+      refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function askRevision() {
-    if (!id || !proposalId) return
-    setError(null)
+    if (!id || !proposalId) return;
+    setError(null);
     try {
       await requestProposalRevision(id, proposalId, {
         reviewer_agent: reviewer,
         reviser_agent: reviser,
         instructions: revisionInstructions || null,
-      })
-      setRevisionInstructions('')
-      refresh()
+      });
+      setRevisionInstructions("");
+      refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function reject() {
-    if (!id || !proposalId) return
-    setError(null)
+    if (!id || !proposalId) return;
+    setError(null);
     try {
-      await rejectProposal(id, proposalId)
-      refresh()
+      await rejectProposal(id, proposalId);
+      refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function saveOutput() {
-    if (!id || !proposalId) return
-    setError(null)
+    if (!id || !proposalId) return;
+    setError(null);
     try {
-      const saved = await saveConsolidatedOutput(id, proposalId)
-      navigate(`/saved/${saved.id}`)
+      const saved = await saveConsolidatedOutput(id, proposalId);
+      navigate(`/saved/${saved.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function nextIteration() {
-    if (!id || !proposalId) return
-    setError(null)
+    if (!id || !proposalId) return;
+    setError(null);
     try {
-      const next = await startNextIteration(id, proposalId)
-      navigate(`/threads/${next.id}`)
+      const next = await startNextIteration(id, proposalId);
+      navigate(`/threads/${next.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  if (!thread || !detail) return <p>Loading...</p>
+  if (!thread || !detail) return <p>Loading...</p>;
 
-  const proposal = detail.proposal
+  const proposal = detail.proposal;
   const uiState = buildConsolidationUiState({
     proposals: [proposal],
     jobs,
     detail,
     proposal,
-  })
-  const locked =
-    proposal.status === 'applied' ||
-    proposal.status === 'saved' ||
-    proposal.status === 'rejected'
-  const busy = uiState.isRunning
-  const readyForDecision = !locked && !busy && Boolean(body.trim())
-  const readyAgents = (room?.roster ?? []).filter((agent) => room?.agents[agent.agent_id]?.ready_at)
-  const backendStatusLabel = `Backend ${backendStatus}`
+  });
+  const locked = proposal.status === "applied" || proposal.status === "saved" || proposal.status === "rejected";
+  const busy = uiState.isRunning;
+  const readyForDecision = !locked && !busy && Boolean(body.trim());
+  const readyAgents = (room?.roster ?? []).filter((agent) => room?.agents[agent.agent_id]?.ready_at);
+  const backendStatusLabel = `Backend ${backendStatus}`;
 
   return (
-    <div
-      className="workspace-root consolidation-review-workspace"
-      style={{ '--sidebar-w': railCollapsed ? '52px' : '340px' } as CSSProperties}
-    >
+    <div className="workspace-root consolidation-review-workspace" style={{ "--sidebar-w": railCollapsed ? "52px" : "340px" } as CSSProperties}>
       <header className="workspace-header" aria-label="outcome review header">
         <Link to={`/threads/${thread.id}`} className="workspace-back" aria-label="Back to thread" title="Back to thread">
           <Icon name="arrowLeft" className="ic" />
         </Link>
 
         <Link to="/" className="workspace-brand" aria-label="Roundtable home">
-          <span
-            className="workspace-brand__dot"
-            data-backend-status={backendStatus}
-            aria-label={backendStatusLabel}
-            title={backendStatusLabel}
-          />
+          <span className="workspace-brand__dot" data-backend-status={backendStatus} aria-label={backendStatusLabel} title={backendStatusLabel} />
           <span>Roundtable</span>
         </Link>
 
@@ -255,11 +219,7 @@ export function ConsolidationReviewPage() {
               {!uiState.isTerminal ? (
                 <div className="outcome-steps">
                   {CONSOLIDATION_STEPS.map((step) => (
-                    <span
-                      key={step.phase}
-                      className="outcome-step"
-                      data-active={uiState.phase === step.phase ? '1' : '0'}
-                    >
+                    <span key={step.phase} className="outcome-step" data-active={uiState.phase === step.phase ? "1" : "0"}>
                       {step.label}
                     </span>
                   ))}
@@ -268,20 +228,19 @@ export function ConsolidationReviewPage() {
 
               {editing ? (
                 <form onSubmit={saveRevision} className="proposal-edit-form">
-                  <textarea
-                    className="proposal-editor"
-                    value={body}
-                    onChange={(event) => setBody(event.target.value)}
-                    disabled={locked || busy}
-                  />
+                  <textarea className="proposal-editor" value={body} onChange={(event) => setBody(event.target.value)} disabled={locked || busy} />
                   <div className="inline-actions">
                     <button type="submit" className="btn primary" disabled={locked || busy || !body.trim()}>
                       Save revision
                     </button>
-                    <button type="button" className="btn" onClick={() => {
-                      setBody(detail.latest_body ?? '')
-                      setEditing(false)
-                    }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => {
+                        setBody(detail.latest_body ?? "");
+                        setEditing(false);
+                      }}
+                    >
                       Cancel
                     </button>
                   </div>
@@ -307,10 +266,10 @@ export function ConsolidationReviewPage() {
                 {locked ? null : (
                   <>
                     <button type="button" className="btn sm primary" onClick={nextIteration} disabled={!readyForDecision}>
-                      Start next thread
+                      Create New Thread From This
                     </button>
                     <button type="button" className="btn sm primary" onClick={saveOutput} disabled={!readyForDecision}>
-                      Save & close
+                      Save Output & Close
                     </button>
                     <button type="button" className="btn sm" onClick={reject} disabled={busy}>
                       Reject
@@ -321,10 +280,14 @@ export function ConsolidationReviewPage() {
             </section>
           </div>
 
-          {error ? <p role="alert" className="review-main-error">{error}</p> : null}
+          {error ? (
+            <p role="alert" className="review-main-error">
+              {error}
+            </p>
+          ) : null}
         </main>
 
-        <aside className={`workspace-sidebar rail review-rail ${railCollapsed ? 'rail--collapsed' : ''}`} aria-label="review context">
+        <aside className={`workspace-sidebar rail review-rail ${railCollapsed ? "rail--collapsed" : ""}`} aria-label="review context">
           {railCollapsed ? (
             <div className="rail-collapsed-strip">
               <button type="button" className="strip-icon" onClick={() => setRailCollapsed(false)} title="Expand rail">
@@ -357,7 +320,7 @@ export function ConsolidationReviewPage() {
                 <RailSection label="Ask for review" defaultOpen={!locked}>
                   <div className="refine-panel refine-panel--rail">
                     <button type="button" className="btn sm ghost" onClick={() => setAdvancedOpen((value) => !value)}>
-                      <Icon name={advancedOpen ? 'chevronU' : 'chevronD'} className="ic-sm" />
+                      <Icon name={advancedOpen ? "chevronU" : "chevronD"} className="ic-sm" />
                       Advanced roles
                     </button>
                     {advancedOpen ? (
@@ -370,7 +333,11 @@ export function ConsolidationReviewPage() {
                             onChange={(event) => setReviewer(event.target.value as AgentName)}
                             disabled={locked || busy}
                           >
-                            {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
+                            {readyAgents.map((agent) => (
+                              <option key={agent.agent_id} value={agent.agent_id}>
+                                {agent.name}
+                              </option>
+                            ))}
                           </select>
                         </div>
                       </div>
@@ -388,7 +355,11 @@ export function ConsolidationReviewPage() {
                     <button type="button" className="btn" onClick={askReview} disabled={locked || busy || !body.trim()}>
                       Ask for review
                     </button>
-                    {error ? <p role="alert" className="room-card__error">{error}</p> : null}
+                    {error ? (
+                      <p role="alert" className="room-card__error">
+                        {error}
+                      </p>
+                    ) : null}
                   </div>
                 </RailSection>
                 <RailSection label="Request revision" defaultOpen={!locked}>
@@ -402,7 +373,11 @@ export function ConsolidationReviewPage() {
                           onChange={(event) => setReviser(event.target.value as AgentName)}
                           disabled={locked || busy}
                         >
-                          {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
+                          {readyAgents.map((agent) => (
+                            <option key={agent.agent_id} value={agent.agent_id}>
+                              {agent.name}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     ) : null}
@@ -427,5 +402,5 @@ export function ConsolidationReviewPage() {
         </aside>
       </div>
     </div>
-  )
+  );
 }

@@ -137,7 +137,10 @@ export function ConsolidationPanel({
 
   const active = proposals.find(isActiveProposal)
   const latest = proposals[proposals.length - 1] ?? null
-  const shownProposal = active ?? latest
+  const shownProposal =
+    !active && threadStatus === 'open' && latest?.status === 'rejected'
+      ? null
+      : active ?? latest
   const uiState = buildConsolidationUiState({
     proposals,
     jobs,

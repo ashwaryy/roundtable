@@ -1427,6 +1427,27 @@ describe('createRoomManager', () => {
     ).toThrow('agent does not match active turn')
   })
 
+  it('rejects comment helper submissions during proposal draft turns', () => {
+    const { manager, token } = startReadyRoom()
+    manager.startConsolidation('thread-1', {
+      drafter_agent: 'codex',
+      reviewer_agent: 'claude',
+      reviser_agent: 'codex',
+    })
+
+    expect(() =>
+      manager.submitComment(
+        'thread-1',
+        {
+          turn_id: 'job-001',
+          agent: 'codex',
+          body: 'wrong helper path',
+        },
+        token,
+      ),
+    ).toThrow('active turn requires roundtable proposal submission')
+  })
+
   it('marks timed-out active turns as needing attention', async () => {
     const previousTimeout = process.env.ROUNDTABLE_TURN_TIMEOUT_MS
     process.env.ROUNDTABLE_TURN_TIMEOUT_MS = '1'

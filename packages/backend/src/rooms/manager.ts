@@ -2874,6 +2874,17 @@ export function createRoomManager(options: {
       if (job.agent !== input.agent || job.turn.agent !== input.agent) {
         throw new BadRequestError('agent does not match active turn')
       }
+      if (
+        job.turn.kind === 'proposal_draft' ||
+        job.turn.kind === 'proposal_review' ||
+        job.turn.kind === 'proposal_revision'
+      ) {
+        throw new BadRequestError(
+          `active turn requires roundtable ${
+            job.turn.kind === 'proposal_review' ? 'review' : 'proposal'
+          } submission`,
+        )
+      }
       if (isTimedOut(job)) {
         expireActiveTurn(threadId)
         throw new BadRequestError('active turn has timed out')
