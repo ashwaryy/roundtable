@@ -124,6 +124,10 @@ export function roundtableHelperPath(dataDir: string, threadId: string): string 
   return path.join(roundtableBinDir(dataDir, threadId), 'roundtable')
 }
 
+export function preToolUseHookPath(dataDir: string, threadId: string): string {
+  return path.join(roundtableBinDir(dataDir, threadId), 'pre-tool-use')
+}
+
 export function claudeLocalSettingsPath(dataDir: string, threadId: string): string {
   return path.join(threadDir(dataDir, threadId), '.claude', 'settings.local.json')
 }

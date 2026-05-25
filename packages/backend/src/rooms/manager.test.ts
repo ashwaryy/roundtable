@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { archiveThread, createThread } from '../storage/threads'
 import {
+  preToolUseHookPath,
   claudeLocalSettingsPath,
   codexProjectConfigPath,
   codexRulesPath,
@@ -132,6 +134,7 @@ describe('createRoomManager', () => {
     const claudeSettings = JSON.parse(
       fs.readFileSync(claudeLocalSettingsPath(dataDir, 'thread-1'), 'utf8'),
     )
+    expect(claudeSettings.permissions.defaultMode).toBe('dontAsk')
     expect(claudeSettings.permissions.allow).toEqual(
       expect.arrayContaining([
         'Read',
@@ -142,6 +145,7 @@ describe('createRoomManager', () => {
         'Bash(roundtable ready *)',
         'Bash(roundtable comment *)',
         'Bash(cat *)',
+        'Bash(grep *)',
         'Bash(read *)',
         'Bash(head *)',
         'Bash(tail *)',
@@ -159,6 +163,30 @@ describe('createRoomManager', () => {
         'Bash(npm install *)',
       ]),
     )
+    expect(claudeSettings.hooks.PreToolUse).toEqual([
+      {
+        matcher: 'Bash',
+        hooks: [
+          {
+            type: 'command',
+            command: preToolUseHookPath(dataDir, 'thread-1'),
+            args: [],
+            timeout: 5,
+          },
+        ],
+      },
+    ])
+    const noRtkHookPath = preToolUseHookPath(dataDir, 'thread-1')
+    const noRtkHookDecision = (command: string) =>
+      execFileSync(noRtkHookPath, [], {
+        encoding: 'utf8',
+        input: JSON.stringify({ tool_input: { command } }),
+      })
+    expect(noRtkHookDecision('grep c014 comments.jsonl')).toBe('')
+    expect(
+      JSON.parse(noRtkHookDecision('rtk grep c014 comments.jsonl')).hookSpecificOutput
+        .permissionDecision,
+    ).toBe('deny')
 
     const codexStartup = fs.readFileSync(
       path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'codex-startup.md'),
@@ -185,10 +213,19 @@ describe('createRoomManager', () => {
       'write each pending body to its own `.roundtable/tmp/...` file',
     )
     expect(codexStartup).toContain(
+      'Run the readiness command on every launch or resumed CLI process',
+    )
+    expect(codexStartup).toContain(
+      'A prior launch acknowledgment does not apply to this room process.',
+    )
+    expect(codexStartup).toContain(
       'The user may not have this pane attached and may not see terminal narration or interactive prompts.',
     )
     expect(codexStartup).toContain(
       'Use only file operations and commands already permitted for this Roundtable room and the current turn.',
+    )
+    expect(codexStartup).toContain(
+      'Use the built-in Read and Grep tools to inspect room artifacts.',
     )
     expect(codexStartup).toContain(
       'Do not wait at an interactive approval prompt for routine turn work.',
@@ -200,18 +237,28 @@ describe('createRoomManager', () => {
       'utf8',
     )
     expect(codexConfig).toContain('sandbox_mode = "workspace-write"')
+    expect(codexConfig).toContain('approval_policy = "never"')
     expect(codexConfig).toContain('[sandbox_workspace_write]')
     expect(codexConfig).toContain('network_access = true')
     expect(codexConfig).toContain('[features.network_proxy]')
     expect(codexConfig).toContain('"localhost" = "allow"')
     expect(codexConfig).toContain('"127.0.0.1" = "allow"')
+    expect(codexConfig).toContain('[hooks]')
+    expect(codexConfig).toContain('PreToolUse = [{ matcher = "Bash"')
+    expect(codexConfig).toContain(preToolUseHookPath(dataDir, 'thread-1'))
 
     const launchCodex = fs.readFileSync(
       path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-codex.sh'),
       'utf8',
     )
+    const launchClaude = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-claude.sh'),
+      'utf8',
+    )
+    expect(launchClaude).toContain('exec claude --permission-mode dontAsk')
     expect(launchCodex).toContain('exec codex --sandbox workspace-write')
-    expect(launchCodex).toContain('--ask-for-approval on-request')
+    expect(launchCodex).toContain('--ask-for-approval never')
+    expect(launchCodex).toContain('--dangerously-bypass-hook-trust')
     expect(launchCodex).toContain('sandbox_workspace_write.network_access=true')
     expect(launchCodex).toContain('features.network_proxy.domains=')
 
@@ -255,8 +302,26 @@ describe('createRoomManager', () => {
         'Bash(rtk roundtable ready *)',
         'Bash(rtk roundtable comment *)',
         'Bash(rtk cat *)',
+        'Bash(rtk grep *)',
         'Bash(rtk read *)',
       ]),
+    )
+    const hookPath = preToolUseHookPath(dataDir, 'thread-1')
+    const hookOutput = (command: string) =>
+      execFileSync(hookPath, [], {
+          encoding: 'utf8',
+          input: JSON.stringify({ tool_input: { command } }),
+        })
+    expect(hookOutput('rtk grep c014 comments.jsonl')).toBe('')
+    expect(
+      JSON.parse(hookOutput('rtk grep c014 comments.jsonl | python3 -c "print(1)"'))
+        .hookSpecificOutput,
+    ).toMatchObject({
+      permissionDecision: 'deny',
+      permissionDecisionReason: expect.stringContaining('do not pipe through Python'),
+    })
+    expect(JSON.parse(hookOutput('python3 -c "print(1)"')).hookSpecificOutput.permissionDecision).toBe(
+      'deny',
     )
 
     const codexRules = fs.readFileSync(codexRulesPath(dataDir, 'thread-1'), 'utf8')
@@ -353,6 +418,29 @@ describe('createRoomManager', () => {
     expect(startupEnterCommands).toEqual([])
   })
 
+  it('trusts generated Codex hooks when their review prompt appears at startup', async () => {
+    executor.paneCaptures.set('roundtable-thread-1:0.0', 'Claude Code ready')
+    executor.paneCaptures.set(
+      'roundtable-thread-1:0.1',
+      'Hooks need review\n1 hook is new or changed.\n> 1. Review hooks\n2. Trust all and continue\n3. Continue without trusting (hooks won\'t run)',
+    )
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptPollIntervalMs: 1,
+      startupTrustPromptTimeoutMs: 50,
+    })
+
+    manager.startRoom('thread-1', {})
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: ['send-keys', '-t', 'roundtable-thread-1:0.1', '2', 'C-m'],
+    })
+  })
+
   it('accepts startup trust prompts that appear after agent startup is slow', async () => {
     const manager = createRoomManager({
       dataDir,
@@ -435,7 +523,7 @@ describe('createRoomManager', () => {
       path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-codex.sh'),
       'utf8',
     )
-    expect(launchClaude).toContain('exec claude ')
+    expect(launchClaude).toContain('exec claude --permission-mode dontAsk ')
     expect(launchClaude).not.toContain('claude --continue')
     expect(launchCodex).toContain('exec codex ')
     expect(launchCodex).not.toContain('codex resume --last')
@@ -463,7 +551,7 @@ describe('createRoomManager', () => {
       path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-codex.sh'),
       'utf8',
     )
-    expect(launchClaude).toContain('claude --continue')
+    expect(launchClaude).toContain('claude --continue --permission-mode dontAsk')
     expect(launchCodex).toContain('exec codex ')
     expect(launchCodex).not.toContain('codex resume --last')
   })
@@ -598,15 +686,9 @@ describe('createRoomManager', () => {
     expect(turnPrompt).toContain(
       'Write your final comment body to `.roundtable/tmp/job-001-codex-comment.md`.',
     )
-    expect(turnPrompt).toContain(
-      'The user may not have this pane attached and may not see terminal narration or interactive prompts.',
-    )
-    expect(turnPrompt).toContain(
-      'Use only file operations and commands already permitted for this Roundtable room and the current turn.',
-    )
-    expect(turnPrompt).toContain(
-      'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances',
-    )
+    expect(turnPrompt).not.toContain('interactive prompts')
+    expect(turnPrompt).toContain('Use only permitted room operations.')
+    expect(turnPrompt).not.toContain('Do not invoke any agent skill')
     expect(turnPrompt).toContain('Keep your comment short and forum-like')
     expect(turnPrompt).toContain(
       'roundtable comment --body-file .roundtable/tmp/job-001-codex-comment.md --type comment',
@@ -677,6 +759,28 @@ describe('createRoomManager', () => {
     expect(getJob(dataDir, 'thread-1', 'job-001')?.status).toBe('completed')
     expect(listComments(dataDir, 'thread-1')).toHaveLength(1)
     expect(fs.existsSync(currentTurnPath(dataDir, 'thread-1'))).toBe(false)
+  })
+
+  it('does not repeat startup execution rules in Claude turn prompts', () => {
+    const { manager } = startReadyRoom()
+
+    manager.askAgent('thread-1', { agent: 'claude' })
+
+    const turnPrompt = fs.readFileSync(
+      path.join(
+        dataDir,
+        'threads',
+        'thread-1',
+        '.roundtable',
+        'tmp',
+        'job-001-claude-turn.md',
+      ),
+      'utf8',
+    )
+    expect(turnPrompt).toContain('Do not edit canonical Roundtable files or project files.')
+    expect(turnPrompt).not.toContain('interactive prompts')
+    expect(turnPrompt).not.toContain('Use only file operations and commands already permitted')
+    expect(turnPrompt).not.toContain('Use the built-in Read and Grep tools')
   })
 
   it('allows a discussion-level ask to queue multiple pending splits before its final reply', () => {

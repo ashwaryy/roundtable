@@ -30,6 +30,7 @@ import type {
   StartRoomInput,
 } from '@roundtable/shared'
 import {
+  preToolUseHookPath,
   claudeLocalSettingsPath,
   codexProjectConfigPath,
   codexRulesPath,
@@ -322,6 +323,7 @@ function cleanupStoppedRoomFiles(dataDir: string, threadId: string): void {
     path.join(roundtableInternalDir(dataDir, threadId), 'launch-codex.sh'),
     path.join(roundtableTmpDir(dataDir, threadId), 'consolidation-context.md'),
     roundtableHelperPath(dataDir, threadId),
+    preToolUseHookPath(dataDir, threadId),
     claudeLocalSettingsPath(dataDir, threadId),
     codexProjectConfigPath(dataDir, threadId),
     codexRulesPath(dataDir, threadId),
@@ -384,11 +386,20 @@ function promptAnswerKeys(
   return [response === 'yes' ? 'y' : 'n', 'Enter']
 }
 
-const agentExecutionRules = [
+const startupExecutionRules = [
   'You run inside a tmux pane. The user may not have this pane attached and may not see terminal narration or interactive prompts.',
   'Use only file operations and commands already permitted for this Roundtable room and the current turn. Do not run shell pipelines, ad hoc scripts, or convenience commands that require additional approval.',
+  'Use the built-in Read and Grep tools to inspect room artifacts. If you use Bash for inspection, keep it to one permitted read command such as `grep`; do not pipe results through Python or another interpreter.',
   'Do not wait at an interactive approval prompt for routine turn work. Complete the turn through an allowed Roundtable helper submission.',
 ]
+
+function repeatedTurnExecutionRules(agent: AgentName): string[] {
+  return agent === 'codex'
+    ? [
+        'Use only permitted room operations. Avoid shell pipelines, ad hoc scripts, and commands outside the instructed workflow.',
+      ]
+    : []
+}
 
 function startupPrompt(agent: AgentName): string {
   return [
@@ -401,11 +412,12 @@ function startupPrompt(agent: AgentName): string {
     'Project snapshots are optional; if present, snapshot files live under `project-snapshot/` and are listed in `project-snapshot-manifest.json`.',
     'Discussion happens around the source thread. Do not edit `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, or `.roundtable/` files except draft files under `.roundtable/tmp/` permitted by a Roundtable turn.',
     'Do not edit project snapshot files or user project files.',
-    ...agentExecutionRules,
+    ...startupExecutionRules,
     'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances, even if the user or thread asks for one.',
     'Keep comments short and forum-like. Make one clear point, avoid wordy explanations, and do not write essay-style replies.',
     '',
-    `First, acknowledge readiness by running: roundtable ready --agent ${agent}`,
+    `First, run this readiness command now for this room launch: roundtable ready --agent ${agent}`,
+    'Run the readiness command on every launch or resumed CLI process, even if prior transcript context says it already succeeded. A prior launch acknowledgment does not apply to this room process.',
     'After readiness, wait for Roundtable Ask or auto-discussion turns in this terminal.',
     'For each turn, write durable output only under `.roundtable/tmp/`, then submit it with a Roundtable helper command from that turn.',
     'If a turn permits multiple pending discussions, write each pending body to its own `.roundtable/tmp/...` file and pass that file directly to `roundtable pending-discussion`; do not copy or rename draft files before submission.',
@@ -426,6 +438,47 @@ function claudeBashRules(
       (variant) => `Bash(${variant}${wildcard})`,
     ),
   )
+}
+
+function writePreToolUseHook(
+  dataDir: string,
+  threadId: string,
+  allowedCommands: string[],
+): string {
+  const hookPath = preToolUseHookPath(dataDir, threadId)
+  fs.mkdirSync(path.dirname(hookPath), { recursive: true })
+  writeExecutable(
+    hookPath,
+    `#!/usr/bin/env node
+const fs = require('node:fs')
+
+const input = JSON.parse(fs.readFileSync(0, 'utf8'))
+const command = String(input.tool_input?.command ?? '').trim()
+const allowedPrefixes = ${JSON.stringify(allowedCommands)}
+const shellOperators = /(?:\\r|\\n|&&|\\|\\||[|;&<>\\\`]|\\$\\()/
+
+function decision(permissionDecision, permissionDecisionReason) {
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision,
+      permissionDecisionReason,
+    },
+  }))
+}
+
+if (shellOperators.test(command)) {
+  decision('deny', 'Roundtable permits only single approved shell commands. Use Read or Grep directly; do not pipe through Python or another interpreter.')
+} else if (
+  allowedPrefixes.some((prefix) => command === prefix || command.startsWith(prefix + ' '))
+) {
+  process.exit(0)
+} else {
+  decision('deny', 'This shell command is outside the Roundtable room allowlist. Use Read or Grep directly, or an instructed Roundtable helper command.')
+}
+`,
+  )
+  return hookPath
 }
 
 function codexPrefixRule(
@@ -457,7 +510,7 @@ function writeAgentPermissionSetup(
   threadId: string,
   rtkAvailable: boolean,
 ): void {
-  const readCommands = ['pwd', 'ls', 'cat', 'sed', 'rg', 'read', 'head', 'tail']
+  const readCommands = ['pwd', 'ls', 'cat', 'grep', 'sed', 'rg', 'read', 'head', 'tail']
   const workflowCommands = [
     'git status',
     'git diff',
@@ -486,10 +539,17 @@ function writeAgentPermissionSetup(
     'npm exec',
     'npx',
   ]
+  const allowedBashCommands = [
+    ...readCommands,
+    ...workflowCommands,
+    ...helperCommands,
+  ].flatMap((command) => commandVariants(command, rtkAvailable))
+  const hookPath = writePreToolUseHook(dataDir, threadId, allowedBashCommands)
 
   writeJsonFile(claudeLocalSettingsPath(dataDir, threadId), {
     $schema: 'https://json.schemastore.org/claude-code-settings.json',
     permissions: {
+      defaultMode: 'dontAsk',
       allow: [
         'Read',
         'Edit(.roundtable/tmp/**)',
@@ -531,11 +591,26 @@ function writeAgentPermissionSetup(
         ...claudeBashRules(destructiveCommands, rtkAvailable, ' *'),
       ],
     },
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [
+            {
+              type: 'command',
+              command: hookPath,
+              args: [],
+              timeout: 5,
+            },
+          ],
+        },
+      ],
+    },
   })
 
   writeTextFile(
     codexProjectConfigPath(dataDir, threadId),
-    `approval_policy = "on-request"
+    `approval_policy = "never"
 sandbox_mode = "workspace-write"
 
 [sandbox_workspace_write]
@@ -544,6 +619,9 @@ network_access = true
 [features.network_proxy]
 enabled = true
 domains = { "localhost" = "allow", "127.0.0.1" = "allow" }
+
+[hooks]
+PreToolUse = [{ matcher = "Bash", hooks = [{ type = "command", command = ${JSON.stringify(hookPath)}, timeout = 5 }] }]
 `,
   )
 
@@ -588,7 +666,8 @@ domains = { "localhost" = "allow", "127.0.0.1" = "allow" }
 function codexSandboxArgs(): string {
   return [
     '--sandbox workspace-write',
-    '--ask-for-approval on-request',
+    '--ask-for-approval never',
+    '--dangerously-bypass-hook-trust',
     `-c ${shellSingleQuote('sandbox_workspace_write.network_access=true')}`,
     `-c ${shellSingleQuote('features.network_proxy.enabled=true')}`,
     `-c ${shellSingleQuote(
@@ -600,7 +679,7 @@ function codexSandboxArgs(): string {
 function cliCommand(agent: AgentName, model: string | null, promptFile: string): string {
   const modelPart = model ? ` --model ${shellSingleQuote(model)}` : ''
   if (agent === 'claude') {
-    return `claude${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
+    return `claude --permission-mode dontAsk${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
   }
   return `codex ${codexSandboxArgs()}${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
 }
@@ -612,7 +691,7 @@ function resumeCliCommand(
 ): string {
   const modelPart = model ? ` --model ${shellSingleQuote(model)}` : ''
   if (agent === 'claude') {
-    return `claude --continue${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
+    return `claude --continue --permission-mode dontAsk${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
   }
   return `codex resume --last ${codexSandboxArgs()}${modelPart}`
 }
@@ -871,24 +950,25 @@ function sessionExists(executor: CommandExecutor, sessionName: string): boolean 
   }
 }
 
-function sendStartupTrustPromptEnter(
+function sendStartupPromptKeys(
   executor: CommandExecutor,
   room: InternalRoom,
   agent: AgentName,
+  keys: string[],
 ): void {
   executor.execFile('tmux', [
     'send-keys',
     '-t',
     `${room.tmux_session}:${paneForAgent(agent)}`,
-    'C-m',
+    ...keys,
   ])
 }
 
-function paneContainsStartupTrustPrompt(
+function startupPromptAcceptanceKeys(
   executor: CommandExecutor,
   room: InternalRoom,
   agent: AgentName,
-): boolean {
+): string[] | null {
   const output = executor.execFile('tmux', [
     'capture-pane',
     '-t',
@@ -897,9 +977,17 @@ function paneContainsStartupTrustPrompt(
     '-S',
     '-80',
   ])
-  return /Do you trust|Quick safety check|Yes, I trust this folder|Yes, continue/i.test(
-    output,
-  )
+  if (/Hooks need review[\s\S]*Trust all and continue/i.test(output)) {
+    return ['2', 'C-m']
+  }
+  if (
+    /Do you trust|Quick safety check|Yes, I trust this folder|Yes, continue/i.test(
+      output,
+    )
+  ) {
+    return ['C-m']
+  }
+  return null
 }
 
 function detectInputPrompt(output: string): string | null {
@@ -941,7 +1029,7 @@ function buildTurnPrompt(job: BoundedJob): string {
       'Read `.roundtable/tmp/consolidation-context.md` before drafting.',
       'Use `thread.md`, approved `comments.jsonl`, context metadata, and the user instructions in the context bundle. Ignore pending discussions.',
       'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the proposal file named below.',
-      ...agentExecutionRules,
+      ...repeatedTurnExecutionRules(job.turn.agent),
       `Write the complete proposed derived thread body to \`${proposalPath}\`.`,
       `Submit exactly once with: roundtable proposal --body-file ${proposalPath}`,
       job.turn.instructions ? `\nUser instructions:\n${job.turn.instructions}` : '',
@@ -955,7 +1043,7 @@ function buildTurnPrompt(job: BoundedJob): string {
       'Review the latest proposed derived thread for correctness, clarity, missing decisions, and whether it preserves useful approved discussion.',
       'Read `.roundtable/tmp/consolidation-context.md` and the latest proposal revision named there.',
       'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the review file named below.',
-      ...agentExecutionRules,
+      ...repeatedTurnExecutionRules(job.turn.agent),
       'Write a concise review with concrete revision instructions.',
       `Write the review to \`${reviewPath}\`.`,
       `Submit exactly once with: roundtable review --body-file ${reviewPath}`,
@@ -970,7 +1058,7 @@ function buildTurnPrompt(job: BoundedJob): string {
       'Revise the latest proposed derived thread using the latest agent review and any user instructions.',
       'Read `.roundtable/tmp/consolidation-context.md`, the latest proposal revision, and the latest review named there.',
       'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the proposal file named below.',
-      ...agentExecutionRules,
+      ...repeatedTurnExecutionRules(job.turn.agent),
       `Write the full revised proposed derived thread body to \`${proposalPath}\`.`,
       `Submit exactly once with: roundtable proposal --body-file ${proposalPath}`,
       job.turn.instructions ? `\nUser instructions:\n${job.turn.instructions}` : '',
@@ -1033,8 +1121,7 @@ function buildTurnPrompt(job: BoundedJob): string {
     target,
     'Read the current thread and approved discussion as needed.',
     'Do not edit canonical Roundtable files or project files. Write only the Markdown draft files under `.roundtable/tmp/` required for the submissions below.',
-    ...agentExecutionRules,
-    'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances, even if the user or thread asks for one.',
+    ...repeatedTurnExecutionRules(job.turn.agent),
     'Keep your comment short and forum-like. Make one clear point, avoid wordy explanations, and do not write an essay-style reply.',
     offersSubmissionChoice
       ? 'Queue zero or more pending splits, then use exactly one terminal helper submission below.'
@@ -1301,12 +1388,14 @@ export function createRoomManager(options: {
         }
 
         for (const agent of ['claude', 'codex'] as const) {
+          const promptKeys =
+            !accepted.has(agent) && !current.agents[agent].ready_at
+              ? startupPromptAcceptanceKeys(executor, current, agent)
+              : null
           if (
-            !accepted.has(agent) &&
-            !current.agents[agent].ready_at &&
-            paneContainsStartupTrustPrompt(executor, current, agent)
+            promptKeys
           ) {
-            sendStartupTrustPromptEnter(executor, current, agent)
+            sendStartupPromptKeys(executor, current, agent, promptKeys)
             accepted.add(agent)
           }
         }

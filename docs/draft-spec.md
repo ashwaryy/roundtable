@@ -460,7 +460,7 @@ cwd = ~/.roundtable/threads/thread-123/
 ```
 
 The backend owns canonical state. The browser UI and agent helpers both call backend APIs. Agents do not edit canonical files directly.
-Agents run in tmux panes that may not be visible to the user. Prompts instruct them to remain within existing room permissions and avoid interactive approval prompts for routine work, because an unattended prompt stalls the turn.
+Agents run in tmux panes that may not be visible to the user. Rooms use per-thread local permission settings, `PreToolUse` hooks for allowlisted shell commands, and non-interactive denial of unapproved actions so routine work cannot stall at an unseen permission prompt. Prompts retain only guidance not deterministically covered by the active agent hook/runtime.
 
 ### Helper Commands
 
