@@ -96,6 +96,10 @@ function contextSummary(context: ThreadContext | null): string {
   return first.kind === 'file' ? first.original_name : (first.label ?? first.url)
 }
 
+function consolidationSectionLabel(status: ThreadDetail['status']): string {
+  return status === 'open' ? 'Discussion consolidation' : 'Discussion outcome'
+}
+
 function statusLabel(status: ThreadDisplayStatus): string {
   switch (status) {
     case 'setup': return 'Setup'
@@ -291,7 +295,7 @@ function SideRailContent({
 
       {thread.status === 'open' || proposals.length > 0 ? (
         <RailSection
-          label="Discussion outcome"
+          label={consolidationSectionLabel(thread.status)}
           defaultOpen={displayStatus === 'consolidating'}
           storageKey="roundtable.railSection.consolidate"
           right={proposals.length > 0 ? <span className="rail-section-count">{proposals.length}</span> : null}

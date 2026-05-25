@@ -19,6 +19,23 @@ import {
   isActiveProposal,
 } from '../lib/consolidationUi'
 
+function copyForThreadStatus(threadStatus: ThreadStatus) {
+  const useOutcomeVerbiage = threadStatus !== 'open'
+  return {
+    title: useOutcomeVerbiage ? 'Outcome history' : 'Consolidation history',
+    intro: useOutcomeVerbiage
+      ? 'Turn approved discussion into a reviewable outcome.'
+      : 'Turn approved discussion into a reviewable consolidation.',
+    placeholder: useOutcomeVerbiage
+      ? 'Optional outcome instructions'
+      : 'Optional consolidation instructions',
+    create: useOutcomeVerbiage ? 'Create outcome' : 'Consolidate',
+    finish: useOutcomeVerbiage ? 'Finish & create' : 'Finish & consolidate',
+    review: useOutcomeVerbiage ? 'Review outcome' : 'Review consolidation',
+    view: useOutcomeVerbiage ? 'View outcome' : 'View consolidation',
+  }
+}
+
 export function ConsolidationPanel({
   threadId,
   threadStatus,
@@ -128,7 +145,8 @@ export function ConsolidationPanel({
     proposal: shownProposal,
   })
   const history = proposals.filter((proposal) => proposal.id !== shownProposal?.id).slice().reverse()
-  const canCreateOutcome = threadStatus === 'open'
+  const canCreateConsolidation = threadStatus === 'open'
+  const copy = copyForThreadStatus(threadStatus)
   const outcomeLink = shownProposal?.status === 'saved' && shownProposal.saved_artifact_id
     ? {
         to: `/saved/${shownProposal.saved_artifact_id}`,
@@ -142,14 +160,14 @@ export function ConsolidationPanel({
       : shownProposal
         ? {
             to: `/threads/${threadId}/consolidations/${shownProposal.id}`,
-            label: uiState.isReady ? 'Review outcome' : uiState.isTerminal ? 'View outcome' : 'View draft',
+            label: uiState.isReady ? copy.review : uiState.isTerminal ? copy.view : 'View draft',
           }
         : null
 
   return (
     <div className="rail-form">
       <div className="rail-hint" style={{ padding: 0 }}>
-        Turn approved discussion into a reviewable outcome.
+        {copy.intro}
         {summary ? ` Current state: ${summary}.` : ''}
       </div>
 
@@ -184,13 +202,13 @@ export function ConsolidationPanel({
             )}
           </div>
         </div>
-      ) : canCreateOutcome ? (
+      ) : canCreateConsolidation ? (
         <form onSubmit={submit} className="rail-form" style={{ padding: 0 }}>
           <textarea
             className="rail-input rail-textarea"
             value={instructions}
             onChange={(event) => setInstructions(event.target.value)}
-            placeholder="Optional outcome instructions"
+            placeholder={copy.placeholder}
           />
           <button
             type="button"
@@ -224,10 +242,10 @@ export function ConsolidationPanel({
           ) : null}
           <div className="pending-actions">
             <button type="submit" className="btn primary" disabled={!canStart} style={{ flex: 1 }}>
-              <Icon name="play" className="ic-sm" /> Create outcome
+              <Icon name="play" className="ic-sm" /> {copy.create}
             </button>
             <button type="button" className="btn" onClick={finishAndConsolidate} disabled={finishButtonDisabled}>
-              {consolidationRequested ? 'Requested' : 'Finish & create'}
+              {consolidationRequested ? 'Requested' : copy.finish}
             </button>
           </div>
         </form>
@@ -235,7 +253,7 @@ export function ConsolidationPanel({
 
       {history.length > 0 ? (
         <div className="proposal-history">
-          <div className="rail-hint" style={{ padding: 0 }}>Outcome history</div>
+          <div className="rail-hint" style={{ padding: 0 }}>{copy.title}</div>
           {history.map((proposal) => (
             <div key={proposal.id} className="proposal-row">
               <Link to={`/threads/${threadId}/consolidations/${proposal.id}`} className="mono" style={{ fontSize: 11 }}>
