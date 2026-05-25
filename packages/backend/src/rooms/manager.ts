@@ -1084,7 +1084,7 @@ function startupPromptAcceptanceKeys(
     '-80',
   ])
   if (/Hooks need review[\s\S]*Trust all and continue/i.test(output)) {
-    return ['Down', 'C-m']
+    return ['2', 'Enter']
   }
   if (
     /Do you trust|Quick safety check|Yes, I trust this folder|Yes, continue/i.test(
