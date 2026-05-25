@@ -25,6 +25,16 @@ export function listPendingDiscussions(
     .map((line) => JSON.parse(line) as PendingDiscussion)
 }
 
+export function countPendingDiscussions(dataDir: string, threadId: string): number {
+  const file = pendingDiscussionsPath(dataDir, threadId)
+  if (!fs.existsSync(file)) return 0
+
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .reduce((count, line) => count + (line.trim().length > 0 ? 1 : 0), 0)
+}
+
 export function addPendingDiscussion(
   dataDir: string,
   threadId: string,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import type { AgentName, Comment, CommentType, PendingDiscussion, ThreadAgentInvite } from '@roundtable/shared'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -94,7 +94,9 @@ function CommentActions({
   )
 }
 
-function RootComment({
+const EMPTY_PENDING_DISCUSSIONS: PendingDiscussion[] = []
+
+const RootComment = memo(function RootComment({
   root,
   replies,
   pendings,
@@ -334,7 +336,7 @@ function RootComment({
       ) : null}
     </div>
   )
-}
+})
 
 export function CommentTree({
   comments,
@@ -363,31 +365,34 @@ export function CommentTree({
   sortOrder?: CommentSortOrder
   roster?: ThreadAgentInvite[]
 }) {
-  const groups = groupComments(comments, sortOrder)
+  const derived = useMemo(() => {
+    const groups = groupComments(comments, sortOrder)
+    const commentsById = new Map(comments.map((c) => [c.id, c]))
+    const pendingByDiscussion = new Map<string, PendingDiscussion[]>()
+    const pendingWithoutOrigin: PendingDiscussion[] = []
 
-  const commentsById = new Map(comments.map((c) => [c.id, c]))
-  const pendingByDiscussion = new Map<string, PendingDiscussion[]>()
-  const pendingWithoutOrigin: PendingDiscussion[] = []
-
-  for (const pending of pendingDiscussions) {
-    if (!pending.origin_discussion_id || !commentsById.has(pending.origin_discussion_id)) {
-      pendingWithoutOrigin.push(pending)
-      continue
+    for (const pending of pendingDiscussions) {
+      if (!pending.origin_discussion_id || !commentsById.has(pending.origin_discussion_id)) {
+        pendingWithoutOrigin.push(pending)
+        continue
+      }
+      const existing = pendingByDiscussion.get(pending.origin_discussion_id) ?? []
+      existing.push(pending)
+      pendingByDiscussion.set(pending.origin_discussion_id, existing)
     }
-    const existing = pendingByDiscussion.get(pending.origin_discussion_id) ?? []
-    existing.push(pending)
-    pendingByDiscussion.set(pending.origin_discussion_id, existing)
-  }
 
-  function originExcerpt(pending: PendingDiscussion): string | null {
+    return { groups, commentsById, pendingByDiscussion, pendingWithoutOrigin }
+  }, [comments, pendingDiscussions, sortOrder])
+
+  const originExcerpt = useCallback((pending: PendingDiscussion): string | null => {
     const origin =
-      (pending.origin_comment_id && commentsById.get(pending.origin_comment_id)) ||
-      (pending.origin_discussion_id && commentsById.get(pending.origin_discussion_id)) ||
+      (pending.origin_comment_id && derived.commentsById.get(pending.origin_comment_id)) ||
+      (pending.origin_discussion_id && derived.commentsById.get(pending.origin_discussion_id)) ||
       null
     return origin ? excerpt(origin.body) : null
-  }
+  }, [derived.commentsById])
 
-  if (groups.length === 0 && pendingDiscussions.length === 0) {
+  if (derived.groups.length === 0 && pendingDiscussions.length === 0) {
     return (
       <div className="empty-stream">
         <div className="empty-stream__icon">◌</div>
@@ -399,12 +404,12 @@ export function CommentTree({
 
   return (
     <div>
-      {groups.map(({ root, replies }) => (
+      {derived.groups.map(({ root, replies }) => (
         <RootComment
           key={root.id}
           root={root}
           replies={replies}
-          pendings={pendingByDiscussion.get(root.id) ?? []}
+          pendings={derived.pendingByDiscussion.get(root.id) ?? EMPTY_PENDING_DISCUSSIONS}
           threadId={threadId}
           readOnly={readOnly}
           disableAgentActions={disableAgentActions}
@@ -418,13 +423,13 @@ export function CommentTree({
         />
       ))}
 
-      {pendingWithoutOrigin.length > 0 ? (
+      {derived.pendingWithoutOrigin.length > 0 ? (
         <div className="orphan-pendings">
           <div className="orphan-pendings-head">
             <Icon name="eye" className="ic-sm" /> Pending top-level posts (
-            {pendingWithoutOrigin.length})
+            {derived.pendingWithoutOrigin.length})
           </div>
-          {pendingWithoutOrigin.map((pending) => (
+          {derived.pendingWithoutOrigin.map((pending) => (
             <PendingDiscussionModerationCard
               key={pending.id}
               threadId={threadId}

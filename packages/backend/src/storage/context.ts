@@ -148,11 +148,15 @@ function isBinaryFile(filePath: string): boolean {
   }
 }
 
-function isEligibleFile(absolutePath: string, relativePath: string): boolean {
+function isEligibleFile(
+  absolutePath: string,
+  relativePath: string,
+  stat: fs.Stats,
+): boolean {
   if (hasExcludedSegment(relativePath) || isSecretLike(relativePath)) return false
   const name = path.basename(relativePath)
   if (name === '.DS_Store' || name.endsWith('.log')) return false
-  if (!fs.statSync(absolutePath).isFile()) return false
+  if (!stat.isFile()) return false
   return !isBinaryFile(absolutePath)
 }
 
@@ -179,14 +183,15 @@ function listRecursiveCandidates(sourcePath: string): {
         excludedCount += 1
         continue
       }
-      if (!isEligibleFile(absolutePath, relativePath)) {
+      const stat = fs.statSync(absolutePath)
+      if (!isEligibleFile(absolutePath, relativePath, stat)) {
         excludedCount += 1
         continue
       }
       candidates.push({
         absolutePath,
         relativePath,
-        size_bytes: fs.statSync(absolutePath).size,
+        size_bytes: stat.size,
       })
     }
   }

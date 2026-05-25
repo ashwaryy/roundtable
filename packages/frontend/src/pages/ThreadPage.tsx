@@ -379,6 +379,7 @@ export function ThreadPage() {
   const prevCommentIdsRef = useRef<Set<string>>(new Set())
   const [newCommentCount, setNewCommentCount] = useState(0)
   const firstNewCommentIdRef = useRef<string | null>(null)
+  const requestSeqRef = useRef<Record<string, number>>({})
 
   // Track bottom state on scroll
   useEffect(() => {
@@ -411,20 +412,88 @@ export function ThreadPage() {
     prevCommentIdsRef.current = new Set(comments.map((c) => c.id))
   }, [comments, isAtBottom, commentsLoaded])
 
+  const loadLatest = useCallback(<T,>(
+    key: string,
+    request: () => Promise<T>,
+    apply: (value: T) => void,
+  ) => {
+    const seq = (requestSeqRef.current[key] ?? 0) + 1
+    requestSeqRef.current[key] = seq
+    request()
+      .then((value) => {
+        if (requestSeqRef.current[key] === seq) apply(value)
+      })
+      .catch(() => {
+        // Keep the existing state when a transient refresh request fails.
+      })
+  }, [])
+
+  const refreshThread = useCallback(() => {
+    if (!id) return
+    loadLatest('thread', () => getThread(id), setThread)
+  }, [id, loadLatest])
+
+  const refreshComments = useCallback(() => {
+    if (!id) return
+    loadLatest('comments', () => listComments(id), (c) => {
+      setComments(c)
+      setCommentsLoaded(true)
+    })
+  }, [id, loadLatest])
+
+  const refreshPendingDiscussions = useCallback(() => {
+    if (!id) return
+    loadLatest('pending', () => listPendingDiscussions(id), setPendingDiscussions)
+  }, [id, loadLatest])
+
+  const refreshContext = useCallback(() => {
+    if (!id) return
+    loadLatest('context', () => getThreadContext(id), setThreadContext)
+    loadLatest('snapshotReports', () => listSnapshotReports(id), setSnapshotReports)
+  }, [id, loadLatest])
+
+  const refreshRoom = useCallback(() => {
+    if (!id) return
+    loadLatest('room', () => getRoom(id), setRoom)
+    loadLatest('jobs', () => listJobs(id), setJobs)
+    loadLatest('roomPreflight', () => getRoomPreflight(id), setRoomPreflight)
+  }, [id, loadLatest])
+
+  const refreshConsolidations = useCallback(() => {
+    if (!id) return
+    loadLatest('proposals', () => listConsolidations(id), setProposals)
+    loadLatest('savedOutputs', () => listSavedOutputs(id), setSavedOutputs)
+  }, [id, loadLatest])
+
+  const refreshIntegrity = useCallback(() => {
+    if (!id) return
+    loadLatest('integrity', () => getIntegrity(id), setIntegrity)
+  }, [id, loadLatest])
+
   const refresh = useCallback(() => {
     if (!id) return
-    getThread(id).then(setThread)
-    listComments(id).then((c) => { setComments(c); setCommentsLoaded(true) })
-    listPendingDiscussions(id).then(setPendingDiscussions)
-    getThreadContext(id).then(setThreadContext)
-    getRoom(id).then(setRoom)
-    listJobs(id).then(setJobs)
-    getRoomPreflight(id).then(setRoomPreflight)
-    listConsolidations(id).then(setProposals)
-    getIntegrity(id).then(setIntegrity)
-    listSavedOutputs(id).then(setSavedOutputs)
-    listSnapshotReports(id).then(setSnapshotReports)
-  }, [id])
+    refreshThread()
+    refreshComments()
+    refreshPendingDiscussions()
+    refreshContext()
+    refreshRoom()
+    refreshConsolidations()
+    refreshIntegrity()
+  }, [
+    id,
+    refreshThread,
+    refreshComments,
+    refreshPendingDiscussions,
+    refreshContext,
+    refreshRoom,
+    refreshConsolidations,
+    refreshIntegrity,
+  ])
+
+  const refreshDiscussionQueues = useCallback(() => {
+    refreshComments()
+    refreshPendingDiscussions()
+  }, [refreshComments, refreshPendingDiscussions])
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -462,9 +531,44 @@ export function ThreadPage() {
         navigate('/')
         return
       }
-      refresh()
+      switch (event.type) {
+        case 'comment_created':
+        case 'comment_deleted':
+          refreshComments()
+          return
+        case 'pending_discussion_created':
+        case 'pending_discussion_updated':
+          refreshPendingDiscussions()
+          return
+        case 'room_updated':
+        case 'job_updated':
+        case 'thread_agents_updated':
+          refreshRoom()
+          return
+        case 'consolidation_updated':
+          refreshConsolidations()
+          return
+        case 'integrity_updated':
+          refreshIntegrity()
+          return
+        case 'thread_context_updated':
+          refreshContext()
+          return
+        default:
+          refresh()
+      }
     },
-    [id, navigate, refresh],
+    [
+      id,
+      navigate,
+      refresh,
+      refreshComments,
+      refreshPendingDiscussions,
+      refreshRoom,
+      refreshConsolidations,
+      refreshIntegrity,
+      refreshContext,
+    ],
   )
   const backendStatus = useLiveRefresh(onEvent)
   const backendStatusLabel = `Backend ${backendStatus}`
@@ -491,59 +595,62 @@ export function ThreadPage() {
     }
   }, [activeJobAsk, pendingAsk, room])
 
-  async function addTopLevel(input: { body: string; type: CommentType }) {
+  const addTopLevel = useCallback(async (input: { body: string; type: CommentType }) => {
     if (!id) return
     await createComment(id, input)
-    refresh()
-  }
+    refreshComments()
+  }, [id, refreshComments])
 
-  async function addReply(replyTo: string, input: { body: string; type: CommentType }) {
+  const addReply = useCallback(async (
+    replyTo: string,
+    input: { body: string; type: CommentType },
+  ) => {
     if (!id) return
     await createComment(id, { ...input, reply_to: replyTo })
-    refresh()
-  }
+    refreshComments()
+  }, [id, refreshComments])
 
-  async function removeComment(commentId: string) {
+  const removeComment = useCallback(async (commentId: string) => {
     if (!id) return
     await deleteComment(id, commentId)
-    refresh()
-  }
+    refreshComments()
+  }, [id, refreshComments])
 
-  async function askDiscussion(discussionId: string, agent: AgentName) {
+  const askDiscussion = useCallback(async (discussionId: string, agent: AgentName) => {
     if (!id) return
     setPendingAsk({ discussionId, agent })
     try {
       await askAgent(id, { agent, discussion_id: discussionId })
-      refresh()
+      refreshRoom()
     } catch (error) {
       setPendingAsk(null)
       throw error
     }
-  }
+  }, [id, refreshRoom])
 
-  async function sendRecoveryInput(response: 'yes' | 'no') {
+  const sendRecoveryInput = useCallback(async (response: 'yes' | 'no') => {
     if (!id || !room?.input_prompt) return
     await sendRoomInputResponse(id, { agent: room.input_prompt.agent, response })
-    refresh()
-  }
+    refreshRoom()
+  }, [id, refreshRoom, room?.input_prompt])
 
-  async function restartRecoveryRoom() {
+  const restartRecoveryRoom = useCallback(async () => {
     if (!id) return
     await restartRoom(id)
-    refresh()
-  }
+    refreshRoom()
+  }, [id, refreshRoom])
 
-  async function retryRecoveryTurn() {
+  const retryRecoveryTurn = useCallback(async () => {
     if (!id) return
     await retryTurn(id)
-    refresh()
-  }
+    refreshRoom()
+  }, [id, refreshRoom])
 
-  async function skipRecoveryTurn() {
+  const skipRecoveryTurn = useCallback(async () => {
     if (!id) return
     await skipTurn(id)
-    refresh()
-  }
+    refreshRoom()
+  }, [id, refreshRoom])
 
   if (!thread) return <ThreadSkeleton />
 
@@ -792,7 +899,7 @@ export function ThreadPage() {
                 threadId={thread.id}
                 comments={comments}
                 pendingDiscussions={pendingDiscussions}
-                onPendingUpdate={refresh}
+                onPendingUpdate={refreshDiscussionQueues}
                 onReply={addReply}
                 onDelete={removeComment}
                 onAskDiscussion={askDiscussion}

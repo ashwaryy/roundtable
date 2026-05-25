@@ -21,6 +21,44 @@ export function listComments(dataDir: string, threadId: string): Comment[] {
     .map((line) => JSON.parse(line) as Comment)
 }
 
+function nextCommentIdAfter(comment: Comment | null): string {
+  const match = comment ? /^c(\d+)$/.exec(comment.id) : null
+  const next = match ? Number(match[1]) + 1 : 1
+  return `c${String(next).padStart(3, '0')}`
+}
+
+function readLastJsonlRecord<T>(file: string): T | null {
+  if (!fs.existsSync(file)) return null
+  const stat = fs.statSync(file)
+  if (!stat.isFile() || stat.size === 0) return null
+
+  const fd = fs.openSync(file, 'r')
+  try {
+    const chunkSize = 8192
+    let position = stat.size
+    let suffix = ''
+    while (position > 0) {
+      const readSize = Math.min(chunkSize, position)
+      position -= readSize
+      const buffer = Buffer.allocUnsafe(readSize)
+      fs.readSync(fd, buffer, 0, readSize, position)
+      suffix = `${buffer.toString('utf8')}${suffix}`
+      const lines = suffix.split('\n').filter((line) => line.trim().length > 0)
+      if (lines.length > 0 && (position === 0 || lines.length > 1)) {
+        return JSON.parse(lines[lines.length - 1]) as T
+      }
+    }
+    const line = suffix.trim()
+    return line ? JSON.parse(line) as T : null
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
+function nextTopLevelCommentId(dataDir: string, threadId: string): string {
+  return nextCommentIdAfter(readLastJsonlRecord<Comment>(commentsPath(dataDir, threadId)))
+}
+
 export function addComment(
   dataDir: string,
   threadId: string,
@@ -30,14 +68,14 @@ export function addComment(
     throw new NotFoundError(`thread ${threadId} not found`)
   }
 
-  const comments = listComments(dataDir, threadId)
-  const id = nextCommentId(comments)
+  const comments = input.reply_to != null ? listComments(dataDir, threadId) : null
+  const id = comments ? nextCommentId(comments) : nextTopLevelCommentId(dataDir, threadId)
 
   let parentId: string | null = null
   let discussionId = id
 
   if (input.reply_to != null) {
-    const target = comments.find((c) => c.id === input.reply_to)
+    const target = comments?.find((c) => c.id === input.reply_to)
     if (!target) {
       throw new NotFoundError(`reply target ${input.reply_to} not found`)
     }
@@ -73,14 +111,14 @@ export function addAgentComment(
     throw new NotFoundError(`thread ${threadId} not found`)
   }
 
-  const comments = listComments(dataDir, threadId)
-  const id = nextCommentId(comments)
+  const comments = input.reply_to != null ? listComments(dataDir, threadId) : null
+  const id = comments ? nextCommentId(comments) : nextTopLevelCommentId(dataDir, threadId)
 
   let parentId: string | null = null
   let discussionId = id
 
   if (input.reply_to != null) {
-    const target = comments.find((c) => c.id === input.reply_to)
+    const target = comments?.find((c) => c.id === input.reply_to)
     if (!target) {
       throw new NotFoundError(`reply target ${input.reply_to} not found`)
     }

@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { RoundtableEvent } from '@roundtable/shared'
 
 export type LiveRefreshStatus = 'connecting' | 'connected' | 'disconnected'
 
 export function useLiveRefresh(onEvent: (event: RoundtableEvent) => void): LiveRefreshStatus {
   const [status, setStatus] = useState<LiveRefreshStatus>('connecting')
+  const onEventRef = useRef(onEvent)
+
+  useEffect(() => {
+    onEventRef.current = onEvent
+  }, [onEvent])
 
   useEffect(() => {
     const url = `ws://${window.location.host}/ws`
@@ -21,7 +26,7 @@ export function useLiveRefresh(onEvent: (event: RoundtableEvent) => void): LiveR
       }
       socket.onmessage = (msg) => {
         try {
-          onEvent(JSON.parse(msg.data) as RoundtableEvent)
+          onEventRef.current(JSON.parse(msg.data) as RoundtableEvent)
         } catch {
           // Ignore malformed frames.
         }
@@ -40,7 +45,7 @@ export function useLiveRefresh(onEvent: (event: RoundtableEvent) => void): LiveR
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
       socket?.close()
     }
-  }, [onEvent])
+  }, [])
 
   return status
 }

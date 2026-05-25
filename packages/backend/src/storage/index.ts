@@ -129,6 +129,8 @@ export function createStorage(
       inspect(threadId)
       return pending.listPendingDiscussions(dataDir, threadId)
     },
+    countPendingDiscussions: (threadId: string): number =>
+      pending.countPendingDiscussions(dataDir, threadId),
     addPendingDiscussion: (
       threadId: string,
       input: CreatePendingDiscussionInput,
@@ -184,6 +186,8 @@ export function createStorage(
       inspect(threadId)
       return proposals.listProposals(dataDir, threadId)
     },
+    listProposalStatuses: (threadId: string) =>
+      proposals.listProposalStatuses(dataDir, threadId),
     addProposalRevision: (
       threadId: string,
       proposalId: string,
@@ -298,7 +302,7 @@ export function createStorage(
       proposals.getSavedOutput(dataDir, savedId),
     getIntegrity: (threadId: string): IntegrityReport => {
       const previousIssues = integrity.currentIntegrityIssueCount(dataDir, threadId)
-      const report = integrity.inspectIntegrity(dataDir, threadId)
+      const report = integrity.inspectIntegrity(dataDir, threadId, { force: true })
       if (report.issues.length > previousIssues) {
         onIntegrityUpdate?.({ type: 'integrity_updated', thread_id: threadId })
       }

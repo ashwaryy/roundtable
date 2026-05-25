@@ -31,7 +31,7 @@ import {
   updateThreadAgentInviteInputSchema,
   reorderThreadAgentsInputSchema,
   type AgentRoom,
-  type ConsolidationProposal,
+  type ConsolidationStatus,
   type RoundtableEvent,
   type Thread,
   type ThreadDisplayStatus,
@@ -113,14 +113,14 @@ function bearerToken(req: express.Request): string | null {
   return match ? match[1] : null
 }
 
-function isActiveProposal(proposal: ConsolidationProposal): boolean {
-  return proposal.status === 'drafting' || proposal.status === 'review'
+function isActiveProposalStatus(status: ConsolidationStatus): boolean {
+  return status === 'drafting' || status === 'review'
 }
 
 function computeDisplayStatus(input: {
   thread: Thread
   room: AgentRoom | null
-  proposals: ConsolidationProposal[]
+  proposalStatuses: ConsolidationStatus[]
 }): ThreadDisplayStatus {
   if (input.thread.status === 'closed') return 'closed'
   if (input.thread.status === 'archived') return 'archived'
@@ -136,7 +136,7 @@ function computeDisplayStatus(input: {
     return 'needs_attention'
   }
 
-  if (input.proposals.some(isActiveProposal)) return 'consolidating'
+  if (input.proposalStatuses.some(isActiveProposalStatus)) return 'consolidating'
   if (!room || room.status === 'not_started' || room.status === 'stopped') return 'setup'
   return 'discussing'
 }
@@ -280,12 +280,12 @@ export function createApp(deps: {
   app.get('/api/threads', (_req, res) => {
     const items: ThreadListItem[] = storage.listThreads().map((thread) => {
       const room = rooms ? rooms.getRoom(thread.id) : null
-      const proposals = storage.listProposals(thread.id)
-      const display_status = computeDisplayStatus({ thread, room, proposals })
+      const proposalStatuses = storage.listProposalStatuses(thread.id)
+      const display_status = computeDisplayStatus({ thread, room, proposalStatuses })
       return {
         ...thread,
         display_status,
-        pending_count: storage.listPendingDiscussions(thread.id).length,
+        pending_count: storage.countPendingDiscussions(thread.id),
         recovery_action_label:
           display_status === 'needs_attention' || display_status === 'error'
             ? recoveryActionLabel(room)

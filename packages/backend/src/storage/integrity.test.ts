@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createStorage } from './index'
-import { attachmentsDir, commentsPath, threadMdPath } from './paths'
+import { attachmentsDir, commentsPath, integrityPath, threadMdPath } from './paths'
 
 let dataDir: string
 
@@ -23,6 +23,25 @@ describe('canonical integrity', () => {
 
     storage.addComment(thread.id, { body: 'approved update' })
     expect(storage.getIntegrity(thread.id).issues).toEqual([])
+  })
+
+  it('skips integrity state writes on unchanged hot reads', () => {
+    const storage = createStorage(dataDir)
+    const thread = storage.createThread({ title: 'A', body: 'body' })
+    const statePath = integrityPath(dataDir, thread.id)
+    const before = fs.readFileSync(statePath, 'utf8')
+    const parsed = JSON.parse(before) as {
+      baseline: Record<string, { hash: string; mtime_ms: number; size_bytes: number }>
+    }
+
+    expect(parsed.baseline['thread.md']).toEqual({
+      hash: expect.any(String),
+      mtime_ms: expect.any(Number),
+      size_bytes: 4,
+    })
+
+    expect(storage.getThread(thread.id)?.title).toBe('A')
+    expect(fs.readFileSync(statePath, 'utf8')).toBe(before)
   })
 
   it('reports external changes, deletion, canonical additions, and acknowledgement', () => {

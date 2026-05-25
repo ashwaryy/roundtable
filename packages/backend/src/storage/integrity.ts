@@ -23,14 +23,22 @@ import { NotFoundError } from './errors'
 
 interface IntegrityState {
   version: 1
-  baseline: Record<string, string>
+  baseline: Record<string, BaselineEntry> | Record<string, string>
   report: IntegrityReport
 }
 
+interface BaselineEntry {
+  hash: string
+  mtime_ms: number
+  size_bytes: number
+}
+
 interface Scan {
-  hashes: Record<string, string>
+  baseline: Record<string, BaselineEntry>
   invalid: IntegrityIssue[]
 }
+
+type Fingerprints = Record<string, Omit<BaselineEntry, 'hash'>>
 
 function hash(filePath: string): string {
   return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
@@ -61,13 +69,19 @@ function scanJson(filePath: string, label: string, invalid: IntegrityIssue[]): v
 function addFile(
   root: string,
   filePath: string,
-  hashes: Record<string, string>,
+  baseline: Record<string, BaselineEntry>,
   invalid: IntegrityIssue[],
   labelOverride?: string,
 ): void {
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return
+  if (!fs.existsSync(filePath)) return
+  const stat = fs.statSync(filePath)
+  if (!stat.isFile()) return
   const label = labelOverride ?? toLabel(root, filePath)
-  hashes[label] = hash(filePath)
+  baseline[label] = {
+    hash: hash(filePath),
+    mtime_ms: stat.mtimeMs,
+    size_bytes: stat.size,
+  }
   if (label.endsWith('.json') || label.endsWith('.jsonl')) {
     scanJson(filePath, label, invalid)
   }
@@ -76,14 +90,41 @@ function addFile(
 function addTree(
   root: string,
   dir: string,
-  hashes: Record<string, string>,
+  baseline: Record<string, BaselineEntry>,
   invalid: IntegrityIssue[],
 ): void {
   if (!fs.existsSync(dir)) return
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const target = path.join(dir, entry.name)
-    if (entry.isDirectory()) addTree(root, target, hashes, invalid)
-    if (entry.isFile()) addFile(root, target, hashes, invalid)
+    if (entry.isDirectory()) addTree(root, target, baseline, invalid)
+    if (entry.isFile()) addFile(root, target, baseline, invalid)
+  }
+}
+
+function addFileFingerprint(
+  root: string,
+  filePath: string,
+  fingerprints: Fingerprints,
+): void {
+  if (!fs.existsSync(filePath)) return
+  const stat = fs.statSync(filePath)
+  if (!stat.isFile()) return
+  fingerprints[toLabel(root, filePath)] = {
+    mtime_ms: stat.mtimeMs,
+    size_bytes: stat.size,
+  }
+}
+
+function addTreeFingerprints(
+  root: string,
+  dir: string,
+  fingerprints: Fingerprints,
+): void {
+  if (!fs.existsSync(dir)) return
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const target = path.join(dir, entry.name)
+    if (entry.isDirectory()) addTreeFingerprints(root, target, fingerprints)
+    if (entry.isFile()) addFileFingerprint(root, target, fingerprints)
   }
 }
 
@@ -92,7 +133,7 @@ function scanCanonical(dataDir: string, threadId: string): Scan {
   if (!fs.existsSync(threadJsonPath(dataDir, threadId))) {
     throw new NotFoundError(`thread ${threadId} not found`)
   }
-  const hashes: Record<string, string> = {}
+  const baseline: Record<string, BaselineEntry> = {}
   const invalid: IntegrityIssue[] = []
   for (const filePath of [
     threadJsonPath(dataDir, threadId),
@@ -111,13 +152,13 @@ function scanCanonical(dataDir: string, threadId: string): Scan {
         detected_at: new Date().toISOString(),
       })
     }
-    addFile(root, filePath, hashes, invalid)
+    addFile(root, filePath, baseline, invalid)
   }
   for (const filePath of [
     projectSnapshotJsonPath(dataDir, threadId),
     projectSnapshotManifestPath(dataDir, threadId),
   ]) {
-    addFile(root, filePath, hashes, invalid)
+    addFile(root, filePath, baseline, invalid)
   }
   for (const dir of [
     attachmentsDir(dataDir, threadId),
@@ -125,7 +166,7 @@ function scanCanonical(dataDir: string, threadId: string): Scan {
     projectSnapshotReportsDir(dataDir, threadId),
     consolidationsDir(dataDir, threadId),
   ]) {
-    addTree(root, dir, hashes, invalid)
+    addTree(root, dir, baseline, invalid)
   }
 
   const proposalsDir = consolidationsDir(dataDir, threadId)
@@ -141,7 +182,7 @@ function scanCanonical(dataDir: string, threadId: string): Scan {
           addTree(
             root,
             savedConsolidationDir(dataDir, proposal.saved_artifact_id),
-            hashes,
+            baseline,
             invalid,
           )
         }
@@ -150,7 +191,58 @@ function scanCanonical(dataDir: string, threadId: string): Scan {
       }
     }
   }
-  return { hashes, invalid }
+  return { baseline, invalid }
+}
+
+function currentFingerprints(dataDir: string, threadId: string): Fingerprints {
+  const root = path.dirname(threadJsonPath(dataDir, threadId))
+  if (!fs.existsSync(threadJsonPath(dataDir, threadId))) {
+    throw new NotFoundError(`thread ${threadId} not found`)
+  }
+  const fingerprints: Fingerprints = {}
+  for (const filePath of [
+    threadJsonPath(dataDir, threadId),
+    threadMdPath(dataDir, threadId),
+    commentsPath(dataDir, threadId),
+    pendingDiscussionsPath(dataDir, threadId),
+    contextItemsPath(dataDir, threadId),
+    threadAgentsPath(dataDir, threadId),
+    projectSnapshotJsonPath(dataDir, threadId),
+    projectSnapshotManifestPath(dataDir, threadId),
+  ]) {
+    addFileFingerprint(root, filePath, fingerprints)
+  }
+  for (const dir of [
+    attachmentsDir(dataDir, threadId),
+    projectSnapshotDir(dataDir, threadId),
+    projectSnapshotReportsDir(dataDir, threadId),
+    consolidationsDir(dataDir, threadId),
+  ]) {
+    addTreeFingerprints(root, dir, fingerprints)
+  }
+
+  const proposalsDir = consolidationsDir(dataDir, threadId)
+  if (fs.existsSync(proposalsDir)) {
+    for (const entry of fs.readdirSync(proposalsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const proposalPath = path.join(proposalsDir, entry.name, 'proposal.json')
+      try {
+        const proposal = JSON.parse(fs.readFileSync(proposalPath, 'utf8')) as {
+          saved_artifact_id?: string | null
+        }
+        if (proposal.saved_artifact_id) {
+          addTreeFingerprints(
+            root,
+            savedConsolidationDir(dataDir, proposal.saved_artifact_id),
+            fingerprints,
+          )
+        }
+      } catch {
+        // The full scan handles malformed proposal files.
+      }
+    }
+  }
+  return fingerprints
 }
 
 function readState(dataDir: string, threadId: string): IntegrityState | null {
@@ -171,15 +263,114 @@ function writeState(dataDir: string, threadId: string, state: IntegrityState): v
   fs.renameSync(tmp, filePath)
 }
 
+function normalizeBaseline(
+  baseline: IntegrityState['baseline'],
+): Record<string, BaselineEntry> | null {
+  const normalized: Record<string, BaselineEntry> = {}
+  for (const [filePath, entry] of Object.entries(baseline)) {
+    if (typeof entry === 'string') return null
+    normalized[filePath] = entry
+  }
+  return normalized
+}
+
+function baselineForComparison(
+  baseline: IntegrityState['baseline'],
+  scannedBaseline: Record<string, BaselineEntry>,
+): Record<string, BaselineEntry> {
+  const normalized = normalizeBaseline(baseline)
+  if (normalized) return normalized
+
+  const legacy: Record<string, BaselineEntry> = {}
+  for (const [filePath, hash] of Object.entries(baseline)) {
+    if (typeof hash !== 'string') continue
+    const scanned = scannedBaseline[filePath]
+    legacy[filePath] = {
+      hash,
+      mtime_ms: scanned?.mtime_ms ?? 0,
+      size_bytes: scanned?.size_bytes ?? 0,
+    }
+  }
+  return legacy
+}
+
+function fingerprintsUnchanged(
+  baseline: Record<string, BaselineEntry>,
+  fingerprints: Fingerprints,
+): boolean {
+  const baselinePaths = Object.keys(baseline)
+  const currentPaths = Object.keys(fingerprints)
+  if (baselinePaths.length !== currentPaths.length) return false
+  for (const filePath of baselinePaths) {
+    const current = fingerprints[filePath]
+    if (!current) return false
+    const previous = baseline[filePath]
+    if (
+      previous.mtime_ms !== current.mtime_ms ||
+      previous.size_bytes !== current.size_bytes
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function baselineEquals(
+  a: Record<string, BaselineEntry>,
+  b: Record<string, BaselineEntry>,
+): boolean {
+  const aPaths = Object.keys(a)
+  const bPaths = Object.keys(b)
+  if (aPaths.length !== bPaths.length) return false
+  for (const filePath of aPaths) {
+    const right = b[filePath]
+    if (!right) return false
+    const left = a[filePath]
+    if (
+      left.hash !== right.hash ||
+      left.mtime_ms !== right.mtime_ms ||
+      left.size_bytes !== right.size_bytes
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function materiallySameReport(a: IntegrityReport, b: IntegrityReport): boolean {
+  const normalizeIssues = (issues: IntegrityIssue[]) =>
+    issues
+      .map((issue) => `${issue.kind}:${issue.path}:${issue.message}`)
+      .sort()
+      .join('\n')
+  return (
+    a.thread_id === b.thread_id &&
+    a.acknowledged_at === b.acknowledged_at &&
+    normalizeIssues(a.issues) === normalizeIssues(b.issues)
+  )
+}
+
 function distinct(issues: IntegrityIssue[]): IntegrityIssue[] {
   const result = new Map<string, IntegrityIssue>()
   for (const issue of issues) result.set(`${issue.kind}:${issue.path}`, issue)
   return [...result.values()].sort((a, b) => a.path.localeCompare(b.path))
 }
 
-export function inspectIntegrity(dataDir: string, threadId: string): IntegrityReport {
-  const scan = scanCanonical(dataDir, threadId)
+export function inspectIntegrity(
+  dataDir: string,
+  threadId: string,
+  options: { force?: boolean } = {},
+): IntegrityReport {
   const existing = readState(dataDir, threadId)
+  const existingBaseline = existing ? normalizeBaseline(existing.baseline) : null
+  if (existing && existingBaseline && !options.force) {
+    const fingerprints = currentFingerprints(dataDir, threadId)
+    if (fingerprintsUnchanged(existingBaseline, fingerprints)) {
+      return existing.report
+    }
+  }
+
+  const scan = scanCanonical(dataDir, threadId)
   const checkedAt = new Date().toISOString()
   if (!existing) {
     const report: IntegrityReport = {
@@ -188,20 +379,21 @@ export function inspectIntegrity(dataDir: string, threadId: string): IntegrityRe
       acknowledged_at: null,
       issues: distinct(scan.invalid),
     }
-    writeState(dataDir, threadId, { version: 1, baseline: scan.hashes, report })
+    writeState(dataDir, threadId, { version: 1, baseline: scan.baseline, report })
     return report
   }
 
   const detected: IntegrityIssue[] = [...scan.invalid]
-  for (const [filePath, oldHash] of Object.entries(existing.baseline)) {
-    if (!(filePath in scan.hashes)) {
+  const baseline = baselineForComparison(existing.baseline, scan.baseline)
+  for (const [filePath, oldEntry] of Object.entries(baseline)) {
+    if (!(filePath in scan.baseline)) {
       detected.push({
         kind: 'deleted',
         path: filePath,
         message: `${filePath} was removed outside Roundtable`,
         detected_at: checkedAt,
       })
-    } else if (scan.hashes[filePath] !== oldHash) {
+    } else if (scan.baseline[filePath].hash !== oldEntry.hash) {
       detected.push({
         kind: 'modified',
         path: filePath,
@@ -210,8 +402,8 @@ export function inspectIntegrity(dataDir: string, threadId: string): IntegrityRe
       })
     }
   }
-  for (const filePath of Object.keys(scan.hashes)) {
-    if (!(filePath in existing.baseline)) {
+  for (const filePath of Object.keys(scan.baseline)) {
+    if (!(filePath in baseline)) {
       detected.push({
         kind: 'added',
         path: filePath,
@@ -225,7 +417,12 @@ export function inspectIntegrity(dataDir: string, threadId: string): IntegrityRe
     checked_at: checkedAt,
     issues: distinct([...existing.report.issues, ...detected]),
   }
-  writeState(dataDir, threadId, { ...existing, report })
+  if (
+    !baselineEquals(baseline, scan.baseline) ||
+    !materiallySameReport(existing.report, report)
+  ) {
+    writeState(dataDir, threadId, { version: 1, baseline: scan.baseline, report })
+  }
   return report
 }
 
@@ -240,7 +437,7 @@ export function acceptApplicationWrite(dataDir: string, threadId: string): Integ
   }
   writeState(dataDir, threadId, {
     version: 1,
-    baseline: scan.hashes,
+    baseline: scan.baseline,
     report: { ...report, checked_at: new Date().toISOString() },
   })
   return report
@@ -255,6 +452,6 @@ export function acknowledgeIntegrity(dataDir: string, threadId: string): Integri
     acknowledged_at: timestamp,
     issues: distinct(scan.invalid),
   }
-  writeState(dataDir, threadId, { version: 1, baseline: scan.hashes, report })
+  writeState(dataDir, threadId, { version: 1, baseline: scan.baseline, report })
   return report
 }

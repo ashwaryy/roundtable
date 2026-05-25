@@ -175,6 +175,26 @@ export function listProposals(
   return proposals
 }
 
+export function listProposalStatuses(
+  dataDir: string,
+  threadId: string,
+): ConsolidationStatus[] {
+  const dir = consolidationsDir(dataDir, threadId)
+  if (!fs.existsSync(dir)) return []
+
+  const statuses: ConsolidationStatus[] = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const jsonPath = proposalJsonPath(dataDir, threadId, entry.name)
+    if (!fs.existsSync(jsonPath)) continue
+    const proposal = JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as {
+      status?: ConsolidationStatus
+    }
+    if (proposal.status) statuses.push(proposal.status)
+  }
+  return statuses
+}
+
 export function updateProposal(
   dataDir: string,
   threadId: string,
