@@ -638,15 +638,12 @@ export function RoomPanel({
                     <span style={{ fontWeight: 600 }}>Auto running</span>
                     <span className="mono" style={{ marginLeft: 'auto' }}>{room.auto.completed_turns}/{room.auto.total_turns}</span>
                   </div>
-                  <div className="rail-row">
+                  <div className="rail-row two">
                     <button type="button" className="btn" onClick={handlePauseAuto} disabled={!canPauseAuto}>
-                      <Icon name="pause" className="ic-sm" /> Pause auto
+                      <Icon name="pause" className="ic-sm" /> Pause
                     </button>
                     <button type="button" className="btn" onClick={handleStopAuto} disabled={!canStopAuto}>
-                      <Icon name="stop" className="ic-sm" /> Stop auto
-                    </button>
-                    <button type="button" className="btn" onClick={handleRestart} disabled={!canReloadRoom} title="Reload room">
-                      <Icon name="refresh" className="ic-sm" />
+                      <Icon name="stop" className="ic-sm" /> Stop
                     </button>
                   </div>
                 </>
