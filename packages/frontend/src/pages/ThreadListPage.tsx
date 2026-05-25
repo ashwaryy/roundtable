@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type {
   RoundtableEvent,
   ThreadDisplayStatus,
@@ -8,31 +8,25 @@ import type {
 import { listThreads } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { NewThreadForm } from '../components/NewThreadForm'
+import { Icon, StatusPill } from '../components/primitives'
+import { ThemeToggle } from '../components/ThemeToggle'
 
-function displayStatusLabel(status: ThreadDisplayStatus): string {
-  switch (status) {
-    case 'setup':
-      return 'Setup'
-    case 'discussing':
-      return 'Discussing'
-    case 'consolidating':
-      return 'Consolidating'
-    case 'needs_attention':
-      return 'Needs attention'
-    case 'error':
-      return 'Error'
-    case 'closed':
-      return 'Closed'
-    case 'archived':
-      return 'Archived'
-    default: {
-      const _exhaustive: never = status
-      return _exhaustive
-    }
-  }
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return ''
+  const minutes = Math.round((Date.now() - then) / 60000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 7) return `${days}d ago`
+  const weeks = Math.round(days / 7)
+  return `${weeks}w ago`
 }
 
 export function ThreadListPage() {
+  const navigate = useNavigate()
   const [threads, setThreads] = useState<ThreadListItem[]>([])
   const [filter, setFilter] = useState<ThreadDisplayStatus | 'all'>('all')
 
@@ -68,12 +62,14 @@ export function ThreadListPage() {
     return base
   }, [threads])
 
-  const visibleThreads = filter === 'all'
-    ? threads
-    : threads.filter((thread) => thread.display_status === filter)
+  const visibleThreads =
+    filter === 'all'
+      ? threads
+      : threads.filter((thread) => thread.display_status === filter)
   const totalPending = threads.reduce((n, thread) => n + thread.pending_count, 0)
   const activeCount = (counts.discussing ?? 0) + (counts.consolidating ?? 0)
   const attentionCount = (counts.needs_attention ?? 0) + (counts.error ?? 0)
+
   const filters: Array<{ id: ThreadDisplayStatus | 'all'; label: string }> = [
     { id: 'all', label: 'All' },
     { id: 'discussing', label: 'Discussing' },
@@ -86,37 +82,46 @@ export function ThreadListPage() {
   ]
 
   return (
+    <>
+    <header className="topbar">
+      <div className="brand">
+        <span className="dot" />
+        <span>Roundtable</span>
+      </div>
+      <div className="spacer" />
+      <div className="meta">
+        <ThemeToggle />
+      </div>
+    </header>
     <main className="home-wrap">
       <header className="home-head">
         <div>
-          <p className="eyebrow eyebrow--tight">Local forum</p>
+          <div className="eyebrow tight">Local forum</div>
           <h1 className="h-display">Roundtable.</h1>
         </div>
         <div className="home-stats">
-          <div className="home-stat">
-            <span className="home-stat__number">{threads.length}</span>
-            <span className="home-stat__label">threads</span>
+          <div className="stat">
+            <span className="stat-n">{threads.length}</span>
+            <span className="stat-l">threads</span>
           </div>
-          <div className="home-stat">
-            <span className="home-stat__number">{activeCount}</span>
-            <span className="home-stat__label">active</span>
+          <div className="stat">
+            <span className="stat-n">{activeCount}</span>
+            <span className="stat-l">active</span>
           </div>
-          <div className="home-stat">
-            <span className="home-stat__number">{totalPending}</span>
-            <span className="home-stat__label">pending review</span>
+          <div className="stat">
+            <span className="stat-n">{totalPending}</span>
+            <span className="stat-l">pending review</span>
           </div>
           {attentionCount > 0 ? (
-            <div className="home-stat home-stat--warn">
-              <span className="home-stat__number">{attentionCount}</span>
-              <span className="home-stat__label">needs attention</span>
+            <div className="stat warn">
+              <span className="stat-n">{attentionCount}</span>
+              <span className="stat-l">needs attention</span>
             </div>
           ) : null}
         </div>
       </header>
 
-      <section className="compose-panel">
-        <NewThreadForm onCreated={refresh} />
-      </section>
+      <NewThreadForm onCreated={refresh} nextNum={threads.length + 1} />
 
       <section className="threads-wrap">
         <div className="threads-head">
@@ -147,40 +152,82 @@ export function ThreadListPage() {
         </div>
 
         {visibleThreads.length > 0 ? (
-          <ul className="threads-list">
-            {visibleThreads.map((thread, index) => (
-              <li key={thread.id} className="thread-row">
-                <span className="num">#{String(index + 1).padStart(2, '0')}</span>
-                <div className="thread-row__main">
-                  <Link className="title" to={`/threads/${thread.id}`}>{thread.title}</Link>
-                  <div className="row-meta">
-                    <span className="ctx">thread.md</span>
-                    {thread.pending_count > 0 ? (
-                      <>
-                        <span className="sep">·</span>
-                        <span>{thread.pending_count} pending</span>
-                      </>
-                    ) : null}
-                    {thread.recovery_action_label ? (
-                      <>
-                        <span className="sep">·</span>
-                        <span className="err-hint">
-                          {thread.recovery_action_label}
-                        </span>
-                      </>
-                    ) : null}
+          <div className="threads-list">
+            {visibleThreads.map((thread) => {
+              const num = threads.length - threads.indexOf(thread)
+              const open = () => navigate(`/threads/${thread.id}`)
+              return (
+                <div
+                  key={thread.id}
+                  className="thread-row"
+                  role="link"
+                  tabIndex={0}
+                  onClick={open}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      open()
+                    }
+                  }}
+                >
+                  <div className="num">#{String(num).padStart(2, '0')}</div>
+                  <div>
+                    <Link
+                      className="title"
+                      to={`/threads/${thread.id}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {thread.title}
+                    </Link>
+                    <div className="row-meta">
+                      <span className="ctx">thread.md</span>
+                      {thread.pending_count > 0 ? (
+                        <>
+                          <span className="sep">·</span>
+                          <span style={{ color: 'var(--accent)' }}>
+                            {thread.pending_count} pending
+                          </span>
+                        </>
+                      ) : null}
+                      <span className="sep">·</span>
+                      <span>{relativeTime(thread.created_at)}</span>
+                      {thread.recovery_action_label ? (
+                        <>
+                          <span className="sep">·</span>
+                          <span className="err-hint">
+                            <Icon name="refresh" className="ic-sm" />
+                            {thread.recovery_action_label}
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="right">
+                    <StatusPill
+                      status={thread.display_status}
+                      pendingCount={thread.pending_count}
+                    />
                   </div>
                 </div>
-                <span className={`status-pill pill status-pill--${thread.display_status}`}>
-                  {displayStatusLabel(thread.display_status)}
-                </span>
-              </li>
-            ))}
-          </ul>
+              )
+            })}
+          </div>
         ) : (
           <p className="empty-state">No threads yet.</p>
         )}
       </section>
+
+      <footer className="home-foot">
+        <span>
+          <span className="mono">roundtable</span>
+          <span style={{ color: 'var(--rule-strong)', margin: '0 8px' }}>·</span>
+          thread.json · comments.jsonl
+        </span>
+        <span>
+          <kbd className="kbd">/</kbd> search · <kbd className="kbd">N</kbd> new thread
+        </span>
+      </footer>
     </main>
+    </>
   )
 }

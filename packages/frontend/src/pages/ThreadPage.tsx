@@ -46,6 +46,8 @@ import { ConsolidationPanel } from '../components/ConsolidationPanel'
 import { IntegrityPanel } from '../components/IntegrityPanel'
 import { NewCommentsPill } from '../components/NewCommentsPill'
 import { ThreadSkeleton } from '../components/ThreadSkeleton'
+import { AgentStack, Icon, StatusPill } from '../components/primitives'
+import { ThemeToggle } from '../components/ThemeToggle'
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -396,6 +398,7 @@ export function ThreadPage() {
 
   const pendingCount = pendingDiscussions.length
   const commentCount = comments.length
+  const threadCount = comments.filter((c) => !c.parent_id).length
 
   const sideRailProps = {
     thread,
@@ -421,8 +424,8 @@ export function ThreadPage() {
     <div className="workspace-root">
       {/* ── Header strip ─────────────────────────────────────── */}
       <header className="workspace-header" aria-label="thread workspace header">
-        <Link to="/" className="workspace-back btn-ghost" aria-label="All threads" title="All threads">
-          ‹
+        <Link to="/" className="workspace-back" aria-label="All threads" title="All threads">
+          <Icon name="arrowLeft" className="ic" />
         </Link>
 
         <Link to="/" className="workspace-brand" aria-label="Roundtable home">
@@ -434,24 +437,10 @@ export function ThreadPage() {
           <div className="workspace-crumbs">
             <Link to="/">threads</Link>
             <span>/</span>
-            <span className="workspace-crumbs__file">thread.md</span>
+            <span className="workspace-crumbs__file mono">thread.md</span>
             <span>/</span>
             <strong>{thread.title}</strong>
           </div>
-          {(sourceThread || contextChip !== 'No context') ? (
-            <div className="workspace-header__meta">
-              {contextChip !== 'No context' && contextChip !== 'loading'
-                ? `Context: ${contextChip}`
-                : null}
-              {sourceThread ? (
-                <span>
-                  {contextChip !== 'No context' ? ' · ' : ''}
-                  Continued from{' '}
-                  <Link to={`/threads/${sourceThread.id}`}>{sourceThread.title}</Link>
-                </span>
-              ) : null}
-            </div>
-          ) : null}
         </div>
 
         <div className="workspace-header__badges">
@@ -461,9 +450,9 @@ export function ThreadPage() {
               Auto
             </span>
           ) : null}
-          <span className={`status-pill status-pill--${displayStatus}`}>
-            {statusLabel(displayStatus)}
-          </span>
+          <StatusPill status={displayStatus} pendingCount={pendingCount} />
+          <AgentStack agents={['claude', 'codex']} size={18} />
+          <ThemeToggle />
         </div>
 
         {/* Mobile details trigger */}
@@ -484,26 +473,34 @@ export function ThreadPage() {
         {/* ── Main column ──────────────────────────────────── */}
         <main className="workspace-main" ref={mainRef} aria-label="thread discussion">
 
-          {/* Thread body (collapsible) */}
+          {/* Source thread (collapsible hero) */}
           <div className="thread-body-section">
             {bodyCollapsed ? (
               <button
-                className="thread-body-collapsed-bar"
+                type="button"
+                className="source-collapsed"
                 onClick={() => setBodyCollapsed(false)}
                 aria-label="Expand thread body"
-                type="button"
               >
-                <span className="thread-body-collapsed-bar__icon" aria-hidden="true">◉</span>
-                <span className="thread-body-collapsed-bar__title">{thread.title}</span>
-                <span className="thread-body-collapsed-bar__caret" aria-hidden="true">▼ expand</span>
+                <span className="source-collapsed-dot" aria-hidden="true" />
+                <span className="source-collapsed-title">{thread.title}</span>
+                <span className="source-collapsed-meta">
+                  <Icon name="file" className="ic-sm" /> thread.md
+                </span>
+                <span className="source-collapsed-caret">
+                  <Icon name="chevronD" className="ic-sm" /> expand
+                </span>
               </button>
             ) : (
-              <div className="thread-body-card">
-                <div className="thread-body-card__eyebrow">
-                  <span>Source thread</span>
-                  <span>·</span>
-                  <span className="mono">thread.md</span>
-                  <span className="thread-body-card__date">
+              <div className="source">
+                <div className="source-eyebrow">
+                  <span className="eyebrow tight">Source thread</span>
+                  <span style={{ color: 'var(--rule-strong)' }}>·</span>
+                  <span className="mono" style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                    thread.md
+                  </span>
+                  <span style={{ flex: 1 }} />
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {new Date(thread.created_at).toLocaleDateString(undefined, {
                       month: 'short',
                       day: 'numeric',
@@ -511,29 +508,39 @@ export function ThreadPage() {
                     })}
                   </span>
                 </div>
-                <h1 className="thread-body-card__title">{thread.title}</h1>
-                <div className="thread-body-card__content">
+                <h1 className="source-title">{thread.title}</h1>
+                <div className="source-body">
                   <Markdown remarkPlugins={[remarkGfm]}>{thread.body}</Markdown>
                 </div>
-                <div className="thread-body-card__footer">
+                {sourceThread && thread.created_from_consolidation_id ? (
+                  <div className="source-lineage">
+                    <Icon name="link" className="ic-sm" />
+                    Continued from{' '}
+                    <Link
+                      to={`/threads/${sourceThread.id}/consolidations/${thread.created_from_consolidation_id}`}
+                    >
+                      {sourceProposal?.summary ?? sourceThread.title}
+                    </Link>
+                  </div>
+                ) : null}
+                <div className="source-foot">
                   <button
                     type="button"
-                    className="btn-ghost"
-                    style={{ fontSize: '0.8125rem' }}
+                    className="btn sm ghost"
                     onClick={() => setBodyCollapsed(true)}
                   >
-                    Collapse ↑
+                    <Icon name="collapse" className="ic-sm" /> Collapse source
                   </button>
-                  {sourceThread && thread.created_from_consolidation_id ? (
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-3)' }}>
-                      Created from{' '}
-                      <Link
-                        to={`/threads/${sourceThread.id}/consolidations/${thread.created_from_consolidation_id}`}
-                      >
-                        {sourceProposal?.summary ?? thread.created_from_consolidation_id}
-                      </Link>
-                    </span>
-                  ) : null}
+                  <span className="spacer" />
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(window.location.href)
+                    }}
+                  >
+                    <Icon name="link" className="ic-sm" /> Copy link
+                  </button>
                 </div>
               </div>
             )}
@@ -557,12 +564,24 @@ export function ThreadPage() {
             aria-label="discussion"
             id="comment-stream"
           >
-            <div className="comment-stream-header">
-              <h2>Discussion</h2>
-              <span>
-                {commentCount} {commentCount === 1 ? 'comment' : 'comments'}
-                {pendingCount > 0 ? ` · ${pendingCount} pending` : ''}
-              </span>
+            <div className="discussion-head">
+              <h2 className="h-2">Discussion</h2>
+              <div className="discuss-tools">
+                <span className="count">
+                  {commentCount} {commentCount === 1 ? 'comment' : 'comments'}
+                  {threadCount > 0 ? ` · ${threadCount} ${threadCount === 1 ? 'thread' : 'threads'}` : ''}
+                  {pendingCount > 0 ? (
+                    <>
+                      {' · '}
+                      <b style={{ color: 'var(--warn)' }}>{pendingCount} pending</b>
+                    </>
+                  ) : null}
+                </span>
+                <span style={{ color: 'var(--rule-strong)' }}>·</span>
+                <span className="sort">
+                  <Icon name="filter" className="ic-sm" /> oldest first
+                </span>
+              </div>
             </div>
 
             {!commentsLoaded ? (
@@ -605,26 +624,36 @@ export function ThreadPage() {
           {/* Sticky composer */}
           {thread.status === 'open' ? (
             <div className="composer-anchor" aria-label="add discussion point">
-              <CommentForm
-                label="Add"
-                threadId={thread.id}
-                draftContext="root"
-                onSubmit={addTopLevel}
-              />
+              <div className="composer-card" style={{ maxWidth: 920, margin: '0 auto' }}>
+                <CommentForm
+                  label="Post"
+                  threadId={thread.id}
+                  draftContext="root"
+                  onSubmit={addTopLevel}
+                />
+                {room?.auto?.status === 'running' ? (
+                  <div className="composer-hint">
+                    <Icon name="play" className="ic-sm" />
+                    <span>
+                      Auto-discussion is running ({room.auto.completed_turns}/
+                      {room.auto.total_turns}). Your post is durable, but agents won't
+                      react until the run completes.
+                    </span>
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : (
-            <div
-              style={{
-                position: 'sticky', bottom: 0,
-                padding: '8px clamp(20px, 5vw, 48px)',
-                borderTop: '1px solid var(--border)',
-                background: 'rgba(247,246,244,0.95)',
-                backdropFilter: 'blur(10px)',
-                fontSize: '0.8125rem',
-                color: 'var(--text-3)',
-              }}
-            >
-              Thread is {thread.status} — no new comments.
+            <div className="composer-anchor">
+              <div
+                className="composer-card archived"
+                style={{ maxWidth: 920, margin: '0 auto' }}
+              >
+                <div className="archived-banner">
+                  <Icon name={thread.status === 'closed' ? 'check' : 'archive'} className="ic-sm" />{' '}
+                  Thread is {thread.status} — no new comments.
+                </div>
+              </div>
             </div>
           )}
         </main>
