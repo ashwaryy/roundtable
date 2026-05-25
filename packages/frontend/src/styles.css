@@ -1122,6 +1122,180 @@ article + ul article { background: var(--surface); }
   animation: sk-pulse 1.8s ease-in-out infinite;
 }
 
+.thread-skeleton .sk {
+  background: var(--panel-2);
+}
+.thread-skeleton__icon-slot {
+  pointer-events: none;
+}
+.thread-skeleton__icon-slot .sk {
+  width: 20px;
+  height: 20px;
+}
+.thread-skeleton__crumb {
+  width: 52px;
+  height: 12px;
+}
+.thread-skeleton__crumb-file {
+  width: 70px;
+  height: 12px;
+}
+.thread-skeleton__crumb-title {
+  width: min(260px, 34vw);
+  height: 12px;
+}
+.thread-skeleton__pill {
+  width: 86px;
+  height: 22px;
+  border-radius: 999px;
+}
+.thread-skeleton__avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+.thread-skeleton__toggle {
+  width: 32px;
+  height: 28px;
+  border-radius: 6px;
+}
+.thread-skeleton__eyebrow {
+  width: 92px;
+  height: 11px;
+}
+.thread-skeleton__file-chip {
+  width: 64px;
+  height: 11px;
+}
+.thread-skeleton__date {
+  width: 82px;
+  height: 12px;
+}
+.thread-skeleton__title {
+  width: min(620px, 72%);
+  height: 40px;
+  border-radius: 6px;
+}
+.thread-skeleton__saved-button {
+  width: 126px;
+  height: 34px;
+  border-radius: 6px;
+}
+.thread-skeleton__source-body {
+  display: grid;
+  gap: 9px;
+}
+.thread-skeleton__source-body .sk {
+  height: 15px;
+}
+.thread-skeleton__foot-button {
+  width: 122px;
+  height: 28px;
+  border-radius: 6px;
+}
+.thread-skeleton__discussion-title {
+  width: 96px;
+  height: 20px;
+}
+.thread-skeleton__discussion-meta {
+  width: 132px;
+  height: 12px;
+}
+.thread-skeleton__sort {
+  width: 86px;
+  height: 12px;
+}
+.thread-skeleton__comments {
+  display: flex;
+  flex-direction: column;
+}
+.thread-skeleton__comment {
+  display: flex;
+  gap: 10px;
+  border-top: 1px solid var(--rule);
+  padding: 16px 0 6px;
+}
+.thread-skeleton__comment:first-child {
+  border-top: 0;
+}
+.thread-skeleton__comment-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.thread-skeleton__comment-main {
+  flex: 1;
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.thread-skeleton__comment-meta {
+  display: flex;
+  gap: 8px;
+}
+.thread-skeleton__comment-meta .sk {
+  height: 12px;
+}
+.thread-skeleton__comment-body {
+  width: 100%;
+  border-radius: 8px;
+}
+.thread-skeleton__composer {
+  max-width: 920px;
+  margin: 0 auto;
+  display: grid;
+  gap: 8px;
+}
+.thread-skeleton__type-row {
+  display: flex;
+  gap: 6px;
+}
+.thread-skeleton__type-row .sk {
+  height: 22px;
+  border-radius: 999px;
+}
+.thread-skeleton__composer-input {
+  height: 42px;
+  border-radius: 8px;
+}
+.thread-skeleton__rail-collapse {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+.thread-skeleton__rail-label {
+  width: 92px;
+  height: 12px;
+}
+.thread-skeleton__rail-count {
+  width: 46px;
+  height: 12px;
+}
+.thread-skeleton__rail-body {
+  display: grid;
+  gap: 8px;
+}
+.thread-skeleton__rail-body .sk:not(:first-child) {
+  height: 12px;
+}
+.thread-skeleton__strip-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+}
+.thread-skeleton__strip-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+}
+.thread-skeleton__strip-state {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin: 4px 0;
+}
+
 /* ── Empty stream ────────────────────────────────────────────── */
 .empty-stream {
   display: flex;
@@ -3332,6 +3506,43 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   margin: 0 0 14px;
   color: var(--ink);
 }
+.source-title-row,
+.saved-output-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+.source-title-row .source-title,
+.saved-output-title-row .source-title {
+  min-width: 0;
+  margin-bottom: 0;
+}
+.source-saved-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  min-height: 34px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+}
+.source-saved-link:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  text-decoration: none;
+}
 .source-body {
   font-family: 'Source Serif 4', Georgia, serif;
   font-size: 17px;
@@ -3509,6 +3720,97 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   color: var(--accent-ink);
 }
 .source-lineage a { color: var(--accent-ink); font-weight: 600; }
+
+/* saved output page */
+.saved-output-page {
+  min-height: 100vh;
+  background: var(--bg);
+}
+.saved-output-main {
+  padding: 36px clamp(28px, 5vw, 64px) 80px;
+}
+.saved-output-shell {
+  max-width: 920px;
+  margin: 0 auto;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.saved-output-header {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 22px;
+}
+.saved-output-subtitle {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 13px;
+}
+.saved-output-body {
+  padding-top: 26px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--ink-soft);
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 17px;
+  line-height: 1.62;
+}
+.saved-output-body p {
+  margin: 0 0 0.95em;
+}
+.saved-output-body ul,
+.saved-output-body ol {
+  margin: 0 0 0.95em;
+  padding-left: 1.25em;
+}
+.saved-output-body li {
+  margin: 0.2em 0;
+}
+.saved-output-body h1,
+.saved-output-body h2,
+.saved-output-body h3 {
+  margin: 1.35em 0 0.45em;
+  color: var(--ink);
+  font-family: 'Source Serif 4', Georgia, serif;
+  letter-spacing: 0;
+}
+.saved-output-body :first-child {
+  margin-top: 0;
+}
+.saved-output-body :last-child {
+  margin-bottom: 0;
+}
+.saved-output-body code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.86em;
+  background: var(--panel-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+  color: var(--ink);
+}
+.saved-output-body pre {
+  border-color: var(--rule);
+  background: var(--panel-2);
+}
+
+@media (max-width: 640px) {
+  .source-title-row,
+  .saved-output-title-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .source-saved-link {
+    align-self: flex-start;
+  }
+
+  .saved-output-main {
+    padding: 22px 16px 56px;
+  }
+}
 
 /* ── discussion section + tree ───────────────────────────────── */
 .discussion-section {

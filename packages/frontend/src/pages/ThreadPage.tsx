@@ -50,6 +50,11 @@ import { NewCommentsPill } from '../components/NewCommentsPill'
 import { ThreadSkeleton } from '../components/ThreadSkeleton'
 import { AgentStack, Avatar, Icon, StatusPill } from '../components/primitives'
 import { ThemeToggle } from '../components/ThemeToggle'
+import {
+  RAIL_COLLAPSED_STORAGE_KEY,
+  readStoredBoolean,
+  writeStoredBoolean,
+} from '../lib/uiStorage'
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -161,16 +166,26 @@ function RailSection({
   label,
   count,
   defaultOpen = true,
+  storageKey,
   right,
   children,
 }: {
   label: string
   count?: number
   defaultOpen?: boolean
+  storageKey?: string
   right?: ReactNode
   children: ReactNode
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  const [open, setOpen] = useState(() =>
+    storageKey ? readStoredBoolean(storageKey, defaultOpen) : defaultOpen,
+  )
+
+  useEffect(() => {
+    if (!storageKey) return
+    writeStoredBoolean(storageKey, open)
+  }, [open, storageKey])
+
   return (
     <section className="rail-section" data-open={open ? '1' : '0'}>
       <button type="button" className="rail-section-head" onClick={() => setOpen((value) => !value)}>
@@ -256,6 +271,7 @@ function SideRailContent({
         <RailSection
           label="Consolidate"
           defaultOpen={displayStatus === 'consolidating'}
+          storageKey="roundtable.railSection.consolidate"
           right={proposals.length > 0 ? <span className="rail-section-count">{proposals.length} past</span> : null}
         >
           <div className={emphasizedSection === 'consolidation' ? 'sidebar-section--active' : ''}>
@@ -273,6 +289,7 @@ function SideRailContent({
       <RailSection
         label="Context"
         defaultOpen={false}
+        storageKey="roundtable.railSection.context"
         right={<span className="mono rail-section-count">{contextChip}</span>}
       >
       <div className={emphasizedSection === 'context' ? 'sidebar-section--active' : ''}>
@@ -322,7 +339,9 @@ export function ThreadPage() {
   // Layout state
   const [bodyCollapsed, setBodyCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [railCollapsed, setRailCollapsed] = useState(false)
+  const [railCollapsed, setRailCollapsed] = useState(() =>
+    readStoredBoolean(RAIL_COLLAPSED_STORAGE_KEY, false),
+  )
   const [commentSortOrder, setCommentSortOrder] = useState<CommentSortOrder>('oldest')
 
   // Scroll / new-comments tracking
@@ -378,6 +397,10 @@ export function ThreadPage() {
   }, [id])
 
   useEffect(() => { refresh() }, [refresh])
+
+  useEffect(() => {
+    writeStoredBoolean(RAIL_COLLAPSED_STORAGE_KEY, railCollapsed)
+  }, [railCollapsed])
 
   useEffect(() => {
     if (!thread?.parent_thread_id || !thread.created_from_consolidation_id) {
@@ -467,6 +490,7 @@ export function ThreadPage() {
   const consolidationSummary = activeProposal
     ? activeProposal.status
     : proposals.length > 0 ? `${proposals.length} total` : 'none'
+  const primarySavedOutput = savedOutputs[0] ?? null
 
   const pendingCount = pendingDiscussions.length
   const commentCount = comments.length
@@ -588,7 +612,20 @@ export function ThreadPage() {
                     })}
                   </span>
                 </div>
-                <h1 className="source-title">{thread.title}</h1>
+                <div className="source-title-row">
+                  <h1 className="source-title">{thread.title}</h1>
+                  {primarySavedOutput ? (
+                    <Link
+                      to={`/saved/${primarySavedOutput.id}`}
+                      className="source-saved-link"
+                      aria-label={`View saved output for ${thread.title}`}
+                    >
+                      <Icon name="file" className="ic-sm" />
+                      Saved output
+                      <Icon name="arrowRight" className="ic-sm" />
+                    </Link>
+                  ) : null}
+                </div>
                 <div className="source-body">
                   <Markdown remarkPlugins={[remarkGfm]}>{thread.body}</Markdown>
                 </div>
@@ -625,18 +662,6 @@ export function ThreadPage() {
               </div>
             )}
           </div>
-
-          {/* Saved outputs (closed threads) */}
-          {thread.status === 'closed' && savedOutputs.length > 0 ? (
-            <div className="saved-outputs-section">
-              <h2 style={{ marginBottom: '0.4rem' }}>Saved Output</h2>
-              {savedOutputs.map((saved) => (
-                <p key={saved.id} style={{ margin: '0.2rem 0' }}>
-                  <Link to={`/saved/${saved.id}`}>View final saved revision</Link>
-                </p>
-              ))}
-            </div>
-          ) : null}
 
           {/* Comment stream */}
           <section
