@@ -1,7 +1,22 @@
 import { useState } from 'react'
 import type { AgentName, Comment, CommentType } from '@roundtable/shared'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { groupComments } from '../lib/commentTree'
 import { CommentForm } from './CommentForm'
+
+const commentTimestampFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+})
+
+function CommentTimestamp({ createdAt }: { createdAt: string }) {
+  return (
+    <time dateTime={createdAt}>
+      {commentTimestampFormatter.format(new Date(createdAt))}
+    </time>
+  )
+}
 
 export function CommentTree({
   comments,
@@ -30,9 +45,9 @@ export function CommentTree({
         <li key={root.id}>
           <article>
             <header>
-              {root.author} - {root.type}
+              {root.author} - {root.type} - <CommentTimestamp createdAt={root.created_at} />
             </header>
-            <p>{root.body}</p>
+            <Markdown remarkPlugins={[remarkGfm]}>{root.body}</Markdown>
           </article>
 
           <ul>
@@ -40,9 +55,10 @@ export function CommentTree({
               <li key={reply.id}>
                 <article>
                   <header>
-                    {reply.author} - {reply.type}
+                    {reply.author} - {reply.type} -{' '}
+                    <CommentTimestamp createdAt={reply.created_at} />
                   </header>
-                  <p>{reply.body}</p>
+                  <Markdown remarkPlugins={[remarkGfm]}>{reply.body}</Markdown>
                 </article>
               </li>
             ))}

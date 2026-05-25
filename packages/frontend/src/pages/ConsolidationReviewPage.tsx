@@ -164,7 +164,8 @@ export function ConsolidationReviewPage() {
           <ul>
             {comments.map((comment) => (
               <li key={comment.id}>
-                {comment.id} {comment.author}: {comment.body}
+                {comment.id} {comment.author}:
+                <Markdown remarkPlugins={[remarkGfm]}>{comment.body}</Markdown>
               </li>
             ))}
           </ul>
