@@ -16,6 +16,7 @@ import type {
   ThreadContext,
   AgentRoom,
   AskAgentInput,
+  RequestIdleSuggestionInput,
   BoundedJob,
   ExtendAutoDiscussionInput,
   NudgeRoomInput,
@@ -352,6 +353,23 @@ export function nudgeRoom(
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
+  }).then((r) => json<AgentRoom>(r))
+}
+
+export function requestIdleSuggestion(
+  threadId: string,
+  input: RequestIdleSuggestionInput,
+): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room/suggestion-request`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<AgentRoom>(r))
+}
+
+export function cancelIdleSuggestion(threadId: string): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room/suggestion-request/cancel`, {
+    method: 'POST',
   }).then((r) => json<AgentRoom>(r))
 }
 

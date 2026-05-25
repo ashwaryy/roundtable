@@ -521,6 +521,7 @@ function testRoom(status: AgentRoom['status'] = 'starting'): AgentRoom {
     active_job_id: null,
     auto: null,
     input_prompt: null,
+    idle_suggestion_request: null,
     session_state: status === 'not_started' ? 'not_started' : 'connected',
   }
 }
@@ -603,6 +604,8 @@ describe('room routes', () => {
       restartRoom: vi.fn(() => testRoom('starting')),
       stopRoom: vi.fn(() => testRoom('stopped')),
       nudgeRoom: vi.fn(() => testRoom('idle')),
+      requestIdleSuggestion: vi.fn(() => testRoom('idle')),
+      cancelIdleSuggestion: vi.fn(() => testRoom('idle')),
       markReady: vi.fn(() => testRoom('idle')),
       askAgent: vi.fn(() => ({ room: testRoom('running'), job: testJob() })),
       startAutoDiscussion: vi.fn(() => ({
@@ -834,6 +837,34 @@ describe('room routes', () => {
     })
   })
 
+  it('requests idle pending suggestions', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/suggestion-request')
+      .send({ agent: 'codex', body: 'Find one performance topic.' })
+
+    expect(res.status).toBe(200)
+    expect(rooms.requestIdleSuggestion).toHaveBeenCalledWith('thread-1', {
+      agent: 'codex',
+      body: 'Find one performance topic.',
+    })
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'room_updated',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('cancels an outstanding idle suggestion request', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/suggestion-request/cancel')
+
+    expect(res.status).toBe(200)
+    expect(rooms.cancelIdleSuggestion).toHaveBeenCalledWith('thread-1')
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'room_updated',
+      thread_id: 'thread-1',
+    })
+  })
+
   it('marks an agent ready with the bearer token', async () => {
     const res = await request(app)
       .post('/api/threads/thread-1/room/ready')
@@ -958,6 +989,36 @@ describe('room routes', () => {
       type: 'pending_discussion_created',
       thread_id: 'thread-1',
     })
+  })
+
+  it('does not broadcast a job update for an idle pending discussion submission', async () => {
+    vi.mocked(rooms.submitPendingDiscussion).mockReturnValueOnce({
+      room: testRoom('idle'),
+      pending_discussion: {
+        id: 'pd002',
+        thread_id: 'thread-1',
+        author: 'codex',
+        type: 'question',
+        body: 'idle pending root',
+        origin_discussion_id: null,
+        origin_comment_id: null,
+        created_at: '2026-05-23T00:00:00.000Z',
+      },
+    })
+
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/pending-discussion')
+      .set('authorization', 'Bearer room-token')
+      .send({ agent: 'codex', body: 'idle pending root', type: 'question' })
+
+    expect(res.status).toBe(201)
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'pending_discussion_created',
+      thread_id: 'thread-1',
+    })
+    expect(broadcast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'job_updated' }),
+    )
   })
 
   it('retries and skips turns needing attention', async () => {

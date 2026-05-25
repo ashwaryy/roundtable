@@ -221,7 +221,7 @@ describe('createRoomManager', () => {
       'utf8',
     )
     expect(codexStartup).toContain(
-      'except draft files under `.roundtable/tmp/` permitted by a Roundtable turn',
+      'except draft files under `.roundtable/tmp/` permitted by a Roundtable request',
     )
     expect(codexStartup).toContain(
       'Attachments are optional; if present, they live under `attachments/`',
@@ -243,6 +243,13 @@ describe('createRoomManager', () => {
     expect(codexStartup).toContain(
       'Run the readiness command on every launch or resumed CLI process',
     )
+    expect(codexStartup).toContain(
+      'After readiness, wait. Do not inspect the thread, draft output, or submit anything',
+    )
+    expect(codexStartup).toContain(
+      'When Roundtable explicitly requests work, read `thread.md`',
+    )
+    expect(codexStartup).not.toContain('idle-pending-discussion')
     expect(codexStartup).toContain(
       'A prior launch acknowledgment does not apply to this room process.',
     )
@@ -283,6 +290,8 @@ describe('createRoomManager', () => {
       path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-claude.sh'),
       'utf8',
     )
+    expect(launchClaude).toContain("export ROUNDTABLE_AGENT_ID='claude'")
+    expect(launchCodex).toContain("export ROUNDTABLE_AGENT_ID='codex'")
     expect(launchClaude).toContain('exec claude --permission-mode dontAsk')
     expect(launchCodex).toContain('exec codex --sandbox workspace-write')
     expect(launchCodex).toContain('--ask-for-approval never')
@@ -397,6 +406,9 @@ describe('createRoomManager', () => {
     expect(
       fs.readFileSync(roundtableHelperPath(dataDir, 'thread-1'), 'utf8'),
     ).toContain("continue_turn: args.includes('--continue-turn')")
+    expect(
+      fs.readFileSync(roundtableHelperPath(dataDir, 'thread-1'), 'utf8'),
+    ).toContain('process.env.ROUNDTABLE_AGENT_ID')
     expect(executor.sessions.has('roundtable-thread-1')).toBe(true)
     expect(executor.commands).toContainEqual({
       file: 'tmux',
@@ -686,6 +698,48 @@ describe('createRoomManager', () => {
     })
   })
 
+  it('requests idle suggestions and sends the permitted helper instruction', () => {
+    const { manager } = startReadyRoom()
+
+    const room = manager.requestIdleSuggestion('thread-1', {
+      agent: 'codex',
+      body: 'Look for one performance bottleneck.',
+    })
+
+    expect(room.idle_suggestion_request).toMatchObject({
+      agent: 'codex',
+      instructions: 'Look for one performance bottleneck.',
+    })
+    expect(
+      fs.existsSync(path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'tmp')),
+    ).toBe(true)
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: expect.arrayContaining([
+        '-l',
+        expect.stringContaining(
+          'roundtable pending-discussion --body-file <that-file> --type comment',
+        ),
+      ]),
+    })
+  })
+
+  it('cancels an idle suggestion request before submission', () => {
+    const { manager, token } = startReadyRoom()
+    manager.requestIdleSuggestion('thread-1', { agent: 'codex' })
+
+    const room = manager.cancelIdleSuggestion('thread-1')
+
+    expect(room.idle_suggestion_request).toBeNull()
+    expect(() =>
+      manager.submitPendingDiscussion(
+        'thread-1',
+        { agent: 'codex', body: 'A cancelled suggestion.' },
+        token,
+      ),
+    ).toThrow('idle pending discussion requires an explicit suggestion request')
+  })
+
   it('detects a pane input prompt and sends a yes response', () => {
     const { manager } = startReadyRoom()
     executor.paneCaptures.set(
@@ -828,6 +882,100 @@ describe('createRoomManager', () => {
     expect(fs.existsSync(currentTurnPath(dataDir, 'thread-1'))).toBe(false)
   })
 
+  it('allows multiple explicitly requested idle pending discussions without an active turn', () => {
+    const { manager, token } = startReadyRoom()
+    manager.requestIdleSuggestion('thread-1', { agent: 'codex' })
+
+    const first = manager.submitPendingDiscussion(
+      'thread-1',
+      {
+        agent: 'codex',
+        body: 'This should be considered as a separate topic.',
+        type: 'question',
+      },
+      token,
+    )
+
+    expect(first.room.status).toBe('idle')
+    expect(first.room.active_job_id).toBeNull()
+    expect(first.room.idle_suggestion_request).toMatchObject({ agent: 'codex' })
+    expect(first.job).toBeUndefined()
+    expect(first.pending_discussion).toMatchObject({
+      author: 'codex',
+      body: 'This should be considered as a separate topic.',
+      type: 'question',
+    })
+    const second = manager.submitPendingDiscussion(
+      'thread-1',
+      { agent: 'codex', body: 'A second requested topic.' },
+      token,
+    )
+    expect(second.room.idle_suggestion_request).toMatchObject({ agent: 'codex' })
+    expect(listPendingDiscussions(dataDir, 'thread-1')).toHaveLength(2)
+    expect(listComments(dataDir, 'thread-1')).toHaveLength(0)
+    expect(fs.existsSync(currentTurnPath(dataDir, 'thread-1'))).toBe(false)
+  })
+
+  it('rejects idle pending discussion after a request is cancelled', () => {
+    const { manager, token } = startReadyRoom()
+    manager.requestIdleSuggestion('thread-1', { agent: 'codex' })
+    manager.submitPendingDiscussion(
+      'thread-1',
+      { agent: 'codex', body: 'A requested topic.' },
+      token,
+    )
+    manager.cancelIdleSuggestion('thread-1')
+
+    expect(() =>
+      manager.submitPendingDiscussion(
+        'thread-1',
+        { agent: 'codex', body: 'A topic after cancellation.' },
+        token,
+      ),
+    ).toThrow('idle pending discussion requires an explicit suggestion request')
+  })
+
+  it('rejects an unsolicited idle pending discussion', () => {
+    const { manager, token } = startReadyRoom()
+
+    expect(() =>
+      manager.submitPendingDiscussion(
+        'thread-1',
+        {
+          agent: 'codex',
+          body: 'Idle queued topic.',
+        },
+        token,
+      ),
+    ).toThrow('idle pending discussion requires an explicit suggestion request')
+  })
+
+  it('does not accept continue-turn semantics for a requested idle pending discussion', () => {
+    const { manager, token } = startReadyRoom()
+    manager.requestIdleSuggestion('thread-1', { agent: 'codex' })
+
+    expect(() =>
+      manager.submitPendingDiscussion(
+        'thread-1',
+        {
+          agent: 'codex',
+          body: 'Idle queued topic.',
+          continue_turn: true,
+        },
+        token,
+      ),
+    ).toThrow('idle pending discussion cannot continue a turn')
+  })
+
+  it('revokes an idle suggestion request when a bounded turn starts', () => {
+    const { manager } = startReadyRoom()
+    manager.requestIdleSuggestion('thread-1', { agent: 'codex' })
+
+    const result = manager.askAgent('thread-1', { agent: 'claude' })
+
+    expect(result.room.idle_suggestion_request).toBeNull()
+  })
+
   it('does not repeat startup execution rules in Claude turn prompts', () => {
     const { manager } = startReadyRoom()
 
@@ -899,8 +1047,8 @@ describe('createRoomManager', () => {
 
     expect(firstPending.room.status).toBe('running')
     expect(firstPending.room.active_job_id).toBe('job-001')
-    expect(firstPending.job.status).toBe('running')
-    expect(firstPending.job.result).toBeNull()
+    expect(firstPending.job?.status).toBe('running')
+    expect(firstPending.job?.result).toBeNull()
     expect(firstPending.pending_discussion).toMatchObject({
       body: 'First separate discussion.',
       type: 'question',
@@ -997,7 +1145,7 @@ describe('createRoomManager', () => {
     )
 
     expect(queued.pending_discussion.id).toBe('pd001')
-    expect(queued.job.status).toBe('running')
+    expect(queued.job?.status).toBe('running')
     expect(queued.room.active_job_id).toBe('job-001')
     expect(queued.room.auto).toMatchObject({
       completed_turns: 0,
@@ -1017,7 +1165,7 @@ describe('createRoomManager', () => {
     )
 
     expect(result.pending_discussion.id).toBe('pd002')
-    expect(result.job.result).toEqual({ pending_discussion_id: 'pd002' })
+    expect(result.job?.result).toEqual({ pending_discussion_id: 'pd002' })
     expect(result.room.status).toBe('running')
     expect(result.room.active_job_id).toBe('job-002')
     expect(result.room.auto).toMatchObject({

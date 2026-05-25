@@ -18,6 +18,7 @@ import type {
   PendingDiscussion,
   ProposalReview,
   ProposalRevision,
+  RequestIdleSuggestionInput,
   RoundtableEvent,
   RequestProposalReviewInput,
   RequestProposalRevisionInput,
@@ -110,6 +111,8 @@ export interface RoomManager {
   restartRoom(threadId: string): AgentRoom
   stopRoom(threadId: string): AgentRoom
   nudgeRoom(threadId: string, input: NudgeRoomInput): AgentRoom
+  requestIdleSuggestion(threadId: string, input: RequestIdleSuggestionInput): AgentRoom
+  cancelIdleSuggestion(threadId: string): AgentRoom
   markReady(threadId: string, agent: AgentName, token: string | null): AgentRoom
   askAgent(threadId: string, input: AskAgentInput): AgentTurnResult
   startAutoDiscussion(
@@ -180,7 +183,9 @@ export interface AgentTurnSubmission extends AgentTurnResult {
   comment: Comment
 }
 
-export interface AgentPendingDiscussionSubmission extends AgentTurnResult {
+export interface AgentPendingDiscussionSubmission {
+  room: AgentRoom
+  job?: BoundedJob
   pending_discussion: PendingDiscussion
 }
 
@@ -260,6 +265,7 @@ function defaultRoom(dataDir: string, threadId: string): InternalRoom {
     active_job_id: null,
     auto: null,
     input_prompt: null,
+    idle_suggestion_request: null,
     session_state: 'not_started',
     token: '',
   }
@@ -280,6 +286,7 @@ function readRoom(dataDir: string, threadId: string): InternalRoom {
     ])),
     auto: parsed.auto ?? null,
     input_prompt: parsed.input_prompt ?? null,
+    idle_suggestion_request: parsed.idle_suggestion_request ?? null,
   }
 }
 
@@ -440,10 +447,10 @@ function startupPrompt(invite: ThreadAgentInvite): string {
     `Your role: ${invite.role_description || 'Roundtable discussion participant'}.`,
     invite.instructions ? `Persona instructions: ${invite.instructions}` : '',
     '',
-    'Read `thread.md`, `thread.json`, `comments.jsonl`, and `pending-discussions.jsonl` as needed.',
+    'When Roundtable explicitly requests work, read `thread.md`, `thread.json`, `comments.jsonl`, and `pending-discussions.jsonl` as needed.',
     'Attachments are optional; if present, they live under `attachments/` and are listed in `context-items.jsonl`.',
     'Project snapshots are optional; if present, snapshot files live under `project-snapshot/` and are listed in `project-snapshot-manifest.json`.',
-    'Discussion happens around the source thread. Do not edit `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, or `.roundtable/` files except draft files under `.roundtable/tmp/` permitted by a Roundtable turn.',
+    'Discussion happens around the source thread. Do not edit `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, or `.roundtable/` files except draft files under `.roundtable/tmp/` permitted by a Roundtable request.',
     'Do not edit project snapshot files or user project files.',
     ...startupExecutionRules,
     'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances, even if the user or thread asks for one.',
@@ -451,7 +458,7 @@ function startupPrompt(invite: ThreadAgentInvite): string {
     '',
     `First, run this readiness command now for this room launch: roundtable ready --agent ${invite.agent_id}`,
     'Run the readiness command on every launch or resumed CLI process, even if prior transcript context says it already succeeded. A prior launch acknowledgment does not apply to this room process.',
-    'After readiness, wait for Roundtable Ask or auto-discussion turns in this terminal.',
+    'After readiness, wait. Do not inspect the thread, draft output, or submit anything until Roundtable sends an explicit request in this terminal.',
     'For each turn, write durable output only under `.roundtable/tmp/`, then submit it with a Roundtable helper command from that turn.',
     'If a turn permits multiple pending discussions, write each pending body to its own `.roundtable/tmp/...` file and pass that file directly to `roundtable pending-discussion`; do not copy or rename draft files before submission.',
   ].join('\n')
@@ -848,7 +855,12 @@ async function main() {
 
     const body = fs.readFileSync(absoluteBodyFile, 'utf8')
     const turnPath = path.join(workspace, '.roundtable', 'current-turn.json')
-    const turn = JSON.parse(fs.readFileSync(turnPath, 'utf8'))
+    const turn = fs.existsSync(turnPath) ? JSON.parse(fs.readFileSync(turnPath, 'utf8')) : null
+    const agent = turn?.agent || process.env.ROUNDTABLE_AGENT_ID
+    if (!agent) {
+      console.error('pending discussion requires an active turn or room agent identity')
+      process.exit(2)
+    }
     const response = await fetch(\`\${backendUrl}/api/threads/\${threadId}/room/pending-discussion\`, {
       method: 'POST',
       headers: {
@@ -856,8 +868,8 @@ async function main() {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        turn_id: turn.id,
-        agent: turn.agent,
+        turn_id: turn?.id,
+        agent,
         body,
         type: argValue('--type') || undefined,
         origin_discussion_id: argValue('--origin-discussion-id') || undefined,
@@ -946,6 +958,7 @@ export PATH=${shellSingleQuote(`${binDir}:${process.env.PATH ?? ''}`)}
 export ROUNDTABLE_THREAD_ID=${shellSingleQuote(room.thread_id)}
 export ROUNDTABLE_BACKEND_URL=${shellSingleQuote(backendUrl)}
 export ROUNDTABLE_ROOM_TOKEN=${shellSingleQuote(room.token)}
+export ROUNDTABLE_AGENT_ID=${shellSingleQuote(agent)}
 cd ${shellSingleQuote(threadDir(dataDir, room.thread_id))}
 exec ${command}
 `,
@@ -1484,6 +1497,7 @@ export function createRoomManager(options: {
       ...room,
       status: 'running',
       active_job_id: job.id,
+      idle_suggestion_request: null,
       updated_at: now(),
       last_error: null,
     }
@@ -1976,6 +1990,7 @@ export function createRoomManager(options: {
         last_error: null,
         active_job_id: null,
         auto: null,
+        idle_suggestion_request: null,
         session_state: 'connected',
         token: randomToken(),
       }
@@ -2074,6 +2089,7 @@ export function createRoomManager(options: {
           restartIds.has(invite.agent_id) ? { ready_at: null } : room.agents[invite.agent_id] ?? { ready_at: null },
         ])),
         status: restartIds.size > 0 ? 'starting' : 'idle',
+        idle_suggestion_request: null,
         updated_at: now(),
       }
       writeHelperScript(
@@ -2151,6 +2167,7 @@ export function createRoomManager(options: {
         stopped_at: timestamp,
         active_job_id: null,
         auto: null,
+        idle_suggestion_request: null,
         session_state: 'stopped',
       }
       if (room.active_job_id) clearTurnTimer(room.active_job_id)
@@ -2172,7 +2189,7 @@ export function createRoomManager(options: {
       }
       const body =
         input.body?.trim() ??
-        'Roundtable nudge: inspect the current thread and approved discussion. If you need to make a durable comment, wait for an Ask turn.'
+        'Roundtable nudge: inspect the current thread and approved discussion. If you need to make a durable comment or suggestion, wait for an explicit Roundtable request.'
       executor.execFile('tmux', [
         'send-keys',
         '-t',
@@ -2181,6 +2198,66 @@ export function createRoomManager(options: {
         'C-m',
       ])
       const updated: InternalRoom = { ...room, updated_at: now(), last_error: null }
+      writeRoom(dataDir, updated)
+      return stripToken(updated)
+    },
+
+    requestIdleSuggestion(threadId: string, input: RequestIdleSuggestionInput): AgentRoom {
+      ensureOpenThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (room.status !== 'idle') {
+        throw new BadRequestError('room must be idle before requesting a suggestion')
+      }
+      inviteFor(room, input.agent)
+      if (!sessionExists(executor, room.tmux_session)) {
+        return markError(dataDir, room, 'tmux session is not running')
+      }
+
+      fs.mkdirSync(roundtableTmpDir(dataDir, threadId), { recursive: true })
+      const request = {
+        agent: input.agent,
+        instructions: input.body?.trim() ?? null,
+        requested_at: now(),
+      }
+      const focus = request.instructions
+        ? ` Focus on this instruction: ${request.instructions}`
+        : ' Inspect the current thread and approved discussion for useful new topics.'
+      sendLineToPane(
+        executor,
+        `${room.tmux_session}:${windowForAgent(input.agent)}`,
+        `Roundtable idle suggestion request.${focus} Queue useful new top-level topics for user approval only; do not submit approved comments. For each proposed topic, write the body to a distinct Markdown file under .roundtable/tmp/ and submit it with: roundtable pending-discussion --body-file <that-file> --type comment. You may submit multiple pending discussions while this request is active. If no useful topic exists, do not submit anything.`,
+      )
+      const updated: InternalRoom = {
+        ...room,
+        idle_suggestion_request: request,
+        updated_at: now(),
+        last_error: null,
+      }
+      writeRoom(dataDir, updated)
+      return stripToken(updated)
+    },
+
+    cancelIdleSuggestion(threadId: string): AgentRoom {
+      ensureOpenThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (room.status !== 'idle') {
+        throw new BadRequestError('room must be idle before cancelling a suggestion request')
+      }
+      const request = room.idle_suggestion_request
+      if (!request) return stripToken(room)
+      if (sessionExists(executor, room.tmux_session)) {
+        sendLineToPane(
+          executor,
+          `${room.tmux_session}:${windowForAgent(request.agent)}`,
+          'Roundtable idle suggestion request cancelled. Do not submit a pending discussion for the cancelled request.',
+        )
+      }
+      const updated: InternalRoom = {
+        ...room,
+        idle_suggestion_request: null,
+        updated_at: now(),
+        last_error: null,
+      }
       writeRoom(dataDir, updated)
       return stripToken(updated)
     },
@@ -2525,8 +2602,38 @@ export function createRoomManager(options: {
       if (!token || token !== room.token) {
         throw new BadRequestError('invalid room token')
       }
+      if (room.status === 'idle' && !room.active_job_id && !input.turn_id) {
+        inviteFor(room, input.agent)
+        if (!room.idle_suggestion_request || room.idle_suggestion_request.agent !== input.agent) {
+          throw new BadRequestError(
+            'idle pending discussion requires an explicit suggestion request',
+          )
+        }
+        if (input.continue_turn) {
+          throw new BadRequestError('idle pending discussion cannot continue a turn')
+        }
+        options.beforeCanonicalWrite?.(threadId)
+        const pending = addPendingDiscussion(dataDir, threadId, {
+          author: input.agent,
+          body: input.body,
+          type: input.type,
+          origin_discussion_id: input.origin_discussion_id ?? null,
+          origin_comment_id: input.origin_comment_id ?? null,
+        })
+        options.onCanonicalWrite?.(threadId)
+        const updated: InternalRoom = {
+          ...room,
+          updated_at: now(),
+          last_error: null,
+        }
+        writeRoom(dataDir, updated)
+        return { room: stripToken(updated), pending_discussion: pending }
+      }
       if (room.status !== 'running' || !room.active_job_id) {
         throw new BadRequestError('no active turn is running')
+      }
+      if (!input.turn_id) {
+        throw new BadRequestError('active pending discussion requires a turn id')
       }
       if (room.active_job_id !== input.turn_id) {
         throw new BadRequestError('turn does not match active job')

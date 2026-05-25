@@ -9,6 +9,7 @@ import {
   createProjectSnapshotInputSchema,
   createUrlContextInputSchema,
   askAgentInputSchema,
+  requestIdleSuggestionInputSchema,
   helperCommentInputSchema,
   helperPendingDiscussionInputSchema,
   helperProposalInputSchema,
@@ -970,6 +971,35 @@ export function createApp(deps: {
     }
   })
 
+  app.post('/api/threads/:id/room/suggestion-request', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = requestIdleSuggestionInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const room = rooms.requestIdleSuggestion(req.params.id, parsed.data)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/suggestion-request/cancel', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      const room = rooms.cancelIdleSuggestion(req.params.id)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
   app.post('/api/threads/:id/room/ask', (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
     const parsed = askAgentInputSchema.safeParse(req.body)
@@ -1086,7 +1116,9 @@ export function createApp(deps: {
         bearerToken(req),
       )
       broadcast({ type: 'pending_discussion_created', thread_id: req.params.id })
-      broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      if (result.job) {
+        broadcast({ type: 'job_updated', thread_id: req.params.id, job_id: result.job.id })
+      }
       broadcast({ type: 'room_updated', thread_id: req.params.id })
       res.status(201).json(result)
     } catch (err) {

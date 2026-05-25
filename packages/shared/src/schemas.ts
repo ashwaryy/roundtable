@@ -160,6 +160,17 @@ export const askAgentInputSchema = z.object({
   discussion_id: z.string().min(1).nullish(),
 })
 
+export const requestIdleSuggestionInputSchema = z.object({
+  agent: agentNameSchema,
+  body: z
+    .preprocess(
+      (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+      z.string().trim().min(1).optional(),
+    )
+    .nullable()
+    .optional(),
+})
+
 const autoTurnCountSchema = z.coerce
   .number()
   .int()
@@ -189,7 +200,7 @@ export const helperCommentInputSchema = z.object({
 })
 
 export const helperPendingDiscussionInputSchema = z.object({
-  turn_id: z.string().min(1, 'turn_id is required'),
+  turn_id: z.string().min(1, 'turn_id is required').optional(),
   agent: agentNameSchema,
   body: z.string().trim().min(1, 'body is required'),
   type: commentTypeSchema.optional(),

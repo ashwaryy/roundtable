@@ -389,6 +389,12 @@ export interface AgentInputPrompt {
   detected_at: string
 }
 
+export interface IdleSuggestionRequest {
+  agent: AgentId
+  instructions: string | null
+  requested_at: string
+}
+
 export interface AgentRoom {
   thread_id: string
   status: RoomStatus
@@ -406,6 +412,7 @@ export interface AgentRoom {
   active_job_id: string | null
   auto: AutoDiscussionState | null
   input_prompt: AgentInputPrompt | null
+  idle_suggestion_request: IdleSuggestionRequest | null
   session_state: RoomSessionState
 }
 
@@ -459,6 +466,11 @@ export interface AskAgentInput {
   agent: AgentName
   body?: string | null
   discussion_id?: string | null
+}
+
+export interface RequestIdleSuggestionInput {
+  agent: AgentName
+  body?: string | null
 }
 
 export interface StartAutoDiscussionInput {
@@ -533,7 +545,7 @@ export interface HelperCommentInput {
 }
 
 export interface HelperPendingDiscussionInput {
-  turn_id: string
+  turn_id?: string
   agent: AgentName
   body: string
   type?: CommentType

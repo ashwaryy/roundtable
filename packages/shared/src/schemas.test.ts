@@ -8,6 +8,7 @@ import {
   snapshotPreflightInputSchema,
   createProjectSnapshotInputSchema,
   askAgentInputSchema,
+  requestIdleSuggestionInputSchema,
   extendAutoDiscussionInputSchema,
   helperCommentInputSchema,
   helperPendingDiscussionInputSchema,
@@ -170,6 +171,16 @@ describe('askAgentInputSchema', () => {
   })
 })
 
+describe('requestIdleSuggestionInputSchema', () => {
+  it('accepts a targeted idle suggestion request', () => {
+    const parsed = requestIdleSuggestionInputSchema.parse({
+      agent: 'claude',
+      body: 'Look for performance topics.',
+    })
+    expect(parsed.body).toBe('Look for performance topics.')
+  })
+})
+
 describe('persona schemas', () => {
   it('validates persona configuration and preset colors', () => {
     const parsed = createAgentPersonaInputSchema.parse({
@@ -267,6 +278,14 @@ describe('helperPendingDiscussionInputSchema', () => {
     expect(parsed.agent).toBe('codex')
     expect(parsed.origin_discussion_id).toBe('c001')
     expect(parsed.continue_turn).toBe(true)
+  })
+
+  it('accepts an idle helper pending discussion without a turn id', () => {
+    const parsed = helperPendingDiscussionInputSchema.parse({
+      agent: 'codex',
+      body: 'idle suggestion',
+    })
+    expect(parsed.turn_id).toBeUndefined()
   })
 
   it('rejects empty pending discussion bodies', () => {

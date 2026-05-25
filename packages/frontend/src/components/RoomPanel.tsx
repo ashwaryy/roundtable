@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { AgentName, AgentPersona, AgentRoom, RoomPreflight, ThreadStatus } from '@roundtable/shared'
 import {
-  askAgent,
+  cancelIdleSuggestion,
   extendAutoDiscussion,
   nudgeRoom,
+  requestIdleSuggestion,
   openRoomTerminal,
   pauseAutoDiscussion,
   retryTurn,
@@ -101,9 +102,9 @@ export function RoomPanel({
   const [inviteId, setInviteId] = useState('')
   const [nudgeAgent, setNudgeAgent] = useState<AgentName>('claude')
   const [nudgeBody, setNudgeBody] = useState('')
-  const [askAgentName, setAskAgentName] = useState<AgentName>('claude')
-  const [askBody, setAskBody] = useState('')
-  const [controlTab, setControlTab] = useState<'nudge' | 'ask' | 'auto'>('nudge')
+  const [suggestAgent, setSuggestAgent] = useState<AgentName>('claude')
+  const [suggestBody, setSuggestBody] = useState('')
+  const [controlTab, setControlTab] = useState<'nudge' | 'suggest' | 'auto'>('nudge')
   const [directOpen, setDirectOpen] = useState(true)
   const [autoTurns, setAutoTurns] = useState(4)
   const [extendTurns, setExtendTurns] = useState(4)
@@ -124,7 +125,7 @@ export function RoomPanel({
     const first = roster[0]?.agent_id
     if (first) {
       setNudgeAgent((value) => roster.some((agent) => agent.agent_id === value) ? value : first)
-      setAskAgentName((value) => roster.some((agent) => agent.agent_id === value) ? value : first)
+      setSuggestAgent((value) => roster.some((agent) => agent.agent_id === value) ? value : first)
     }
   }, [room?.roster])
 
@@ -193,15 +194,25 @@ export function RoomPanel({
     }
   }
 
-  async function handleAsk(event: FormEvent) {
+  async function handleSuggest(event: FormEvent) {
     event.preventDefault()
     setError(null)
     try {
-      await askAgent(threadId, {
-        agent: askAgentName,
-        body: askBody || null,
+      await requestIdleSuggestion(threadId, {
+        agent: suggestAgent,
+        body: suggestBody || null,
       })
-      setAskBody('')
+      setSuggestBody('')
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleCancelSuggestion() {
+    setError(null)
+    try {
+      await cancelIdleSuggestion(threadId)
       onUpdate()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -302,7 +313,7 @@ export function RoomPanel({
 
   const canStart = canStartRoom(isThreadOpen, preflight, room)
   const canNudge = isThreadOpen && room?.status === 'idle'
-  const canAsk = isThreadOpen && room?.status === 'idle'
+  const canSuggest = isThreadOpen && room?.status === 'idle'
   const canStartAuto = isThreadOpen && room?.status === 'idle'
   const canPauseAuto = isThreadOpen && room?.auto?.status === 'running'
   const canExtendAuto =
@@ -539,8 +550,8 @@ export function RoomPanel({
             <button type="button" className="tab" data-on={controlTab === 'nudge' ? '1' : '0'} onClick={() => setControlTab('nudge')}>
               <Icon name="send" className="ic-sm" /> Nudge
             </button>
-            <button type="button" className="tab" data-on={controlTab === 'ask' ? '1' : '0'} onClick={() => setControlTab('ask')}>
-              <Icon name="spark" className="ic-sm" /> Ask
+            <button type="button" className="tab" data-on={controlTab === 'suggest' ? '1' : '0'} onClick={() => setControlTab('suggest')}>
+              <Icon name="spark" className="ic-sm" /> Suggest
             </button>
             <button type="button" className="tab" data-on={controlTab === 'auto' ? '1' : '0'} onClick={() => setControlTab('auto')}>
               <Icon name="play" className="ic-sm" /> Auto
@@ -563,16 +574,24 @@ export function RoomPanel({
             </form>
           ) : null}
 
-          {controlTab === 'ask' ? (
-            <form onSubmit={handleAsk} aria-label="ask-agent" className="rail-form">
-              <div className="rail-hint" style={{ padding: 0 }}>Pose a question; it becomes a top-level discussion point from you.</div>
+          {controlTab === 'suggest' ? (
+            <form onSubmit={handleSuggest} aria-label="request-suggestion" className="rail-form">
+              <div className="rail-hint" style={{ padding: 0 }}>Ask for proposed discussion points; they require your approval.</div>
+              {room?.idle_suggestion_request ? (
+                <div className="rail-row">
+                  <div className="rail-hint" style={{ padding: 0 }}>
+                    Waiting for {room.idle_suggestion_request.agent} to submit suggestions.
+                  </div>
+                  <button type="button" className="btn sm" onClick={handleCancelSuggestion}>Cancel</button>
+                </div>
+              ) : null}
               <div className="rail-row">
-                <select className="rail-input" aria-label="Ask agent" value={askAgentName} onChange={(e) => setAskAgentName(e.target.value as AgentName)} disabled={!canAsk}>
+                <select className="rail-input" aria-label="Suggestion agent" value={suggestAgent} onChange={(e) => setSuggestAgent(e.target.value as AgentName)} disabled={!canSuggest}>
                   {roster.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
                 </select>
-                <button type="submit" className="btn sm primary" disabled={!canAsk || !askBody.trim()}>Ask</button>
+                <button type="submit" className="btn sm primary" disabled={!canSuggest}>Suggest</button>
               </div>
-              <textarea className="rail-input rail-textarea" aria-label="Ask body" value={askBody} onChange={(e) => setAskBody(e.target.value)} placeholder="Instructions for the agent..." disabled={!canAsk} />
+              <textarea className="rail-input rail-textarea" aria-label="Suggestion instructions" value={suggestBody} onChange={(e) => setSuggestBody(e.target.value)} placeholder="Optional focus for the proposed topic..." disabled={!canSuggest} />
             </form>
           ) : null}
 
