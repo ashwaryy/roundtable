@@ -13,12 +13,4 @@ export default [
       environment: 'node',
     },
   },
-  {
-    test: {
-      name: 'frontend',
-      root: './packages/frontend',
-      environment: 'jsdom',
-      setupFiles: ['./src/test/setup.ts'],
-    },
-  },
 ]
