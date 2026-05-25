@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { AgentName, Agent, AgentRoom, RoomPreflight, ThreadStatus } from '@roundtable/shared'
 import {
   cancelIdleSuggestion,
+  exitAutoDiscussion,
   extendAutoDiscussion,
   nudgeRoom,
   requestIdleSuggestion,
@@ -13,6 +14,7 @@ import {
   skipTurn,
   startAutoDiscussion,
   startRoom,
+  stopAutoDiscussion,
   stopRoom,
   inviteThreadAgent,
   listAgents,
@@ -243,6 +245,26 @@ export function RoomPanel({
     }
   }
 
+  async function handleStopAuto() {
+    setError(null)
+    try {
+      await stopAutoDiscussion(threadId)
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleExitAuto() {
+    setError(null)
+    try {
+      await exitAutoDiscussion(threadId)
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function handleExtendAuto(event: FormEvent) {
     event.preventDefault()
     setError(null)
@@ -316,8 +338,14 @@ export function RoomPanel({
   const canSuggest = isThreadOpen && room?.status === 'idle'
   const canStartAuto = isThreadOpen && room?.status === 'idle'
   const canPauseAuto = isThreadOpen && room?.auto?.status === 'running'
+  const canStopAuto = isThreadOpen && room?.auto?.status === 'running'
+  const canExitAuto =
+    isThreadOpen &&
+    !!room?.auto &&
+    (room?.status === 'paused' || room?.status === 'turn_limit_reached')
   const canExtendAuto =
     isThreadOpen &&
+    !!room?.auto &&
     (room?.status === 'paused' || room?.status === 'turn_limit_reached')
   const canStop =
     isThreadOpen &&
@@ -326,6 +354,7 @@ export function RoomPanel({
     room.status !== 'stopped'
   const needsAttention = isThreadOpen && room?.status === 'needs_attention'
   const canRestart = isThreadOpen && room?.session_state === 'missing'
+  const canReloadRoom = isThreadOpen || canRestart
   const canResolveTurn =
     needsAttention &&
     !!room?.active_job_id &&
@@ -460,29 +489,31 @@ export function RoomPanel({
           </div>
         ) : null}
 
-        <form onSubmit={handleStart} aria-label="start-room" className="room-actions">
-          {canStop ? (
-            <button type="button" className="btn" onClick={handleStop}>
-              <Icon name="stop" className="ic-sm" /> Stop
+        {room?.auto?.status === 'running' ? null : (
+          <form onSubmit={handleStart} aria-label="start-room" className="room-actions">
+            {canStop ? (
+              <button type="button" className="btn" onClick={handleStop}>
+                <Icon name="stop" className="ic-sm" /> Stop
+              </button>
+            ) : (
+              <button type="submit" className="btn primary" disabled={!canStart || startingRoom}>
+                {startingRoom ? (
+                  <>
+                    <span className="button-spinner" aria-hidden="true" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <Icon name="play" className="ic-sm" /> Start Room
+                  </>
+                )}
+              </button>
+            )}
+            <button type="button" className="btn" onClick={handleRestart} disabled={!canReloadRoom} title="Restart room">
+              <Icon name="refresh" className="ic-sm" />
             </button>
-          ) : (
-            <button type="submit" className="btn primary" disabled={!canStart || startingRoom}>
-              {startingRoom ? (
-                <>
-                  <span className="button-spinner" aria-hidden="true" />
-                  Starting...
-                </>
-              ) : (
-                <>
-                  <Icon name="play" className="ic-sm" /> Start Room
-                </>
-              )}
-            </button>
-          )}
-          <button type="button" className="btn" onClick={handleRestart} disabled={!isThreadOpen && !canRestart} title="Restart room">
-            <Icon name="refresh" className="ic-sm" />
-          </button>
-        </form>
+          </form>
+        )}
 
         <div className="tmux-attach" data-placeholder={room?.attach_command ? '0' : '1'}>
           <button
@@ -607,9 +638,33 @@ export function RoomPanel({
                     <span style={{ fontWeight: 600 }}>Auto running</span>
                     <span className="mono" style={{ marginLeft: 'auto' }}>{room.auto.completed_turns}/{room.auto.total_turns}</span>
                   </div>
-                  <button type="button" className="btn" onClick={handlePauseAuto} disabled={!canPauseAuto}>
-                    <Icon name="pause" className="ic-sm" /> Pause auto
-                  </button>
+                  <div className="rail-row">
+                    <button type="button" className="btn" onClick={handlePauseAuto} disabled={!canPauseAuto}>
+                      <Icon name="pause" className="ic-sm" /> Pause auto
+                    </button>
+                    <button type="button" className="btn" onClick={handleStopAuto} disabled={!canStopAuto}>
+                      <Icon name="stop" className="ic-sm" /> Stop auto
+                    </button>
+                    <button type="button" className="btn" onClick={handleRestart} disabled={!canReloadRoom} title="Reload room">
+                      <Icon name="refresh" className="ic-sm" />
+                    </button>
+                  </div>
+                </>
+              ) : canExtendAuto || canExitAuto ? (
+                <>
+                  <div className="auto-status-card">
+                    <span style={{ fontWeight: 600 }}>
+                      {room?.status === 'paused' ? 'Auto paused' : 'Auto complete'}
+                    </span>
+                    <span className="mono" style={{ marginLeft: 'auto' }}>
+                      {room?.auto?.completed_turns}/{room?.auto?.total_turns}
+                    </span>
+                  </div>
+                  <form onSubmit={handleExtendAuto} aria-label="extend-auto-discussion" className="rail-row auto-exit-row">
+                    <input className="rail-input" style={{ width: 78 }} aria-label="Extend turns" type="number" min={1} max={20} value={extendTurns} onChange={(e) => setExtendTurns(Number(e.target.value))} disabled={!canExtendAuto} />
+                    <button type="submit" className="btn sm" disabled={!canExtendAuto}>Extend</button>
+                    <button type="button" className="btn sm" onClick={handleExitAuto} disabled={!canExitAuto}>Exit auto</button>
+                  </form>
                 </>
               ) : (
                 <form onSubmit={handleStartAuto} aria-label="start-auto-discussion" className="rail-form" style={{ padding: 0 }}>
@@ -627,11 +682,6 @@ export function RoomPanel({
                   </button>
                 </form>
               )}
-              <div className="rail-divider" />
-              <form onSubmit={handleExtendAuto} aria-label="extend-auto-discussion" className="rail-row">
-                <input className="rail-input" style={{ width: 78 }} aria-label="Extend turns" type="number" min={1} max={20} value={extendTurns} onChange={(e) => setExtendTurns(Number(e.target.value))} disabled={!canExtendAuto} />
-                <button type="submit" className="btn sm" disabled={!canExtendAuto}>Extend</button>
-              </form>
             </div>
           ) : null}
         </div>

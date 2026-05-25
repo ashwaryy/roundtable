@@ -1129,6 +1129,30 @@ export function createApp(deps: {
     }
   })
 
+  app.post('/api/threads/:id/room/auto/stop', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      const room = rooms.stopAutoDiscussion(req.params.id)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/auto/exit', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      const room = rooms.exitAutoDiscussion(req.params.id)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
   app.post('/api/threads/:id/room/auto/extend', (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
     const parsed = extendAutoDiscussionInputSchema.safeParse(req.body)

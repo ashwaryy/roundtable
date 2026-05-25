@@ -5162,6 +5162,9 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   gap: 8px;
   align-items: center;
 }
+.auto-exit-row {
+  grid-template-columns: 78px auto auto;
+}
 .rail-row select.rail-input {
   appearance: none;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'><path fill='%23847c70' d='M0 0h8L4 6z'/></svg>");

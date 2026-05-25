@@ -1317,6 +1317,95 @@ describe('createRoomManager', () => {
     })
   })
 
+  it('stops auto discussion after the active turn finishes and returns the room to idle', () => {
+    const { manager, token } = startReadyRoom()
+    manager.startAutoDiscussion('thread-1', {
+      turn_count: 2,
+      allow_direct_roots: false,
+    })
+
+    const stopping = manager.stopAutoDiscussion('thread-1')
+    expect(stopping.status).toBe('running')
+    expect(stopping.auto).toMatchObject({
+      status: 'running',
+      stop_requested: true,
+    })
+
+    const stopped = manager.submitPendingDiscussion(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: 'new root',
+      },
+      token,
+    )
+    expect(stopped.room.status).toBe('idle')
+    expect(stopped.room.active_job_id).toBeNull()
+    expect(stopped.room.auto).toBeNull()
+
+    const ask = manager.askAgent('thread-1', { agent: 'codex' })
+    expect(ask.room.status).toBe('running')
+    expect(ask.job.agent).toBe('codex')
+  })
+
+  it('exits auto discussion after turn limit and restores normal asks', () => {
+    const { manager, token } = startReadyRoom()
+    manager.startAutoDiscussion('thread-1', {
+      turn_count: 1,
+      allow_direct_roots: false,
+    })
+
+    const finished = manager.submitPendingDiscussion(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: 'new root',
+      },
+      token,
+    )
+    expect(finished.room.status).toBe('turn_limit_reached')
+    expect(finished.room.auto?.status).toBe('turn_limit_reached')
+
+    const exited = manager.exitAutoDiscussion('thread-1')
+    expect(exited.status).toBe('idle')
+    expect(exited.auto).toBeNull()
+
+    const ask = manager.askAgent('thread-1', { agent: 'claude' })
+    expect(ask.room.status).toBe('running')
+    expect(ask.job.agent).toBe('claude')
+  })
+
+  it('exits auto discussion from paused state and restores normal asks', () => {
+    const { manager, token } = startReadyRoom()
+    manager.startAutoDiscussion('thread-1', {
+      turn_count: 2,
+      allow_direct_roots: false,
+    })
+    manager.pauseAutoDiscussion('thread-1')
+
+    const paused = manager.submitPendingDiscussion(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: 'new root',
+      },
+      token,
+    )
+    expect(paused.room.status).toBe('paused')
+    expect(paused.room.auto?.status).toBe('paused')
+
+    const exited = manager.exitAutoDiscussion('thread-1')
+    expect(exited.status).toBe('idle')
+    expect(exited.auto).toBeNull()
+
+    const ask = manager.askAgent('thread-1', { agent: 'codex' })
+    expect(ask.room.status).toBe('running')
+    expect(ask.job.agent).toBe('codex')
+  })
+
   it('rejects helper submissions that do not match the active turn', () => {
     const manager = createRoomManager({
       dataDir,

@@ -140,6 +140,8 @@ export interface RoomManager {
     input: RequestProposalRevisionInput,
   ): ConsolidationTurnResult
   pauseAutoDiscussion(threadId: string): AgentRoom
+  stopAutoDiscussion(threadId: string): AgentRoom
+  exitAutoDiscussion(threadId: string): AgentRoom
   extendAutoDiscussion(
     threadId: string,
     input: ExtendAutoDiscussionInput,
@@ -1910,6 +1912,7 @@ export function createRoomManager(options: {
       next_agent: readRoom(dataDir, threadId).roster[0]?.agent_id ?? 'claude',
       allow_direct_roots: input.allow_direct_roots ?? false,
       pause_requested: false,
+      stop_requested: false,
       started_at: timestamp,
       updated_at: timestamp,
       ended_at: null,
@@ -1978,6 +1981,19 @@ export function createRoomManager(options: {
       updated_at: timestamp,
     }
 
+    if (auto.stop_requested) {
+      const updated: InternalRoom = {
+        ...room,
+        status: 'idle',
+        active_job_id: null,
+        updated_at: timestamp,
+        last_error: null,
+        auto: null,
+      }
+      writeRoom(dataDir, updated)
+      return updated
+    }
+
     if (auto.pause_requested) {
       const updated: InternalRoom = {
         ...room,
@@ -1989,6 +2005,7 @@ export function createRoomManager(options: {
           ...nextAuto,
           status: 'paused',
           pause_requested: false,
+          stop_requested: false,
         },
       }
       writeRoom(dataDir, updated)
@@ -2033,6 +2050,7 @@ export function createRoomManager(options: {
       ...nextAuto,
       status: 'running',
       pause_requested: false,
+      stop_requested: false,
     })
     broadcast({
       type: 'job_updated',
@@ -2712,9 +2730,66 @@ export function createRoomManager(options: {
         auto: {
           ...room.auto,
           pause_requested: room.active_job_id !== null,
+          stop_requested: false,
           status: room.active_job_id ? 'running' : 'paused',
           updated_at: timestamp,
         },
+      }
+      writeRoom(dataDir, updated)
+      return stripToken(updated)
+    },
+
+    stopAutoDiscussion(threadId: string): AgentRoom {
+      ensureOpenThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (!room.auto || room.auto.status !== 'running') {
+        throw new BadRequestError('auto discussion is not running')
+      }
+
+      const timestamp = now()
+      if (!room.active_job_id) {
+        const updated: InternalRoom = {
+          ...room,
+          status: 'idle',
+          updated_at: timestamp,
+          last_error: null,
+          auto: null,
+        }
+        writeRoom(dataDir, updated)
+        return stripToken(updated)
+      }
+
+      const updated: InternalRoom = {
+        ...room,
+        updated_at: timestamp,
+        auto: {
+          ...room.auto,
+          pause_requested: false,
+          stop_requested: true,
+          status: 'running',
+          updated_at: timestamp,
+        },
+      }
+      writeRoom(dataDir, updated)
+      return stripToken(updated)
+    },
+
+    exitAutoDiscussion(threadId: string): AgentRoom {
+      ensureOpenThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (!room.auto) {
+        throw new BadRequestError('auto discussion has not been started')
+      }
+      if (room.status !== 'paused' && room.status !== 'turn_limit_reached') {
+        throw new BadRequestError('auto discussion can only be exited after pause or turn limit')
+      }
+
+      const updated: InternalRoom = {
+        ...room,
+        status: 'idle',
+        updated_at: now(),
+        last_error: null,
+        auto: null,
       }
       writeRoom(dataDir, updated)
       return stripToken(updated)
@@ -2740,6 +2815,7 @@ export function createRoomManager(options: {
         total_turns: room.auto.completed_turns + input.turn_count,
         remaining_turns: input.turn_count,
         pause_requested: false,
+        stop_requested: false,
         updated_at: timestamp,
         ended_at: null,
       }

@@ -704,6 +704,8 @@ describe('room routes', () => {
         },
       })),
       pauseAutoDiscussion: vi.fn(() => testRoom('paused')),
+      stopAutoDiscussion: vi.fn(() => testRoom('idle')),
+      exitAutoDiscussion: vi.fn(() => testRoom('idle')),
       extendAutoDiscussion: vi.fn(() => ({
         room: testRoom('running'),
         job: testJob(),

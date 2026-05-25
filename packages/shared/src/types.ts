@@ -378,6 +378,7 @@ export interface AutoDiscussionState {
   next_agent: AgentId
   allow_direct_roots: boolean
   pause_requested: boolean
+  stop_requested: boolean
   started_at: string
   updated_at: string
   ended_at: string | null

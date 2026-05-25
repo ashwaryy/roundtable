@@ -463,6 +463,18 @@ export function pauseAutoDiscussion(threadId: string): Promise<AgentRoom> {
   }).then((r) => json<AgentRoom>(r))
 }
 
+export function stopAutoDiscussion(threadId: string): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room/auto/stop`, {
+    method: 'POST',
+  }).then((r) => json<AgentRoom>(r))
+}
+
+export function exitAutoDiscussion(threadId: string): Promise<AgentRoom> {
+  return fetch(`/api/threads/${threadId}/room/auto/exit`, {
+    method: 'POST',
+  }).then((r) => json<AgentRoom>(r))
+}
+
 export function extendAutoDiscussion(
   threadId: string,
   input: ExtendAutoDiscussionInput,
