@@ -437,7 +437,7 @@ describe('createRoomManager', () => {
 
     expect(executor.commands).toContainEqual({
       file: 'tmux',
-      args: ['send-keys', '-t', 'roundtable-thread-1:0.1', '2', 'C-m'],
+      args: ['send-keys', '-t', 'roundtable-thread-1:0.1', 'Down', 'C-m'],
     })
   })
 
