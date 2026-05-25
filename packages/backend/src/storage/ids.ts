@@ -24,10 +24,17 @@ export function nextCommentId(comments: Comment[]): string {
   return `c${String(max + 1).padStart(3, '0')}`
 }
 
-export function nextPendingDiscussionId(discussions: PendingDiscussion[]): string {
+export function nextPendingDiscussionId(
+  discussions: PendingDiscussion[],
+  comments: Comment[] = [],
+): string {
   let max = 0
   for (const discussion of discussions) {
     const match = /^pd(\d+)$/.exec(discussion.id)
+    if (match) max = Math.max(max, Number(match[1]))
+  }
+  for (const comment of comments) {
+    const match = /^pd(\d+)$/.exec(comment.approved_from_pending_id ?? '')
     if (match) max = Math.max(max, Number(match[1]))
   }
   return `pd${String(max + 1).padStart(3, '0')}`

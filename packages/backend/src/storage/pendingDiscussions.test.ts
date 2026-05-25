@@ -5,7 +5,7 @@ import path from 'node:path'
 import { createThread } from './threads'
 import { listComments } from './comments'
 import { appendJsonl } from './jsonl'
-import { commentsPath } from './paths'
+import { commentsPath, pendingDiscussionsPath } from './paths'
 import {
   listPendingDiscussions,
   addPendingDiscussion,
@@ -68,6 +68,21 @@ describe('addPendingDiscussion', () => {
     })
     expect(a.id).toBe('pd001')
     expect(b.id).toBe('pd002')
+  })
+
+  it('does not reuse an id after its pending discussion is approved', () => {
+    const approved = addPendingDiscussion(dataDir, 'thread-1', {
+      author: 'claude',
+      body: 'approved',
+    })
+    approvePendingDiscussion(dataDir, 'thread-1', approved.id)
+
+    const next = addPendingDiscussion(dataDir, 'thread-1', {
+      author: 'codex',
+      body: 'new pending item',
+    })
+
+    expect(next.id).toBe('pd002')
   })
 
   it('throws NotFoundError for a missing thread', () => {
@@ -133,6 +148,34 @@ describe('approvePendingDiscussion', () => {
 
     expect(result.id).toBe('c001')
     expect(listComments(dataDir, 'thread-1')).toHaveLength(1)
+    expect(listPendingDiscussions(dataDir, 'thread-1')).toHaveLength(0)
+  })
+
+  it('remaps and approves a legacy pending item that reused an approved id', () => {
+    const first = addPendingDiscussion(dataDir, 'thread-1', {
+      author: 'claude',
+      body: 'J1',
+    })
+    approvePendingDiscussion(dataDir, 'thread-1', first.id)
+    appendJsonl(pendingDiscussionsPath(dataDir, 'thread-1'), {
+      id: 'pd001',
+      thread_id: 'thread-1',
+      author: 'claude',
+      type: 'question',
+      body: 'J3',
+      origin_discussion_id: 'c001',
+      origin_comment_id: null,
+      created_at: '2026-05-25T00:00:00Z',
+    })
+
+    const result = approvePendingDiscussion(dataDir, 'thread-1', 'pd001')
+
+    expect(result.body).toBe('J3')
+    expect(result.approved_from_pending_id).toBe('pd002')
+    expect(listComments(dataDir, 'thread-1').map((comment) => comment.body)).toEqual([
+      'J1',
+      'J3',
+    ])
     expect(listPendingDiscussions(dataDir, 'thread-1')).toHaveLength(0)
   })
 

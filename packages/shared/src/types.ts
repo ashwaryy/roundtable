@@ -452,6 +452,7 @@ export interface HelperPendingDiscussionInput {
   type?: CommentType
   origin_discussion_id?: string | null
   origin_comment_id?: string | null
+  continue_turn?: boolean
 }
 
 export interface HelperProposalInput {

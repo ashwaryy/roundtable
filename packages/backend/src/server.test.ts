@@ -836,6 +836,7 @@ describe('room routes', () => {
         agent: 'claude',
         body: 'pending root',
         type: 'critique',
+        continue_turn: true,
       })
 
     expect(res.status).toBe(201)
@@ -846,6 +847,7 @@ describe('room routes', () => {
         agent: 'claude',
         body: 'pending root',
         type: 'critique',
+        continue_turn: true,
       },
       'room-token',
     )

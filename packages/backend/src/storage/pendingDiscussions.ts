@@ -35,7 +35,7 @@ export function addPendingDiscussion(
   }
 
   const existing = listPendingDiscussions(dataDir, threadId)
-  const id = nextPendingDiscussionId(existing)
+  const id = nextPendingDiscussionId(existing, listComments(dataDir, threadId))
 
   const discussion: PendingDiscussion = {
     id,
@@ -57,8 +57,8 @@ export function approvePendingDiscussion(
   threadId: string,
   pendingId: string,
 ): Comment {
-  const discussions = listPendingDiscussions(dataDir, threadId)
-  const item = discussions.find((discussion) => discussion.id === pendingId)
+  let discussions = listPendingDiscussions(dataDir, threadId)
+  let item = discussions.find((discussion) => discussion.id === pendingId)
   if (!item) throw new NotFoundError(`pending discussion ${pendingId} not found`)
 
   const existing = listComments(dataDir, threadId)
@@ -67,12 +67,22 @@ export function approvePendingDiscussion(
       comment.parent_id === null && comment.approved_from_pending_id === pendingId,
   )
 
-  if (alreadyApproved) {
+  if (alreadyApproved && isApprovedCopy(alreadyApproved, item)) {
     atomicRewriteJsonl(
       pendingDiscussionsPath(dataDir, threadId),
       discussions.filter((discussion) => discussion.id !== pendingId),
     )
     return alreadyApproved
+  }
+
+  if (alreadyApproved) {
+    const reassignedId = nextPendingDiscussionId(discussions, existing)
+    const reassignedItem: PendingDiscussion = { ...item, id: reassignedId }
+    item = reassignedItem
+    discussions = discussions.map((discussion) =>
+      discussion.id === pendingId ? reassignedItem : discussion,
+    )
+    atomicRewriteJsonl(pendingDiscussionsPath(dataDir, threadId), discussions)
   }
 
   const id = nextCommentId(existing)
@@ -86,17 +96,27 @@ export function approvePendingDiscussion(
     body: item.body,
     origin_discussion_id: item.origin_discussion_id,
     origin_comment_id: item.origin_comment_id,
-    approved_from_pending_id: pendingId,
+    approved_from_pending_id: item.id,
     created_at: new Date().toISOString(),
   }
 
   appendJsonl(commentsPath(dataDir, threadId), comment)
   atomicRewriteJsonl(
     pendingDiscussionsPath(dataDir, threadId),
-    discussions.filter((discussion) => discussion.id !== pendingId),
+    discussions.filter((discussion) => discussion.id !== item.id),
   )
 
   return comment
+}
+
+function isApprovedCopy(comment: Comment, pending: PendingDiscussion): boolean {
+  return (
+    comment.author === pending.author &&
+    comment.type === pending.type &&
+    comment.body === pending.body &&
+    comment.origin_discussion_id === pending.origin_discussion_id &&
+    comment.origin_comment_id === pending.origin_comment_id
+  )
 }
 
 export function editPendingDiscussion(

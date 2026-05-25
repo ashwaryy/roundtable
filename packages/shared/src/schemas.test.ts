@@ -244,9 +244,11 @@ describe('helperPendingDiscussionInputSchema', () => {
       body: 'new root',
       type: 'question',
       origin_discussion_id: 'c001',
+      continue_turn: true,
     })
     expect(parsed.agent).toBe('codex')
     expect(parsed.origin_discussion_id).toBe('c001')
+    expect(parsed.continue_turn).toBe(true)
   })
 
   it('rejects empty pending discussion bodies', () => {

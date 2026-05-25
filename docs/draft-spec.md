@@ -105,6 +105,8 @@ Read thread.md and the approved discussion.
 Use Roundtable helper commands to submit comments and proposals.
 Do not edit canonical Roundtable files directly.
 Do not edit project files.
+Assume the user may not be attached to or watching the tmux pane.
+Use only pre-approved room actions and helper commands; do not block routine work on interactive approval prompts.
 Wait for nudges.
 Consolidation only happens when the user asks.
 ```
@@ -151,6 +153,7 @@ Top-level comments create discussion points. Replies are one level deep. If a us
 Thread-level **Ask Claude** or **Ask Codex** allows the selected agent to create a new top-level discussion point directly.
 
 Discussion-level **Ask Claude** or **Ask Codex** asks the selected agent to reply in that discussion. If the agent thinks the idea should split into a separate discussion, it submits a pending discussion point for human approval instead of creating it directly.
+An agent may queue more than one pending split during the same active turn, then end that turn with a final reply or a final pending split.
 
 ### Let Them Discuss
 
@@ -163,6 +166,7 @@ Claude -> Codex -> Claude -> Codex ...
 Only one agent turn runs at a time per room. Different thread rooms may run independently.
 
 During auto mode, agents see the whole current thread and approved discussions. They may choose which existing discussion to reply to. By default, agents cannot create new top-level discussion points directly during auto mode; they submit pending discussion points to a queue. When starting auto mode, the user may enable a per-run bypass that allows agents to create new top-level discussion points directly.
+Pending discussion submissions may be non-terminal, allowing one bounded auto turn to queue multiple candidate roots before its final submission completes the turn.
 
 The goal of auto mode is to improve the main thread. Consensus is useful but secondary. Agents may suggest that the thread is ready for consolidation, but only the user can trigger consolidation.
 
@@ -456,6 +460,7 @@ cwd = ~/.roundtable/threads/thread-123/
 ```
 
 The backend owns canonical state. The browser UI and agent helpers both call backend APIs. Agents do not edit canonical files directly.
+Agents run in tmux panes that may not be visible to the user. Prompts instruct them to remain within existing room permissions and avoid interactive approval prompts for routine work, because an unattended prompt stalls the turn.
 
 ### Helper Commands
 
@@ -465,10 +470,13 @@ Agents submit state through helper commands:
 roundtable ready --agent claude
 roundtable ready --agent codex
 roundtable comment --body-file .roundtable/tmp/job-001-claude-comment.md --type critique
+roundtable pending-discussion --body-file .roundtable/tmp/job-001-claude-pending-discussion.md --type critique --continue-turn
 roundtable proposal --body-file .roundtable/tmp/proposal.md
 ```
 
 Long Markdown bodies are passed by file to avoid shell quoting problems.
+For `pending-discussion`, `--continue-turn` persists the pending root but leaves the active agent turn open; a subsequent terminal helper submission completes that turn.
+When one turn queues multiple pending discussions, each body may be written to its own `.roundtable/tmp/` draft and submitted directly as `--body-file`; agents should not copy drafts into a shared submission path.
 
 `roundtable ready` is the canonical startup acknowledgment. The agent may also print `READY` in the terminal for debugging, but terminal output is not used as the source of truth for readiness.
 
@@ -489,7 +497,7 @@ whether new roots must go to pending queue
 turn kind: comment, proposal draft, review, revision
 ```
 
-When a helper command succeeds, the backend marks the turn complete. There are no `.agent_status/*.done` files in the core design.
+When a terminal helper command succeeds, the backend marks the turn complete. A `pending-discussion --continue-turn` submission persists a queued split without completing the turn. There are no `.agent_status/*.done` files in the core design.
 
 ### Orchestrator Responsibilities
 

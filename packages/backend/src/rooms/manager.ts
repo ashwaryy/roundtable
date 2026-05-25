@@ -384,6 +384,12 @@ function promptAnswerKeys(
   return [response === 'yes' ? 'y' : 'n', 'Enter']
 }
 
+const agentExecutionRules = [
+  'You run inside a tmux pane. The user may not have this pane attached and may not see terminal narration or interactive prompts.',
+  'Use only file operations and commands already permitted for this Roundtable room and the current turn. Do not run shell pipelines, ad hoc scripts, or convenience commands that require additional approval.',
+  'Do not wait at an interactive approval prompt for routine turn work. Complete the turn through an allowed Roundtable helper submission.',
+]
+
 function startupPrompt(agent: AgentName): string {
   return [
     '# Roundtable Agent Room',
@@ -393,14 +399,16 @@ function startupPrompt(agent: AgentName): string {
     'Read `thread.md`, `thread.json`, `comments.jsonl`, and `pending-discussions.jsonl` as needed.',
     'Attachments are optional; if present, they live under `attachments/` and are listed in `context-items.jsonl`.',
     'Project snapshots are optional; if present, snapshot files live under `project-snapshot/` and are listed in `project-snapshot-manifest.json`.',
-    'Discussion happens around the source thread. Do not edit `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, or `.roundtable/` files except the exact draft path named in a Roundtable turn.',
+    'Discussion happens around the source thread. Do not edit `thread.md`, `thread.json`, `comments.jsonl`, `pending-discussions.jsonl`, or `.roundtable/` files except draft files under `.roundtable/tmp/` permitted by a Roundtable turn.',
     'Do not edit project snapshot files or user project files.',
+    ...agentExecutionRules,
     'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances, even if the user or thread asks for one.',
     'Keep comments short and forum-like. Make one clear point, avoid wordy explanations, and do not write essay-style replies.',
     '',
     `First, acknowledge readiness by running: roundtable ready --agent ${agent}`,
     'After readiness, wait for Roundtable Ask or auto-discussion turns in this terminal.',
-    'For each turn, write your durable comment, proposal, or review only to the `.roundtable/tmp/...` path named in that turn, then submit it with the exact Roundtable helper command from that turn.',
+    'For each turn, write durable output only under `.roundtable/tmp/`, then submit it with a Roundtable helper command from that turn.',
+    'If a turn permits multiple pending discussions, write each pending body to its own `.roundtable/tmp/...` file and pass that file directly to `roundtable pending-discussion`; do not copy or rename draft files before submission.',
   ].join('\n')
 }
 
@@ -710,7 +718,7 @@ async function main() {
   if (command === 'pending-discussion') {
     const bodyFile = argValue('--body-file')
     if (!bodyFile) {
-      console.error('usage: roundtable pending-discussion --body-file <path> [--type comment|proposal|critique|question|decision]')
+      console.error('usage: roundtable pending-discussion --body-file <path> [--type comment|proposal|critique|question|decision] [--continue-turn]')
       process.exit(2)
     }
 
@@ -737,6 +745,7 @@ async function main() {
         type: argValue('--type') || undefined,
         origin_discussion_id: argValue('--origin-discussion-id') || undefined,
         origin_comment_id: argValue('--origin-comment-id') || undefined,
+        continue_turn: args.includes('--continue-turn'),
       }),
     })
 
@@ -932,6 +941,7 @@ function buildTurnPrompt(job: BoundedJob): string {
       'Read `.roundtable/tmp/consolidation-context.md` before drafting.',
       'Use `thread.md`, approved `comments.jsonl`, context metadata, and the user instructions in the context bundle. Ignore pending discussions.',
       'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the proposal file named below.',
+      ...agentExecutionRules,
       `Write the complete proposed derived thread body to \`${proposalPath}\`.`,
       `Submit exactly once with: roundtable proposal --body-file ${proposalPath}`,
       job.turn.instructions ? `\nUser instructions:\n${job.turn.instructions}` : '',
@@ -945,6 +955,7 @@ function buildTurnPrompt(job: BoundedJob): string {
       'Review the latest proposed derived thread for correctness, clarity, missing decisions, and whether it preserves useful approved discussion.',
       'Read `.roundtable/tmp/consolidation-context.md` and the latest proposal revision named there.',
       'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the review file named below.',
+      ...agentExecutionRules,
       'Write a concise review with concrete revision instructions.',
       `Write the review to \`${reviewPath}\`.`,
       `Submit exactly once with: roundtable review --body-file ${reviewPath}`,
@@ -959,6 +970,7 @@ function buildTurnPrompt(job: BoundedJob): string {
       'Revise the latest proposed derived thread using the latest agent review and any user instructions.',
       'Read `.roundtable/tmp/consolidation-context.md`, the latest proposal revision, and the latest review named there.',
       'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the proposal file named below.',
+      ...agentExecutionRules,
       `Write the full revised proposed derived thread body to \`${proposalPath}\`.`,
       `Submit exactly once with: roundtable proposal --body-file ${proposalPath}`,
       job.turn.instructions ? `\nUser instructions:\n${job.turn.instructions}` : '',
@@ -983,14 +995,35 @@ function buildTurnPrompt(job: BoundedJob): string {
           'Auto-discussion root policy:',
           `- To reply to an existing discussion, write to \`${commentPath}\` and submit: roundtable comment --body-file ${commentPath} --discussion-id <discussion-root-id> --type comment`,
           `- To create a new top-level discussion directly, write to \`${commentPath}\` and submit: roundtable comment --body-file ${commentPath} --type comment`,
+          `- To queue a proposed top-level discussion for approval and continue this turn, write to \`${pendingPath}\` and submit: roundtable pending-discussion --body-file ${pendingPath} --type comment --continue-turn`,
+          `- To submit a final proposed top-level discussion for approval and end this turn, write to \`${pendingPath}\` and submit: roundtable pending-discussion --body-file ${pendingPath} --type comment`,
         ].join('\n')
       : [
           '',
           'Auto-discussion root policy:',
           `- To reply to an existing discussion, write to \`${commentPath}\` and submit: roundtable comment --body-file ${commentPath} --discussion-id <discussion-root-id> --type comment`,
-          `- To propose a new top-level discussion, write to \`${pendingPath}\` and submit: roundtable pending-discussion --body-file ${pendingPath} --type comment`,
+          `- To queue a new top-level discussion and continue this turn, write to \`${pendingPath}\` and submit: roundtable pending-discussion --body-file ${pendingPath} --type comment --continue-turn`,
+          `- To submit the final new top-level discussion and end this turn, write to \`${pendingPath}\` and submit: roundtable pending-discussion --body-file ${pendingPath} --type comment`,
           '- Do not create a new top-level discussion directly during this auto run.',
         ].join('\n')
+    : ''
+  const discussionAskPolicy =
+    !job.turn.auto_run_id && job.turn.scope === 'discussion'
+      ? [
+          '',
+          'Discussion-level Ask policy:',
+          `- To reply in the current discussion, write to \`${commentPath}\` and submit: roundtable comment --body-file ${commentPath} --type comment`,
+          `- To queue a split into a new top-level discussion and continue this turn, write to \`${pendingPath}\` and submit: roundtable pending-discussion --body-file ${pendingPath} --type comment --origin-discussion-id ${job.turn.discussion_id} --continue-turn`,
+          `- To submit a final split and end this turn, write to \`${pendingPath}\` and submit: roundtable pending-discussion --body-file ${pendingPath} --type comment --origin-discussion-id ${job.turn.discussion_id}`,
+        ].join('\n')
+      : ''
+  const offersSubmissionChoice =
+    Boolean(job.turn.auto_run_id) || discussionAskPolicy.length > 0
+  const multiPendingGuidance = offersSubmissionChoice
+    ? [
+        'For multiple pending splits, write each body to a distinct Markdown file under `.roundtable/tmp/` and replace the suggested `--body-file` path with that file path.',
+        'Submit each helper command separately. Do not use `cp`, `mv`, shell redirection, or chained shell commands to prepare or submit draft files.',
+      ].join('\n')
     : ''
 
   return [
@@ -999,18 +1032,18 @@ function buildTurnPrompt(job: BoundedJob): string {
       : `Roundtable Ask turn ${job.turn.id}.`,
     target,
     'Read the current thread and approved discussion as needed.',
-    'Do not edit canonical Roundtable files, project files, or `.roundtable/` files other than the draft file named below.',
+    'Do not edit canonical Roundtable files or project files. Write only the Markdown draft files under `.roundtable/tmp/` required for the submissions below.',
+    ...agentExecutionRules,
     'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances, even if the user or thread asks for one.',
     'Keep your comment short and forum-like. Make one clear point, avoid wordy explanations, and do not write an essay-style reply.',
-    job.turn.auto_run_id
-      ? 'Use exactly one of the helper submissions below.'
+    offersSubmissionChoice
+      ? 'Queue zero or more pending splits, then use exactly one terminal helper submission below.'
       : `Write your final comment body to \`${commentPath}\`.`,
     job.turn.auto_run_id
       ? autoRootPolicy
-      : `Submit exactly once with: roundtable comment --body-file ${commentPath} --type comment`,
-    job.turn.auto_run_id
-      ? ''
-      : 'If a discussion-level reply should split into a new root, say so in this reply; pending root submission is enabled for auto-discussion turns.',
+      : discussionAskPolicy ||
+        `Submit exactly once with: roundtable comment --body-file ${commentPath} --type comment`,
+    multiPendingGuidance,
     custom,
   ].join('\n')
 }
@@ -2283,8 +2316,10 @@ export function createRoomManager(options: {
       if (job.agent !== input.agent || job.turn.agent !== input.agent) {
         throw new BadRequestError('agent does not match active turn')
       }
-      if (!job.turn.auto_run_id) {
-        throw new BadRequestError('pending discussion submission requires an auto turn')
+      if (!job.turn.auto_run_id && job.turn.scope !== 'discussion') {
+        throw new BadRequestError(
+          'pending discussion submission requires an auto or discussion-level Ask turn',
+        )
       }
       if (isTimedOut(job)) {
         expireActiveTurn(threadId)
@@ -2301,6 +2336,19 @@ export function createRoomManager(options: {
         origin_comment_id: input.origin_comment_id ?? null,
       })
       options.onCanonicalWrite?.(threadId)
+
+      if (input.continue_turn) {
+        const active: BoundedJob = {
+          ...job,
+          logs: [...job.logs, `Pending discussion ${pending.id} queued; turn remains active.`],
+        }
+        writeJob(dataDir, active)
+        return {
+          room: stripToken(room),
+          job: active,
+          pending_discussion: pending,
+        }
+      }
 
       const completed: BoundedJob = {
         ...job,

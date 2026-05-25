@@ -84,4 +84,12 @@ describe('nextPendingDiscussionId', () => {
       'pd003',
     )
   })
+
+  it('does not reuse ids referenced by approved comments', () => {
+    expect(
+      nextPendingDiscussionId([], [
+        comment('c001', { approved_from_pending_id: 'pd004' }),
+      ]),
+    ).toBe('pd005')
+  })
 })

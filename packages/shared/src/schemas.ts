@@ -127,6 +127,7 @@ export const helperPendingDiscussionInputSchema = z.object({
   type: commentTypeSchema.optional(),
   origin_discussion_id: z.string().min(1).nullish(),
   origin_comment_id: z.string().min(1).nullish(),
+  continue_turn: z.boolean().optional(),
 })
 
 export const startConsolidationInputSchema = z.object({

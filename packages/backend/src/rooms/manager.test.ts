@@ -13,7 +13,7 @@ import {
 } from '../storage/paths'
 import { ConflictError } from '../storage/errors'
 import { getJob } from '../storage/jobs'
-import { listComments } from '../storage/comments'
+import { addComment, listComments } from '../storage/comments'
 import { listPendingDiscussions } from '../storage/pendingDiscussions'
 import { createRoomManager, type CommandExecutor } from './manager'
 
@@ -165,7 +165,7 @@ describe('createRoomManager', () => {
       'utf8',
     )
     expect(codexStartup).toContain(
-      'except the exact draft path named in a Roundtable turn',
+      'except draft files under `.roundtable/tmp/` permitted by a Roundtable turn',
     )
     expect(codexStartup).toContain(
       'Attachments are optional; if present, they live under `attachments/`',
@@ -180,7 +180,20 @@ describe('createRoomManager', () => {
     expect(codexStartup).toContain(
       'Keep comments short and forum-like. Make one clear point',
     )
-    expect(codexStartup).not.toContain('files under `.roundtable/`.')
+    expect(codexStartup).toContain('write durable output only under `.roundtable/tmp/`')
+    expect(codexStartup).toContain(
+      'write each pending body to its own `.roundtable/tmp/...` file',
+    )
+    expect(codexStartup).toContain(
+      'The user may not have this pane attached and may not see terminal narration or interactive prompts.',
+    )
+    expect(codexStartup).toContain(
+      'Use only file operations and commands already permitted for this Roundtable room and the current turn.',
+    )
+    expect(codexStartup).toContain(
+      'Do not wait at an interactive approval prompt for routine turn work.',
+    )
+    expect(codexStartup).not.toContain('exact draft path named')
 
     const codexConfig = fs.readFileSync(
       codexProjectConfigPath(dataDir, 'thread-1'),
@@ -288,6 +301,9 @@ describe('createRoomManager', () => {
     expect(
       fs.readFileSync(roundtableHelperPath(dataDir, 'thread-1'), 'utf8'),
     ).toContain('roundtable comment --body-file')
+    expect(
+      fs.readFileSync(roundtableHelperPath(dataDir, 'thread-1'), 'utf8'),
+    ).toContain("continue_turn: args.includes('--continue-turn')")
     expect(executor.sessions.has('roundtable-thread-1')).toBe(true)
     expect(executor.commands).toContainEqual({
       file: 'tmux',
@@ -583,6 +599,12 @@ describe('createRoomManager', () => {
       'Write your final comment body to `.roundtable/tmp/job-001-codex-comment.md`.',
     )
     expect(turnPrompt).toContain(
+      'The user may not have this pane attached and may not see terminal narration or interactive prompts.',
+    )
+    expect(turnPrompt).toContain(
+      'Use only file operations and commands already permitted for this Roundtable room and the current turn.',
+    )
+    expect(turnPrompt).toContain(
       'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances',
     )
     expect(turnPrompt).toContain('Keep your comment short and forum-like')
@@ -657,6 +679,107 @@ describe('createRoomManager', () => {
     expect(fs.existsSync(currentTurnPath(dataDir, 'thread-1'))).toBe(false)
   })
 
+  it('allows a discussion-level ask to queue multiple pending splits before its final reply', () => {
+    const { manager, token } = startReadyRoom()
+    const root = addComment(dataDir, 'thread-1', { body: 'Original discussion' })
+
+    manager.askAgent('thread-1', {
+      agent: 'codex',
+      discussion_id: root.id,
+    })
+
+    const turnPromptPath = path.join(
+      dataDir,
+      'threads',
+      'thread-1',
+      '.roundtable',
+      'tmp',
+      'job-001-codex-turn.md',
+    )
+    const turnPrompt = fs.readFileSync(turnPromptPath, 'utf8')
+    expect(turnPrompt).toContain('Discussion-level Ask policy:')
+    expect(turnPrompt).toContain(
+      'Write only the Markdown draft files under `.roundtable/tmp/` required for the submissions below.',
+    )
+    expect(turnPrompt).toContain(
+      'Queue zero or more pending splits, then use exactly one terminal helper submission below.',
+    )
+    expect(turnPrompt).toContain(
+      'roundtable pending-discussion --body-file .roundtable/tmp/job-001-codex-pending-discussion.md --type comment --origin-discussion-id c001 --continue-turn',
+    )
+    expect(turnPrompt).toContain(
+      'write each body to a distinct Markdown file under `.roundtable/tmp/`',
+    )
+    expect(turnPrompt).toContain(
+      'Do not use `cp`, `mv`, shell redirection, or chained shell commands',
+    )
+
+    const firstPending = manager.submitPendingDiscussion(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'codex',
+        body: 'First separate discussion.',
+        type: 'question',
+        continue_turn: true,
+      },
+      token,
+    )
+
+    expect(firstPending.room.status).toBe('running')
+    expect(firstPending.room.active_job_id).toBe('job-001')
+    expect(firstPending.job.status).toBe('running')
+    expect(firstPending.job.result).toBeNull()
+    expect(firstPending.pending_discussion).toMatchObject({
+      body: 'First separate discussion.',
+      type: 'question',
+      origin_discussion_id: root.id,
+    })
+    expect(fs.existsSync(currentTurnPath(dataDir, 'thread-1'))).toBe(true)
+
+    manager.submitPendingDiscussion(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'codex',
+        body: 'Second separate discussion.',
+        continue_turn: true,
+      },
+      token,
+    )
+    const result = manager.submitComment(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'codex',
+        body: 'I separated two follow-up questions for review.',
+      },
+      token,
+    )
+
+    expect(result.room.status).toBe('idle')
+    expect(result.comment.parent_id).toBe(root.id)
+    expect(listPendingDiscussions(dataDir, 'thread-1')).toHaveLength(2)
+    expect(fs.existsSync(currentTurnPath(dataDir, 'thread-1'))).toBe(false)
+  })
+
+  it('does not allow a thread-level ask to submit a pending discussion', () => {
+    const { manager, token } = startReadyRoom()
+    manager.askAgent('thread-1', { agent: 'codex' })
+
+    expect(() =>
+      manager.submitPendingDiscussion(
+        'thread-1',
+        {
+          turn_id: 'job-001',
+          agent: 'codex',
+          body: 'Unexpected pending root.',
+        },
+        token,
+      ),
+    ).toThrow('pending discussion submission requires an auto or discussion-level Ask turn')
+  })
+
   it('starts auto discussion with Claude and writes pending-only turn context', () => {
     const { manager } = startReadyRoom()
 
@@ -683,11 +806,32 @@ describe('createRoomManager', () => {
     })
   })
 
-  it('queues an auto pending discussion and schedules the next agent', () => {
+  it('queues multiple auto pending discussions in one turn and schedules the next agent on the terminal submission', () => {
     const { manager, token } = startReadyRoom()
     manager.startAutoDiscussion('thread-1', {
       turn_count: 2,
       allow_direct_roots: false,
+    })
+
+    const queued = manager.submitPendingDiscussion(
+      'thread-1',
+      {
+        turn_id: 'job-001',
+        agent: 'claude',
+        body: 'This needs the first new root.',
+        type: 'critique',
+        continue_turn: true,
+      },
+      token,
+    )
+
+    expect(queued.pending_discussion.id).toBe('pd001')
+    expect(queued.job.status).toBe('running')
+    expect(queued.room.active_job_id).toBe('job-001')
+    expect(queued.room.auto).toMatchObject({
+      completed_turns: 0,
+      remaining_turns: 2,
+      next_agent: 'claude',
     })
 
     const result = manager.submitPendingDiscussion(
@@ -695,14 +839,14 @@ describe('createRoomManager', () => {
       {
         turn_id: 'job-001',
         agent: 'claude',
-        body: 'This needs a new root.',
+        body: 'This needs the final new root.',
         type: 'critique',
       },
       token,
     )
 
-    expect(result.pending_discussion.id).toBe('pd001')
-    expect(result.job.result).toEqual({ pending_discussion_id: 'pd001' })
+    expect(result.pending_discussion.id).toBe('pd002')
+    expect(result.job.result).toEqual({ pending_discussion_id: 'pd002' })
     expect(result.room.status).toBe('running')
     expect(result.room.active_job_id).toBe('job-002')
     expect(result.room.auto).toMatchObject({
@@ -711,7 +855,7 @@ describe('createRoomManager', () => {
       next_agent: 'codex',
     })
     expect(getJob(dataDir, 'thread-1', 'job-002')?.agent).toBe('codex')
-    expect(listPendingDiscussions(dataDir, 'thread-1')).toHaveLength(1)
+    expect(listPendingDiscussions(dataDir, 'thread-1')).toHaveLength(2)
   })
 
   it('blocks direct roots during auto mode unless bypass is enabled', () => {
