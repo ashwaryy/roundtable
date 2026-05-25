@@ -3334,7 +3334,29 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   font-size: 17px;
   line-height: 1.62;
   color: var(--ink-soft);
-  white-space: pre-wrap;
+}
+.source-body p {
+  margin: 0 0 0.85em;
+}
+.source-body ul,
+.source-body ol {
+  margin: 0 0 0.95em;
+  padding-left: 1.25em;
+}
+.source-body li {
+  margin: 0.2em 0;
+}
+.source-body h1,
+.source-body h2,
+.source-body h3 {
+  margin: 1.2em 0 0.45em;
+  color: var(--ink);
+}
+.source-body :first-child {
+  margin-top: 0;
+}
+.source-body :last-child {
+  margin-bottom: 0;
 }
 .source-body code {
   font-family: 'JetBrains Mono', monospace;
