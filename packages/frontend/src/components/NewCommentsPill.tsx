@@ -1,23 +1,23 @@
 export function NewCommentsPill({
   count,
-  firstNewId,
+  latestNewId,
   onDismiss,
 }: {
   count: number
-  firstNewId: string | null
+  latestNewId: string | null
   onDismiss: () => void
 }) {
   if (count === 0) return null
 
   function handleClick() {
-    if (firstNewId) {
-      const el = document.getElementById(firstNewId)
+    if (latestNewId) {
+      const el = document.getElementById(latestNewId)
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        // Move focus to the first new comment element
+        // Move focus to the jumped-to comment for keyboard users.
         if (el.tabIndex < 0) el.tabIndex = -1
         el.focus({ preventScroll: true })
-        // Apply highlight animation
+        // Apply highlight animation so the landing point is obvious.
         el.classList.add('comment-bubble--new')
         el.addEventListener('animationend', () => el.classList.remove('comment-bubble--new'), { once: true })
       }
@@ -25,7 +25,7 @@ export function NewCommentsPill({
     onDismiss()
   }
 
-  const label = `${count} new comment${count === 1 ? '' : 's'} — click to jump`
+  const label = `${count} new comment${count === 1 ? '' : 's'} — click to jump to latest`
 
   return (
     <div role="status" aria-live="polite" aria-atomic="true" className="new-comments-pill-wrapper">

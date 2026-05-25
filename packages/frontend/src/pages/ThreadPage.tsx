@@ -344,6 +344,7 @@ function SideRailContent({
 // ── Main page ─────────────────────────────────────────────────
 
 export function ThreadPage() {
+  const bottomThresholdPx = 24
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
@@ -378,7 +379,7 @@ export function ThreadPage() {
   const [isAtBottom, setIsAtBottom] = useState(true)
   const prevCommentIdsRef = useRef<Set<string>>(new Set())
   const [newCommentCount, setNewCommentCount] = useState(0)
-  const firstNewCommentIdRef = useRef<string | null>(null)
+  const latestNewCommentIdRef = useRef<string | null>(null)
   const requestSeqRef = useRef<Record<string, number>>({})
 
   // Track bottom state on scroll
@@ -387,30 +388,41 @@ export function ThreadPage() {
     if (!el) return
     function onScroll() {
       if (!el) return
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 100
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= bottomThresholdPx
       setIsAtBottom(atBottom)
       if (atBottom) {
         setNewCommentCount(0)
-        firstNewCommentIdRef.current = null
+        latestNewCommentIdRef.current = null
       }
     }
+    onScroll()
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
-  }, [])
+  }, [bottomThresholdPx])
 
   // Detect new comments
   useEffect(() => {
     if (!commentsLoaded) return
+    const el = mainRef.current
+    const atBottom = el
+      ? el.scrollHeight - el.scrollTop - el.clientHeight <= bottomThresholdPx
+      : isAtBottom
+    setIsAtBottom(atBottom)
+
     const prev = prevCommentIdsRef.current
     const newOnes = comments.filter((c) => !prev.has(c.id))
-    if (prev.size > 0 && newOnes.length > 0 && !isAtBottom) {
+    if (atBottom) {
+      setNewCommentCount(0)
+      latestNewCommentIdRef.current = null
+    } else if (prev.size > 0 && newOnes.length > 0) {
       setNewCommentCount((n) => n + newOnes.length)
-      if (!firstNewCommentIdRef.current && newOnes[0]) {
-        firstNewCommentIdRef.current = newOnes[0].id
+      const latestNew = newOnes[newOnes.length - 1]
+      if (latestNew) {
+        latestNewCommentIdRef.current = latestNew.id
       }
     }
     prevCommentIdsRef.current = new Set(comments.map((c) => c.id))
-  }, [comments, isAtBottom, commentsLoaded])
+  }, [bottomThresholdPx, comments, commentsLoaded, isAtBottom])
 
   const loadLatest = useCallback(<T,>(
     key: string,
@@ -911,20 +923,19 @@ export function ThreadPage() {
               />
             )}
 
-            {/* New comments pill (sticky above composer) */}
-            <NewCommentsPill
-              count={newCommentCount}
-              firstNewId={firstNewCommentIdRef.current}
-              onDismiss={() => {
-                setNewCommentCount(0)
-                firstNewCommentIdRef.current = null
-              }}
-            />
           </section>
 
           {/* Sticky composer */}
           {thread.status === 'open' ? (
             <div className="composer-anchor" aria-label="add discussion point">
+              <NewCommentsPill
+                count={newCommentCount}
+                latestNewId={latestNewCommentIdRef.current}
+                onDismiss={() => {
+                  setNewCommentCount(0)
+                  latestNewCommentIdRef.current = null
+                }}
+              />
               <div className="composer-card" style={{ maxWidth: 920, margin: '0 auto' }}>
                 <CommentForm
                   label="Post"

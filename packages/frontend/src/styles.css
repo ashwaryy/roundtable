@@ -1206,13 +1206,14 @@ article + ul article { background: var(--surface); }
 
 /* ── New-comments pill wrapper ───────────────────────────────── */
 .new-comments-pill-wrapper {
-  position: sticky;
-  bottom: calc(var(--composer-h) + 14px);
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, calc(-100% - 12px));
   display: flex;
   justify-content: center;
   pointer-events: none;
   z-index: 80;
-  margin-top: 12px;
 }
 
 .new-comments-pill {
@@ -2730,7 +2731,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .new-comments-pill-wrapper {
-  bottom: 164px;
+  transform: translate(-50%, calc(-100% - 12px));
 }
 
 .new-comments-pill {
