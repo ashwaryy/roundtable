@@ -17,6 +17,7 @@ import type {
   SavedConsolidation,
   SnapshotReport,
   ThreadDisplayStatus,
+  BoundedJob,
 } from '@roundtable/shared'
 import {
   getThread,
@@ -28,6 +29,7 @@ import {
   getRoom,
   getRoomPreflight,
   askAgent,
+  listJobs,
   getConsolidation,
   listConsolidations,
   getIntegrity,
@@ -107,6 +109,21 @@ function statusLabel(status: ThreadDisplayStatus): string {
       return _
     }
   }
+}
+
+type DiscussionAskStatus = { discussionId: string; agent: AgentName }
+
+function discussionAskFromJob(job: BoundedJob | null): DiscussionAskStatus | null {
+  if (
+    !job ||
+    job.status !== 'running' ||
+    job.turn.kind !== 'comment' ||
+    job.turn.scope !== 'discussion' ||
+    !job.turn.discussion_id
+  ) {
+    return null
+  }
+  return { discussionId: job.turn.discussion_id, agent: job.agent }
 }
 
 // ── Recovery sidebar card ─────────────────────────────────────
@@ -328,6 +345,7 @@ export function ThreadPage() {
   const [pendingDiscussions, setPendingDiscussions] = useState<PendingDiscussion[]>([])
   const [threadContext, setThreadContext] = useState<ThreadContext | null>(null)
   const [room, setRoom] = useState<AgentRoom | null>(null)
+  const [jobs, setJobs] = useState<BoundedJob[]>([])
   const [roomPreflight, setRoomPreflight] = useState<RoomPreflight | null>(null)
   const [proposals, setProposals] = useState<ConsolidationProposal[]>([])
   const [integrity, setIntegrity] = useState<IntegrityReport | null>(null)
@@ -343,6 +361,7 @@ export function ThreadPage() {
     readStoredBoolean(RAIL_COLLAPSED_STORAGE_KEY, false),
   )
   const [commentSortOrder, setCommentSortOrder] = useState<CommentSortOrder>('oldest')
+  const [pendingAsk, setPendingAsk] = useState<DiscussionAskStatus | null>(null)
 
   // Scroll / new-comments tracking
   const mainRef = useRef<HTMLDivElement>(null)
@@ -389,6 +408,7 @@ export function ThreadPage() {
     listPendingDiscussions(id).then(setPendingDiscussions)
     getThreadContext(id).then(setThreadContext)
     getRoom(id).then(setRoom)
+    listJobs(id).then(setJobs)
     getRoomPreflight(id).then(setRoomPreflight)
     listConsolidations(id).then(setProposals)
     getIntegrity(id).then(setIntegrity)
@@ -425,6 +445,28 @@ export function ThreadPage() {
   )
   const backendStatus = useLiveRefresh(onEvent)
   const backendStatusLabel = `Backend ${backendStatus}`
+  const activeRoomJob = room?.active_job_id
+    ? jobs.find((job) => job.id === room.active_job_id) ?? null
+    : null
+  const activeJobAsk = discussionAskFromJob(activeRoomJob)
+  const activeAsk = activeJobAsk ?? pendingAsk
+  const disableCommentAgentActions =
+    room?.status === 'running' || room?.auto?.status === 'running' || pendingAsk !== null
+
+  useEffect(() => {
+    if (!pendingAsk) return
+    if (
+      activeJobAsk &&
+      activeJobAsk.discussionId === pendingAsk.discussionId &&
+      activeJobAsk.agent === pendingAsk.agent
+    ) {
+      setPendingAsk(null)
+      return
+    }
+    if (room && room.status !== 'running' && !room.active_job_id) {
+      setPendingAsk(null)
+    }
+  }, [activeJobAsk, pendingAsk, room])
 
   async function addTopLevel(input: { body: string; type: CommentType }) {
     if (!id) return
@@ -446,8 +488,14 @@ export function ThreadPage() {
 
   async function askDiscussion(discussionId: string, agent: AgentName) {
     if (!id) return
-    await askAgent(id, { agent, discussion_id: discussionId })
-    refresh()
+    setPendingAsk({ discussionId, agent })
+    try {
+      await askAgent(id, { agent, discussion_id: discussionId })
+      refresh()
+    } catch (error) {
+      setPendingAsk(null)
+      throw error
+    }
   }
 
   async function sendRecoveryInput(response: 'yes' | 'no') {
@@ -719,7 +767,8 @@ export function ThreadPage() {
                 onReply={addReply}
                 onDelete={removeComment}
                 onAskDiscussion={askDiscussion}
-                disableAgentActions={room?.auto?.status === 'running'}
+                activeAsk={activeAsk}
+                disableAgentActions={disableCommentAgentActions}
                 readOnly={thread.status !== 'open'}
                 sortOrder={commentSortOrder}
                 roster={room?.roster ?? []}

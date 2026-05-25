@@ -606,6 +606,7 @@ describe('room routes', () => {
       nudgeRoom: vi.fn(() => testRoom('idle')),
       requestIdleSuggestion: vi.fn(() => testRoom('idle')),
       cancelIdleSuggestion: vi.fn(() => testRoom('idle')),
+      completeIdleSuggestion: vi.fn(() => testRoom('idle')),
       markReady: vi.fn(() => testRoom('idle')),
       askAgent: vi.fn(() => ({ room: testRoom('running'), job: testJob() })),
       startAutoDiscussion: vi.fn(() => ({
@@ -859,6 +860,24 @@ describe('room routes', () => {
 
     expect(res.status).toBe(200)
     expect(rooms.cancelIdleSuggestion).toHaveBeenCalledWith('thread-1')
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'room_updated',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('accepts helper completion for idle suggestion requests', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/suggestion-request/done')
+      .set('authorization', 'Bearer room-token')
+      .send({ agent: 'codex' })
+
+    expect(res.status).toBe(200)
+    expect(rooms.completeIdleSuggestion).toHaveBeenCalledWith(
+      'thread-1',
+      'codex',
+      'room-token',
+    )
     expect(broadcast).toHaveBeenCalledWith({
       type: 'room_updated',
       thread_id: 'thread-1',

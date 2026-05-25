@@ -41,6 +41,7 @@ function replySubClusters(replies: Comment[]): Array<{ author: string; comments:
 function CommentActions({
   disabled,
   deleting,
+  activeAgent,
   onDelete,
   onReply,
   onAsk,
@@ -48,7 +49,8 @@ function CommentActions({
 }: {
   disabled: boolean
   deleting: boolean
-  onDelete: () => void
+  activeAgent: AgentName | null
+  onDelete?: () => void
   onReply: () => void
   onAsk: (agent: AgentName) => void
   roster: ThreadAgentInvite[]
@@ -58,19 +60,36 @@ function CommentActions({
       <button type="button" className="cmt-action" onClick={onReply}>
         <Icon name="reply" className="ic-sm" /> Reply
       </button>
-      {roster.map((persona) => (
-        <button key={persona.agent_id} type="button" className="cmt-action ask" disabled={disabled} onClick={() => onAsk(persona.agent_id)}>
-          <Avatar author={persona.agent_id} persona={persona} size={14} /> Ask {persona.name}
+      {roster.map((persona) => {
+        const isActive = activeAgent === persona.agent_id
+        return (
+          <button
+            key={persona.agent_id}
+            type="button"
+            className="cmt-action ask"
+            disabled={disabled}
+            aria-busy={isActive}
+            onClick={() => onAsk(persona.agent_id)}
+          >
+            {isActive ? (
+              <span className="button-spinner cmt-action-spinner" aria-hidden="true" />
+            ) : (
+              <Avatar author={persona.agent_id} persona={persona} size={14} />
+            )}
+            {isActive ? `${persona.name} working` : `Ask ${persona.name}`}
+          </button>
+        )
+      })}
+      {onDelete ? (
+        <button
+          type="button"
+          className="cmt-action danger"
+          disabled={deleting}
+          onClick={onDelete}
+        >
+          <Icon name="trash" className="ic-sm" /> {deleting ? 'Deleting' : 'Delete'}
         </button>
-      ))}
-      <button
-        type="button"
-        className="cmt-action danger"
-        disabled={deleting}
-        onClick={onDelete}
-      >
-        <Icon name="trash" className="ic-sm" /> {deleting ? 'Deleting' : 'Delete'}
-      </button>
+      ) : null}
     </div>
   )
 }
@@ -82,6 +101,7 @@ function RootComment({
   threadId,
   readOnly,
   disableAgentActions,
+  activeAsk,
   originExcerpt,
   onReply,
   onDelete,
@@ -95,6 +115,7 @@ function RootComment({
   threadId: string
   readOnly: boolean
   disableAgentActions: boolean
+  activeAsk: AgentName | null
   originExcerpt: (pending: PendingDiscussion) => string | null
   onReply: (replyTo: string, input: { body: string; type: CommentType }) => Promise<void>
   onDelete: (commentId: string) => Promise<void>
@@ -108,6 +129,18 @@ function RootComment({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const subClusters = replySubClusters(replies)
   const totalReplies = replies.length
+  const latestReplyId = replies[replies.length - 1]?.id ?? null
+  const controls = (
+    <CommentActions
+      disabled={disableAgentActions}
+      deleting={deletingId === root.id}
+      activeAgent={activeAsk}
+      onReply={() => setOpenReply((v) => !v)}
+      onDelete={totalReplies === 0 ? () => void deleteWithConfirm(root) : undefined}
+      onAsk={(agent) => onAskDiscussion(root.id, agent)}
+      roster={roster}
+    />
+  )
 
   useEffect(() => {
     if (!openMenuId) return
@@ -138,9 +171,9 @@ function RootComment({
     <div className="cmt-root" data-author={root.author} data-color={roster.find((agent) => agent.agent_id === root.author)?.color}>
       <div className="cmt cmt-root-row">
         <div className="cmt-row">
-          <Avatar author={root.author} persona={roster.find((agent) => agent.agent_id === root.author)} size={28} />
           <div className="cmt-body">
             <div className="cmt-head">
+              <Avatar author={root.author} persona={roster.find((agent) => agent.agent_id === root.author)} size={20} />
               <AgentTag author={root.author} persona={roster.find((agent) => agent.agent_id === root.author)} />
               <TypeBadge type={root.type} />
               <span className="time">{formatTs(root.created_at)}</span>
@@ -156,24 +189,47 @@ function RootComment({
                 </button>
               ) : null}
             </div>
-            <div
-              id={root.id}
-              className="cmt-text root-bubble tinted comment-new-anchor"
-              data-author={root.author}
-              tabIndex={-1}
-            >
-              <Markdown remarkPlugins={[remarkGfm]}>{root.body}</Markdown>
+            <div className="root-bubble-wrap">
+              <div
+                id={root.id}
+                className="cmt-text root-bubble tinted comment-new-anchor"
+                data-author={root.author}
+                tabIndex={-1}
+              >
+                <Markdown remarkPlugins={[remarkGfm]}>{root.body}</Markdown>
+              </div>
+              {!readOnly && totalReplies > 0 ? (
+                <div
+                  className="cmt-menu root-menu"
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
+                  <button
+                    type="button"
+                    className="cmt-action more"
+                    aria-label={`Discussion actions for ${root.id}`}
+                    aria-expanded={openMenuId === root.id}
+                    disabled={deletingId === root.id}
+                    onClick={() => setOpenMenuId((id) => (id === root.id ? null : root.id))}
+                  >
+                    <Icon name="more" className="ic-sm" />
+                  </button>
+                  {openMenuId === root.id ? (
+                    <div className="cmt-menu-popover">
+                      <button
+                        type="button"
+                        className="cmt-menu-item danger"
+                        disabled={deletingId === root.id}
+                        onClick={() => void deleteWithConfirm(root)}
+                      >
+                        <Icon name="trash" className="ic-sm" />
+                        {deletingId === root.id ? 'Deleting' : 'Delete'}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-            {!readOnly ? (
-              <CommentActions
-                disabled={disableAgentActions}
-                deleting={deletingId === root.id}
-                onReply={() => setOpenReply((v) => !v)}
-                onDelete={() => void deleteWithConfirm(root)}
-                onAsk={(agent) => onAskDiscussion(root.id, agent)}
-                roster={roster}
-              />
-            ) : null}
+            {!readOnly && totalReplies === 0 ? controls : null}
           </div>
         </div>
       </div>
@@ -196,48 +252,52 @@ function RootComment({
                   ) : null}
                   <span className="time">{formatTs(sub.comments[0].created_at)}</span>
                 </div>
-                {sub.comments.map((reply) => (
-                  <div key={reply.id} className="reply-item">
-                    <div
-                      id={reply.id}
-                      className="cmt-text reply-bubble tinted comment-new-anchor"
-                      data-author={reply.author}
-                      tabIndex={-1}
-                    >
-                      <Markdown remarkPlugins={[remarkGfm]}>{reply.body}</Markdown>
-                    </div>
-                    {!readOnly ? (
+                {sub.comments.map((reply) => {
+                  const isLatestReply = reply.id === latestReplyId
+                  return (
+                    <div key={reply.id} className="reply-item">
                       <div
-                        className="cmt-menu"
-                        onPointerDown={(event) => event.stopPropagation()}
+                        id={reply.id}
+                        className="cmt-text reply-bubble tinted comment-new-anchor"
+                        data-author={reply.author}
+                        tabIndex={-1}
                       >
-                        <button
-                          type="button"
-                          className="cmt-action more"
-                          aria-label={`Comment actions for ${reply.id}`}
-                          aria-expanded={openMenuId === reply.id}
-                          disabled={deletingId === reply.id}
-                          onClick={() => setOpenMenuId((id) => (id === reply.id ? null : reply.id))}
-                        >
-                          <Icon name="more" className="ic-sm" />
-                        </button>
-                        {openMenuId === reply.id ? (
-                          <div className="cmt-menu-popover">
-                            <button
-                              type="button"
-                              className="cmt-menu-item danger"
-                              disabled={deletingId === reply.id}
-                              onClick={() => void deleteWithConfirm(reply)}
-                            >
-                              <Icon name="trash" className="ic-sm" />
-                              {deletingId === reply.id ? 'Deleting' : 'Delete'}
-                            </button>
-                          </div>
-                        ) : null}
+                        <Markdown remarkPlugins={[remarkGfm]}>{reply.body}</Markdown>
                       </div>
-                    ) : null}
-                  </div>
-                ))}
+                      {!readOnly ? (
+                        <div
+                          className="cmt-menu"
+                          onPointerDown={(event) => event.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            className="cmt-action more"
+                            aria-label={`Comment actions for ${reply.id}`}
+                            aria-expanded={openMenuId === reply.id}
+                            disabled={deletingId === reply.id}
+                            onClick={() => setOpenMenuId((id) => (id === reply.id ? null : reply.id))}
+                          >
+                            <Icon name="more" className="ic-sm" />
+                          </button>
+                          {openMenuId === reply.id ? (
+                            <div className="cmt-menu-popover">
+                              <button
+                                type="button"
+                                className="cmt-menu-item danger"
+                                disabled={deletingId === reply.id}
+                                onClick={() => void deleteWithConfirm(reply)}
+                              >
+                                <Icon name="trash" className="ic-sm" />
+                                {deletingId === reply.id ? 'Deleting' : 'Delete'}
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {!readOnly && isLatestReply ? controls : null}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           ))}
@@ -285,6 +345,7 @@ export function CommentTree({
   onDelete,
   onAskDiscussion,
   disableAgentActions = false,
+  activeAsk = null,
   readOnly = false,
   sortOrder = 'oldest',
   roster = [],
@@ -297,6 +358,7 @@ export function CommentTree({
   onDelete: (commentId: string) => Promise<void>
   onAskDiscussion: (discussionId: string, agent: AgentName) => Promise<void>
   disableAgentActions?: boolean
+  activeAsk?: { discussionId: string; agent: AgentName } | null
   readOnly?: boolean
   sortOrder?: CommentSortOrder
   roster?: ThreadAgentInvite[]
@@ -346,6 +408,7 @@ export function CommentTree({
           threadId={threadId}
           readOnly={readOnly}
           disableAgentActions={disableAgentActions}
+          activeAsk={activeAsk?.discussionId === root.id ? activeAsk.agent : null}
           originExcerpt={originExcerpt}
           onReply={onReply}
           onDelete={onDelete}

@@ -172,6 +172,7 @@ describe('createRoomManager', () => {
         'Write(./.roundtable/tmp/**)',
         'Bash(roundtable ready *)',
         'Bash(roundtable comment *)',
+        'Bash(roundtable done *)',
         'Bash(cat *)',
         'Bash(grep *)',
         'Bash(read *)',
@@ -338,6 +339,7 @@ describe('createRoomManager', () => {
       expect.arrayContaining([
         'Bash(rtk roundtable ready *)',
         'Bash(rtk roundtable comment *)',
+        'Bash(rtk roundtable done *)',
         'Bash(rtk cat *)',
         'Bash(rtk grep *)',
         'Bash(rtk read *)',
@@ -709,6 +711,9 @@ describe('createRoomManager', () => {
     expect(room.idle_suggestion_request).toMatchObject({
       agent: 'codex',
       instructions: 'Look for one performance bottleneck.',
+      status: 'active',
+      submitted_count: 0,
+      completed_at: null,
     })
     expect(
       fs.existsSync(path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'tmp')),
@@ -898,7 +903,11 @@ describe('createRoomManager', () => {
 
     expect(first.room.status).toBe('idle')
     expect(first.room.active_job_id).toBeNull()
-    expect(first.room.idle_suggestion_request).toMatchObject({ agent: 'codex' })
+    expect(first.room.idle_suggestion_request).toMatchObject({
+      agent: 'codex',
+      status: 'active',
+      submitted_count: 1,
+    })
     expect(first.job).toBeUndefined()
     expect(first.pending_discussion).toMatchObject({
       author: 'codex',
@@ -910,7 +919,11 @@ describe('createRoomManager', () => {
       { agent: 'codex', body: 'A second requested topic.' },
       token,
     )
-    expect(second.room.idle_suggestion_request).toMatchObject({ agent: 'codex' })
+    expect(second.room.idle_suggestion_request).toMatchObject({
+      agent: 'codex',
+      status: 'active',
+      submitted_count: 2,
+    })
     expect(listPendingDiscussions(dataDir, 'thread-1')).toHaveLength(2)
     expect(listComments(dataDir, 'thread-1')).toHaveLength(0)
     expect(fs.existsSync(currentTurnPath(dataDir, 'thread-1'))).toBe(false)
@@ -933,6 +946,46 @@ describe('createRoomManager', () => {
         token,
       ),
     ).toThrow('idle pending discussion requires an explicit suggestion request')
+  })
+
+  it('marks an idle suggestion request done and blocks later submissions', () => {
+    const { manager, token } = startReadyRoom()
+    manager.requestIdleSuggestion('thread-1', { agent: 'codex' })
+    manager.submitPendingDiscussion(
+      'thread-1',
+      { agent: 'codex', body: 'A requested topic.' },
+      token,
+    )
+
+    const done = manager.completeIdleSuggestion('thread-1', 'codex', token)
+
+    expect(done.idle_suggestion_request).toMatchObject({
+      agent: 'codex',
+      status: 'done',
+      submitted_count: 1,
+    })
+    expect(done.idle_suggestion_request?.completed_at).not.toBeNull()
+    expect(() =>
+      manager.submitPendingDiscussion(
+        'thread-1',
+        { agent: 'codex', body: 'A late topic.' },
+        token,
+      ),
+    ).toThrow('idle suggestion request is already complete')
+  })
+
+  it('allows an agent to mark an idle suggestion request done with no submissions', () => {
+    const { manager, token } = startReadyRoom()
+    manager.requestIdleSuggestion('thread-1', { agent: 'codex' })
+
+    const done = manager.completeIdleSuggestion('thread-1', 'codex', token)
+
+    expect(done.idle_suggestion_request).toMatchObject({
+      agent: 'codex',
+      status: 'done',
+      submitted_count: 0,
+    })
+    expect(listPendingDiscussions(dataDir, 'thread-1')).toHaveLength(0)
   })
 
   it('rejects an unsolicited idle pending discussion', () => {

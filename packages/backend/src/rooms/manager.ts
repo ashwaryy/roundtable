@@ -113,6 +113,7 @@ export interface RoomManager {
   nudgeRoom(threadId: string, input: NudgeRoomInput): AgentRoom
   requestIdleSuggestion(threadId: string, input: RequestIdleSuggestionInput): AgentRoom
   cancelIdleSuggestion(threadId: string): AgentRoom
+  completeIdleSuggestion(threadId: string, agent: AgentName, token: string | null): AgentRoom
   markReady(threadId: string, agent: AgentName, token: string | null): AgentRoom
   askAgent(threadId: string, input: AskAgentInput): AgentTurnResult
   startAutoDiscussion(
@@ -564,6 +565,7 @@ function writeAgentPermissionSetup(
     'roundtable ready',
     'roundtable comment',
     'roundtable pending-discussion',
+    'roundtable done',
     'roundtable proposal',
     'roundtable review',
   ]
@@ -885,6 +887,31 @@ async function main() {
 
     const result = await response.json()
     console.log(\`pending discussion submitted: \${result.pending_discussion.id}\`)
+    return
+  }
+
+  if (command === 'done') {
+    const agent = process.env.ROUNDTABLE_AGENT_ID
+    if (!agent) {
+      console.error('done requires room agent identity')
+      process.exit(2)
+    }
+
+    const response = await fetch(\`\${backendUrl}/api/threads/\${threadId}/room/suggestion-request/done\`, {
+      method: 'POST',
+      headers: {
+        authorization: \`Bearer \${token}\`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ agent }),
+    })
+
+    if (!response.ok) {
+      console.error(await response.text())
+      process.exit(1)
+    }
+
+    console.log('suggestions done')
     return
   }
 
@@ -2217,7 +2244,10 @@ export function createRoomManager(options: {
       const request = {
         agent: input.agent,
         instructions: input.body?.trim() ?? null,
+        status: 'active' as const,
+        submitted_count: 0,
         requested_at: now(),
+        completed_at: null,
       }
       const focus = request.instructions
         ? ` Focus on this instruction: ${request.instructions}`
@@ -2225,7 +2255,7 @@ export function createRoomManager(options: {
       sendLineToPane(
         executor,
         `${room.tmux_session}:${windowForAgent(input.agent)}`,
-        `Roundtable idle suggestion request.${focus} Queue useful new top-level topics for user approval only; do not submit approved comments. For each proposed topic, write the body to a distinct Markdown file under .roundtable/tmp/ and submit it with: roundtable pending-discussion --body-file <that-file> --type comment. You may submit multiple pending discussions while this request is active. If no useful topic exists, do not submit anything.`,
+        `Roundtable idle suggestion request.${focus} Queue useful new top-level topics for user approval only; do not submit approved comments. For each proposed topic, write the body to a distinct Markdown file under .roundtable/tmp/ and submit it with: roundtable pending-discussion --body-file <that-file> --type comment. You may submit multiple pending discussions while this request is active. When finished, submit: roundtable done. If no useful topic exists, submit roundtable done without creating a pending discussion.`,
       )
       const updated: InternalRoom = {
         ...room,
@@ -2255,6 +2285,39 @@ export function createRoomManager(options: {
       const updated: InternalRoom = {
         ...room,
         idle_suggestion_request: null,
+        updated_at: now(),
+        last_error: null,
+      }
+      writeRoom(dataDir, updated)
+      return stripToken(updated)
+    },
+
+    completeIdleSuggestion(
+      threadId: string,
+      agent: AgentName,
+      token: string | null,
+    ): AgentRoom {
+      ensureOpenThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (!token || token !== room.token) {
+        throw new BadRequestError('invalid room token')
+      }
+      if (room.status !== 'idle') {
+        throw new BadRequestError('room must be idle before completing a suggestion request')
+      }
+      inviteFor(room, agent)
+      const request = room.idle_suggestion_request
+      if (!request || request.agent !== agent) {
+        throw new BadRequestError('idle suggestion completion requires an active request')
+      }
+      if (request.status === 'done') return stripToken(room)
+      const updated: InternalRoom = {
+        ...room,
+        idle_suggestion_request: {
+          ...request,
+          status: 'done',
+          completed_at: now(),
+        },
         updated_at: now(),
         last_error: null,
       }
@@ -2609,6 +2672,9 @@ export function createRoomManager(options: {
             'idle pending discussion requires an explicit suggestion request',
           )
         }
+        if (room.idle_suggestion_request.status === 'done') {
+          throw new BadRequestError('idle suggestion request is already complete')
+        }
         if (input.continue_turn) {
           throw new BadRequestError('idle pending discussion cannot continue a turn')
         }
@@ -2623,6 +2689,10 @@ export function createRoomManager(options: {
         options.onCanonicalWrite?.(threadId)
         const updated: InternalRoom = {
           ...room,
+          idle_suggestion_request: {
+            ...room.idle_suggestion_request,
+            submitted_count: room.idle_suggestion_request.submitted_count + 1,
+          },
           updated_at: now(),
           last_error: null,
         }

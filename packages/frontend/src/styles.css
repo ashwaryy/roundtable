@@ -2185,9 +2185,13 @@ input:focus, select:focus, textarea:focus {
 }
 
 .thread-body-section,
-.comment-stream,
 .saved-outputs-section {
   max-width: 920px;
+  margin: 0 auto;
+}
+
+.comment-stream {
+  max-width: 890px;
   margin: 0 auto;
 }
 
@@ -3842,8 +3846,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 }
 .cmt-body { min-width: 0; }
 .cmt-root-row .cmt-row {
-  grid-template-columns: 28px 1fr;
-  gap: 12px;
+  display: block;
 }
 
 .cmt-head {
@@ -3943,17 +3946,26 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .cmt-action.ask:disabled,
 .cmt-action:disabled { color: var(--muted); cursor: not-allowed; }
 .cmt-action.ask:disabled:hover { background: transparent; }
+.cmt-action-spinner {
+  width: 12px;
+  height: 12px;
+}
 .cmt-action.collapse-btn { color: var(--muted); }
 .cmt-action.more { padding: 4px 6px; }
+.root-bubble-wrap {
+  position: relative;
+}
 .reply-item {
   position: relative;
 }
-.reply-item .cmt-menu {
+.reply-item .cmt-menu,
+.root-bubble-wrap .root-menu {
   position: absolute;
   top: 5px;
   right: 5px;
 }
-.reply-item .cmt-action.more {
+.reply-item .cmt-action.more,
+.root-bubble-wrap .cmt-action.more {
   min-height: 24px;
   width: 24px;
   padding: 0;
@@ -3963,7 +3975,9 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   box-shadow: none;
 }
 .reply-item .cmt-action.more:hover,
-.reply-item .cmt-action.more:focus-visible {
+.reply-item .cmt-action.more:focus-visible,
+.root-bubble-wrap .cmt-action.more:hover,
+.root-bubble-wrap .cmt-action.more:focus-visible {
   background: var(--panel-2);
   color: var(--ink);
 }

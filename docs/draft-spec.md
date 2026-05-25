@@ -153,7 +153,7 @@ Top-level comments create discussion points. Replies are one level deep. If a us
 Discussion-level **Ask Claude** or **Ask Codex** asks the selected agent to reply in that discussion. If the agent thinks the idea should split into a separate discussion, it submits a pending discussion point for human approval instead of creating it directly.
 An agent may queue more than one pending split during the same active turn, then end that turn with a final reply or a final pending split.
 
-From the sidebar, the user may explicitly request suggested top-level discussion points from an agent without starting an Ask turn. The request grants pending-discussion submissions to that agent until the user cancels or replaces the request. It cannot create approved comments or replies; suggestions remain outside canonical discussion until the user approves them.
+From the sidebar, the user may explicitly request suggested top-level discussion points from an agent without starting an Ask turn. The request grants pending-discussion submissions to that agent until the agent marks the request done, or until the user cancels or replaces the request. It cannot create approved comments or replies; suggestions remain outside canonical discussion until the user approves them.
 
 ### Let Them Discuss
 
@@ -472,13 +472,14 @@ roundtable ready --agent codex
 roundtable comment --body-file .roundtable/tmp/job-001-claude-comment.md --type critique
 roundtable pending-discussion --body-file .roundtable/tmp/job-001-claude-pending-discussion.md --type critique --continue-turn
 roundtable pending-discussion --body-file .roundtable/tmp/idle-topic-001.md --type question
+roundtable done
 roundtable proposal --body-file .roundtable/tmp/proposal.md
 ```
 
 Long Markdown bodies are passed by file to avoid shell quoting problems.
 For `pending-discussion`, `--continue-turn` persists the pending root but leaves the active agent turn open; a subsequent terminal helper submission completes that turn.
 When one turn queues multiple pending discussions, each body may be written to its own `.roundtable/tmp/` draft and submitted directly as `--body-file`; agents should not copy drafts into a shared submission path.
-Outside an active turn, an agent may submit `pending-discussion` without `--continue-turn` only while the user has an active idle suggestion request for that agent. This queues reviewable suggestions and does not create or complete a job.
+Outside an active turn, an agent may submit `pending-discussion` without `--continue-turn` only while the user has an active idle suggestion request for that agent. This queues reviewable suggestions and does not create or complete a job. When the agent is finished, it submits `roundtable done`; the UI then shows the completed suggestion count.
 
 `roundtable ready` is the canonical startup acknowledgment. The agent may also print `READY` in the terminal for debugging, but terminal output is not used as the source of truth for readiness.
 
@@ -501,7 +502,7 @@ whether new roots must go to pending queue
 turn kind: comment, proposal draft, review, revision
 ```
 
-When a terminal helper command for an active turn succeeds, the backend marks the turn complete. A `pending-discussion --continue-turn` submission persists a queued split without completing the turn. An explicitly requested idle `pending-discussion` submission creates no turn or job; the request stays active until cancelled or replaced. There are no `.agent_status/*.done` files in the core design.
+When a terminal helper command for an active turn succeeds, the backend marks the turn complete. A `pending-discussion --continue-turn` submission persists a queued split without completing the turn. An explicitly requested idle `pending-discussion` submission creates no turn or job; the request stays active until the agent submits `roundtable done`, or until the user cancels or replaces it. There are no `.agent_status/*.done` files in the core design.
 
 ### Orchestrator Responsibilities
 

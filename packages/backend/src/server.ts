@@ -1000,6 +1000,27 @@ export function createApp(deps: {
     }
   })
 
+  app.post('/api/threads/:id/room/suggestion-request/done', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = readyInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const room = rooms.completeIdleSuggestion(
+        req.params.id,
+        parsed.data.agent,
+        bearerToken(req),
+      )
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(room)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
   app.post('/api/threads/:id/room/ask', (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
     const parsed = askAgentInputSchema.safeParse(req.body)

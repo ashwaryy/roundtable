@@ -580,7 +580,9 @@ export function RoomPanel({
               {room?.idle_suggestion_request ? (
                 <div className="rail-row">
                   <div className="rail-hint" style={{ padding: 0 }}>
-                    Waiting for {room.idle_suggestion_request.agent} to submit suggestions.
+                    {room.idle_suggestion_request.status === 'done'
+                      ? `${room.idle_suggestion_request.agent} finished with ${room.idle_suggestion_request.submitted_count} suggestion${room.idle_suggestion_request.submitted_count === 1 ? '' : 's'}.`
+                      : `Suggest is active for ${room.idle_suggestion_request.agent}; ${room.idle_suggestion_request.submitted_count} submitted so far. Cancel to stop further suggestions.`}
                   </div>
                   <button type="button" className="btn sm" onClick={handleCancelSuggestion}>Cancel</button>
                 </div>

@@ -392,7 +392,10 @@ export interface AgentInputPrompt {
 export interface IdleSuggestionRequest {
   agent: AgentId
   instructions: string | null
+  status: 'active' | 'done'
+  submitted_count: number
   requested_at: string
+  completed_at: string | null
 }
 
 export interface AgentRoom {
