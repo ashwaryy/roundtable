@@ -45,4 +45,19 @@ describe('CommentTree', () => {
     )
     expect(screen.getByText(/no discussion yet/i)).toBeInTheDocument()
   })
+
+  it('disables agent actions during auto discussion while keeping reply available', () => {
+    render(
+      <CommentTree
+        comments={[comment('c001', null, 'root point')]}
+        onReply={vi.fn()}
+        onAskDiscussion={vi.fn()}
+        disableAgentActions
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Ask Claude' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Ask Codex' })).toBeDisabled()
+  })
 })

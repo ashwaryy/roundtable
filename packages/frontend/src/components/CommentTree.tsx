@@ -22,6 +22,7 @@ export function CommentTree({
   comments,
   onReply,
   onAskDiscussion,
+  disableAgentActions = false,
   readOnly = false,
 }: {
   comments: Comment[]
@@ -30,6 +31,7 @@ export function CommentTree({
     input: { body: string; type: CommentType },
   ) => Promise<void>
   onAskDiscussion: (discussionId: string, agent: AgentName) => Promise<void>
+  disableAgentActions?: boolean
   readOnly?: boolean
 }) {
   const groups = groupComments(comments)
@@ -78,10 +80,16 @@ export function CommentTree({
           ) : null}
           {!readOnly ? (
             <>
-              <button onClick={() => onAskDiscussion(root.id, 'claude')}>
+              <button
+                disabled={disableAgentActions}
+                onClick={() => onAskDiscussion(root.id, 'claude')}
+              >
                 Ask Claude
               </button>
-              <button onClick={() => onAskDiscussion(root.id, 'codex')}>
+              <button
+                disabled={disableAgentActions}
+                onClick={() => onAskDiscussion(root.id, 'codex')}
+              >
                 Ask Codex
               </button>
             </>

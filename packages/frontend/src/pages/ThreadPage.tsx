@@ -141,6 +141,7 @@ export function ThreadPage() {
               comments={comments}
               onReply={addReply}
               onAskDiscussion={askDiscussion}
+              disableAgentActions={room?.auto?.status === 'running'}
               readOnly={thread.status !== 'open'}
             />
           </section>
