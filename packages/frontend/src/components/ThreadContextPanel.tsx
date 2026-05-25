@@ -14,6 +14,14 @@ function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`
 }
 
+function truncateMiddle(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value
+  const keep = maxLength - 1
+  const front = Math.ceil(keep * 0.58)
+  const back = keep - front
+  return `${value.slice(0, front)}…${value.slice(value.length - back)}`
+}
+
 export function ThreadContextPanel({
   threadId,
   threadStatus,
@@ -71,16 +79,18 @@ export function ThreadContextPanel({
     ...(context?.snapshot?.added_since_last_refresh ?? []),
     ...(context?.workspace_added_files.map((file) => file.path) ?? []),
   ]
+  const snapshotSourcePath = context?.snapshot?.source_path ?? ''
+  const displaySourcePath = truncateMiddle(snapshotSourcePath, 38)
 
   return (
-    <div className="rail-form">
+    <div className="rail-form context-rail-form">
       {!isThreadOpen ? (
         <p className="rail-hint" style={{ padding: 0 }}>Thread is {threadStatus}; context controls are disabled.</p>
       ) : null}
 
       {context?.snapshot ? (
         <div className="kv-list">
-          <div className="kv-row"><span className="k">working dir</span><span className="v" title={context.snapshot.source_path}>{context.snapshot.source_path}</span></div>
+          <div className="kv-row"><span className="k">working dir</span><span className="v" title={snapshotSourcePath}>{displaySourcePath}</span></div>
           <div className="kv-row"><span className="k">snapshot</span><span className="v">{context.snapshot.mode} · {context.snapshot.file_count} files</span></div>
           <div className="kv-row"><span className="k">size</span><span className="v">{formatBytes(context.snapshot.total_bytes)}</span></div>
           <div className="kv-row"><span className="k">thread.md</span><span className="v">{summary ?? 'thread.md'}</span></div>

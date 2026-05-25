@@ -118,6 +118,14 @@ export function createComment(
   }).then((r) => json<Comment>(r))
 }
 
+export function deleteComment(threadId: string, commentId: string): Promise<void> {
+  return fetch(`/api/threads/${threadId}/comments/${commentId}`, {
+    method: 'DELETE',
+  }).then((res) => {
+    if (!res.ok) throw new Error(`request failed: ${res.status}`)
+  })
+}
+
 export function listPendingDiscussions(threadId: string): Promise<PendingDiscussion[]> {
   return readJson<PendingDiscussion[]>(`/api/threads/${threadId}/pending-discussions`)
 }

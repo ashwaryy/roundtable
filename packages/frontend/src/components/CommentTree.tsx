@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AgentName, Comment, CommentType, PendingDiscussion } from '@roundtable/shared'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { groupComments } from '../lib/commentTree'
+import { groupComments, type CommentSortOrder } from '../lib/commentTree'
 import { CommentForm } from './CommentForm'
 import { PendingDiscussionModerationCard } from './PendingDiscussionQueue'
 import { Avatar, AgentTag, Icon, TypeBadge } from './primitives'
@@ -40,10 +40,14 @@ function replySubClusters(replies: Comment[]): Array<{ author: string; comments:
 
 function CommentActions({
   disabled,
+  deleting,
+  onDelete,
   onReply,
   onAsk,
 }: {
   disabled: boolean
+  deleting: boolean
+  onDelete: () => void
   onReply: () => void
   onAsk: (agent: AgentName) => void
 }) {
@@ -68,6 +72,14 @@ function CommentActions({
       >
         <Avatar author="codex" size={14} /> Ask Codex
       </button>
+      <button
+        type="button"
+        className="cmt-action danger"
+        disabled={deleting}
+        onClick={onDelete}
+      >
+        <Icon name="trash" className="ic-sm" /> {deleting ? 'Deleting' : 'Delete'}
+      </button>
     </div>
   )
 }
@@ -81,6 +93,7 @@ function RootComment({
   disableAgentActions,
   originExcerpt,
   onReply,
+  onDelete,
   onAskDiscussion,
   onPendingUpdate,
 }: {
@@ -92,13 +105,41 @@ function RootComment({
   disableAgentActions: boolean
   originExcerpt: (pending: PendingDiscussion) => string | null
   onReply: (replyTo: string, input: { body: string; type: CommentType }) => Promise<void>
+  onDelete: (commentId: string) => Promise<void>
   onAskDiscussion: (discussionId: string, agent: AgentName) => Promise<void>
   onPendingUpdate: () => void
 }) {
   const [openReply, setOpenReply] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const subClusters = replySubClusters(replies)
   const totalReplies = replies.length
+
+  useEffect(() => {
+    if (!openMenuId) return
+    function closeMenu() {
+      setOpenMenuId(null)
+    }
+    window.addEventListener('pointerdown', closeMenu)
+    return () => window.removeEventListener('pointerdown', closeMenu)
+  }, [openMenuId])
+
+  async function deleteWithConfirm(comment: Comment) {
+    const isRoot = comment.parent_id === null
+    const message =
+      isRoot && totalReplies > 0
+        ? `Delete this discussion and its ${totalReplies} ${totalReplies === 1 ? 'reply' : 'replies'}?`
+        : 'Delete this comment?'
+    if (!window.confirm(message)) return
+    setDeletingId(comment.id)
+    setOpenMenuId(null)
+    try {
+      await onDelete(comment.id)
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   return (
     <div className="cmt-root" data-author={root.author}>
@@ -133,7 +174,9 @@ function RootComment({
             {!readOnly ? (
               <CommentActions
                 disabled={disableAgentActions}
+                deleting={deletingId === root.id}
                 onReply={() => setOpenReply((v) => !v)}
+                onDelete={() => void deleteWithConfirm(root)}
                 onAsk={(agent) => onAskDiscussion(root.id, agent)}
               />
             ) : null}
@@ -160,14 +203,45 @@ function RootComment({
                   <span className="time">{formatTs(sub.comments[0].created_at)}</span>
                 </div>
                 {sub.comments.map((reply) => (
-                  <div
-                    key={reply.id}
-                    id={reply.id}
-                    className="cmt-text reply-bubble tinted comment-new-anchor"
-                    data-author={reply.author}
-                    tabIndex={-1}
-                  >
-                    <Markdown remarkPlugins={[remarkGfm]}>{reply.body}</Markdown>
+                  <div key={reply.id} className="reply-item">
+                    <div
+                      id={reply.id}
+                      className="cmt-text reply-bubble tinted comment-new-anchor"
+                      data-author={reply.author}
+                      tabIndex={-1}
+                    >
+                      <Markdown remarkPlugins={[remarkGfm]}>{reply.body}</Markdown>
+                    </div>
+                    {!readOnly ? (
+                      <div
+                        className="cmt-menu"
+                        onPointerDown={(event) => event.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          className="cmt-action more"
+                          aria-label={`Comment actions for ${reply.id}`}
+                          aria-expanded={openMenuId === reply.id}
+                          disabled={deletingId === reply.id}
+                          onClick={() => setOpenMenuId((id) => (id === reply.id ? null : reply.id))}
+                        >
+                          <Icon name="more" className="ic-sm" />
+                        </button>
+                        {openMenuId === reply.id ? (
+                          <div className="cmt-menu-popover">
+                            <button
+                              type="button"
+                              className="cmt-menu-item danger"
+                              disabled={deletingId === reply.id}
+                              onClick={() => void deleteWithConfirm(reply)}
+                            >
+                              <Icon name="trash" className="ic-sm" />
+                              {deletingId === reply.id ? 'Deleting' : 'Delete'}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -213,27 +287,31 @@ export function CommentTree({
   threadId,
   onPendingUpdate,
   onReply,
+  onDelete,
   onAskDiscussion,
   disableAgentActions = false,
   readOnly = false,
+  sortOrder = 'oldest',
 }: {
   comments: Comment[]
   pendingDiscussions?: PendingDiscussion[]
   threadId: string
   onPendingUpdate: () => void
   onReply: (replyTo: string, input: { body: string; type: CommentType }) => Promise<void>
+  onDelete: (commentId: string) => Promise<void>
   onAskDiscussion: (discussionId: string, agent: AgentName) => Promise<void>
   disableAgentActions?: boolean
   readOnly?: boolean
+  sortOrder?: CommentSortOrder
 }) {
-  const groups = groupComments(comments)
+  const groups = groupComments(comments, sortOrder)
 
   const commentsById = new Map(comments.map((c) => [c.id, c]))
   const pendingByDiscussion = new Map<string, PendingDiscussion[]>()
   const pendingWithoutOrigin: PendingDiscussion[] = []
 
   for (const pending of pendingDiscussions) {
-    if (!pending.origin_discussion_id) {
+    if (!pending.origin_discussion_id || !commentsById.has(pending.origin_discussion_id)) {
       pendingWithoutOrigin.push(pending)
       continue
     }
@@ -273,6 +351,7 @@ export function CommentTree({
           disableAgentActions={disableAgentActions}
           originExcerpt={originExcerpt}
           onReply={onReply}
+          onDelete={onDelete}
           onAskDiscussion={onAskDiscussion}
           onPendingUpdate={onPendingUpdate}
         />

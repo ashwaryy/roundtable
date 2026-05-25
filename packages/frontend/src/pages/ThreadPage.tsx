@@ -22,6 +22,7 @@ import {
   getThread,
   listComments,
   createComment,
+  deleteComment,
   listPendingDiscussions,
   getThreadContext,
   getRoom,
@@ -40,6 +41,7 @@ import {
 import { useLiveRefresh } from '../useLiveRefresh'
 import { CommentForm } from '../components/CommentForm'
 import { CommentTree } from '../components/CommentTree'
+import type { CommentSortOrder } from '../lib/commentTree'
 import { ThreadAttachmentsPanel, ThreadContextPanel } from '../components/ThreadContextPanel'
 import { RoomPanel } from '../components/RoomPanel'
 import { ConsolidationPanel } from '../components/ConsolidationPanel'
@@ -321,6 +323,7 @@ export function ThreadPage() {
   const [bodyCollapsed, setBodyCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [railCollapsed, setRailCollapsed] = useState(false)
+  const [commentSortOrder, setCommentSortOrder] = useState<CommentSortOrder>('oldest')
 
   // Scroll / new-comments tracking
   const mainRef = useRef<HTMLDivElement>(null)
@@ -409,6 +412,12 @@ export function ThreadPage() {
   async function addReply(replyTo: string, input: { body: string; type: CommentType }) {
     if (!id) return
     await createComment(id, { ...input, reply_to: replyTo })
+    refresh()
+  }
+
+  async function removeComment(commentId: string) {
+    if (!id) return
+    await deleteComment(id, commentId)
     refresh()
   }
 
@@ -649,9 +658,17 @@ export function ThreadPage() {
                   ) : null}
                 </span>
                 <span style={{ color: 'var(--rule-strong)' }}>·</span>
-                <span className="sort">
-                  <Icon name="filter" className="ic-sm" /> oldest first
-                </span>
+                <button
+                  type="button"
+                  className="sort"
+                  aria-label={`Sort discussion ${commentSortOrder === 'oldest' ? 'newest first' : 'oldest first'}`}
+                  onClick={() =>
+                    setCommentSortOrder((order) => (order === 'oldest' ? 'newest' : 'oldest'))
+                  }
+                >
+                  <Icon name="filter" className="ic-sm" />
+                  {commentSortOrder === 'oldest' ? 'oldest first' : 'newest first'}
+                </button>
               </div>
             </div>
 
@@ -675,9 +692,11 @@ export function ThreadPage() {
                 pendingDiscussions={pendingDiscussions}
                 onPendingUpdate={refresh}
                 onReply={addReply}
+                onDelete={removeComment}
                 onAskDiscussion={askDiscussion}
                 disableAgentActions={room?.auto?.status === 'running'}
                 readOnly={thread.status !== 'open'}
+                sortOrder={commentSortOrder}
               />
             )}
 

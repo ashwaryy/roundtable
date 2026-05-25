@@ -160,6 +160,26 @@ describe('comments routes', () => {
       .send({ body: '   ' })
     expect(res.status).toBe(400)
   })
+
+  it('deletes a comment and broadcasts comment_deleted', async () => {
+    await request(app).post('/api/threads/thread-1/comments').send({ body: 'root' })
+
+    const res = await request(app).delete('/api/threads/thread-1/comments/c001')
+
+    expect(res.status).toBe(204)
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'comment_deleted',
+      thread_id: 'thread-1',
+    })
+
+    const list = await request(app).get('/api/threads/thread-1/comments')
+    expect(list.body).toEqual([])
+  })
+
+  it('returns 404 when deleting a missing comment', async () => {
+    const res = await request(app).delete('/api/threads/thread-1/comments/c999')
+    expect(res.status).toBe(404)
+  })
 })
 
 describe('pending discussion routes', () => {

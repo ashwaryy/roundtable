@@ -41,6 +41,7 @@ import {
 import type { RoomManager } from './rooms/manager'
 
 const THREAD_ID_RE = /^thread-\d+$/
+const COMMENT_ID_RE = /^c\d+$/
 const PENDING_ID_RE = /^pd\d+$/
 const JOB_ID_RE = /^job-\d+$/
 const PROPOSAL_ID_RE = /^consolidation-\d+$/
@@ -170,6 +171,13 @@ export function createApp(deps: {
     next()
   })
 
+  app.param('commentId', (_req, res, next, value: string) => {
+    if (!COMMENT_ID_RE.test(value)) {
+      return res.status(404).json({ error: 'comment not found' })
+    }
+    next()
+  })
+
   app.param('jobId', (_req, res, next, value: string) => {
     if (!JOB_ID_RE.test(value)) {
       return res.status(404).json({ error: 'job not found' })
@@ -253,6 +261,22 @@ export function createApp(deps: {
       const comment = storage.addComment(req.params.id, parsed.data)
       broadcast({ type: 'comment_created', thread_id: req.params.id })
       res.status(201).json(comment)
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        return res.status(404).json({ error: err.message })
+      }
+      throw err
+    }
+  })
+
+  app.delete('/api/threads/:id/comments/:commentId', (req, res) => {
+    if (!storage.getThread(req.params.id)) {
+      return res.status(404).json({ error: 'thread not found' })
+    }
+    try {
+      storage.deleteComment(req.params.id, req.params.commentId)
+      broadcast({ type: 'comment_deleted', thread_id: req.params.id })
+      res.status(204).end()
     } catch (err) {
       if (err instanceof NotFoundError) {
         return res.status(404).json({ error: err.message })

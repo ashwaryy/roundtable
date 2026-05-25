@@ -116,6 +116,12 @@ const ICON_PATHS: Record<string, ReactNode> = {
   flag: <path d="M4 2v12M4 3h8l-2 3 2 3H4" />,
   check: <path d="m3 8 3 3 7-7" />,
   minus: <path d="M3 8h10" />,
+  trash: (
+    <>
+      <path d="M3 4h10M6 4V2.5h4V4M5 6v7M8 6v7M11 6v7" />
+      <path d="M4 4l1 10h6l1-10" />
+    </>
+  ),
 }
 
 export type IconName = keyof typeof ICON_PATHS

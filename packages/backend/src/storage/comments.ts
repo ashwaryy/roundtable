@@ -8,7 +8,7 @@ import type {
 import { commentsPath, threadJsonPath } from './paths'
 import { nextCommentId } from './ids'
 import { NotFoundError } from './errors'
-import { appendJsonl } from './jsonl'
+import { appendJsonl, atomicRewriteJsonl } from './jsonl'
 
 export function listComments(dataDir: string, threadId: string): Comment[] {
   const file = commentsPath(dataDir, threadId)
@@ -100,6 +100,29 @@ export function addAgentComment(
 
   appendJsonl(commentsPath(dataDir, threadId), comment)
   return comment
+}
+
+export function deleteComment(
+  dataDir: string,
+  threadId: string,
+  commentId: string,
+): void {
+  if (!fs.existsSync(threadJsonPath(dataDir, threadId))) {
+    throw new NotFoundError(`thread ${threadId} not found`)
+  }
+
+  const comments = listComments(dataDir, threadId)
+  const target = comments.find((c) => c.id === commentId)
+  if (!target) {
+    throw new NotFoundError(`comment ${commentId} not found`)
+  }
+
+  const kept =
+    target.parent_id === null
+      ? comments.filter((c) => c.discussion_id !== target.discussion_id)
+      : comments.filter((c) => c.id !== target.id)
+
+  atomicRewriteJsonl(commentsPath(dataDir, threadId), kept)
 }
 
 function buildComment(input: {

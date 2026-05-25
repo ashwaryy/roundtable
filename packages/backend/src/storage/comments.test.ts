@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createThread } from './threads'
-import { listComments, addComment, addAgentComment } from './comments'
+import { listComments, addComment, addAgentComment, deleteComment } from './comments'
 import { NotFoundError } from './errors'
 
 let dataDir: string
@@ -109,5 +109,33 @@ describe('listComments', () => {
       'c001',
       'c002',
     ])
+  })
+})
+
+describe('deleteComment', () => {
+  it('deletes a reply without deleting the discussion root', () => {
+    const root = addComment(dataDir, 'thread-1', { body: 'root' })
+    const reply = addComment(dataDir, 'thread-1', {
+      body: 'reply',
+      reply_to: root.id,
+    })
+
+    deleteComment(dataDir, 'thread-1', reply.id)
+
+    expect(listComments(dataDir, 'thread-1').map((c) => c.id)).toEqual([root.id])
+  })
+
+  it('deletes a top-level discussion and its replies', () => {
+    const root = addComment(dataDir, 'thread-1', { body: 'root' })
+    addComment(dataDir, 'thread-1', { body: 'reply', reply_to: root.id })
+    const other = addComment(dataDir, 'thread-1', { body: 'other root' })
+
+    deleteComment(dataDir, 'thread-1', root.id)
+
+    expect(listComments(dataDir, 'thread-1').map((c) => c.id)).toEqual([other.id])
+  })
+
+  it('throws NotFoundError for a missing comment', () => {
+    expect(() => deleteComment(dataDir, 'thread-1', 'c999')).toThrow(NotFoundError)
   })
 })

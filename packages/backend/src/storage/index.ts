@@ -108,6 +108,8 @@ export function createStorage(
     },
     addComment: (threadId: string, input: CreateCommentInput): Comment =>
       mutate(threadId, () => comments.addComment(dataDir, threadId, input)),
+    deleteComment: (threadId: string, commentId: string): void =>
+      mutate(threadId, () => comments.deleteComment(dataDir, threadId, commentId)),
     listPendingDiscussions: (threadId: string): PendingDiscussion[] => {
       inspect(threadId)
       return pending.listPendingDiscussions(dataDir, threadId)
