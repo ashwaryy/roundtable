@@ -29,6 +29,7 @@ import type {
   StartAutoDiscussionInput,
   StartConsolidationInput,
   StartRoomInput,
+  SystemPromptSection,
   ThreadStatus,
   ThreadAgentInvite,
   AgentRuntime,
@@ -546,11 +547,7 @@ function codexRulesForCommand(
   return rules
 }
 
-function writeAgentPermissionSetup(
-  dataDir: string,
-  threadId: string,
-  rtkAvailable: boolean,
-): void {
+function claudeLocalSettings(hookPath: string, rtkAvailable: boolean): unknown {
   const readCommands = ['pwd', 'ls', 'cat', 'grep', 'sed', 'rg', 'read', 'head', 'tail']
   const workflowCommands = [
     'git status',
@@ -581,14 +578,8 @@ function writeAgentPermissionSetup(
     'npm exec',
     'npx',
   ]
-  const allowedBashCommands = [
-    ...readCommands,
-    ...workflowCommands,
-    ...helperCommands,
-  ].flatMap((command) => commandVariants(command, rtkAvailable))
-  const hookPath = writePreToolUseHook(dataDir, threadId, allowedBashCommands)
 
-  writeJsonFile(claudeLocalSettingsPath(dataDir, threadId), {
+  return {
     $schema: 'https://json.schemastore.org/claude-code-settings.json',
     permissions: {
       defaultMode: 'dontAsk',
@@ -648,11 +639,11 @@ function writeAgentPermissionSetup(
         },
       ],
     },
-  })
+  }
+}
 
-  writeTextFile(
-    codexProjectConfigPath(dataDir, threadId),
-    `approval_policy = "never"
+function codexProjectConfig(hookPath: string): string {
+  return `approval_policy = "never"
 sandbox_mode = "workspace-write"
 
 [sandbox_workspace_write]
@@ -664,9 +655,11 @@ domains = { "localhost" = "allow", "127.0.0.1" = "allow" }
 
 [hooks]
 PreToolUse = [{ matcher = "Bash", hooks = [{ type = "command", command = ${JSON.stringify(hookPath)}, timeout = 5 }] }]
-`,
-  )
+`
+}
 
+function codexRulesText(rtkAvailable: boolean): string {
+  const readCommands = ['pwd', 'ls', 'cat', 'grep', 'sed', 'rg', 'read', 'head', 'tail']
   const allowReason = 'Allowed for Roundtable agent room workflow'
   const forbidReason = 'Blocked by Roundtable because this mutates durable state or publishes externally'
   const codexRules = [
@@ -701,8 +694,43 @@ PreToolUse = [{ matcher = "Bash", hooks = [{ type = "command", command = ${JSON.
     ...codexRulesForCommand(['npm', 'publish'], rtkAvailable, 'forbidden', forbidReason),
     ...codexRulesForCommand(['npm', 'exec'], rtkAvailable, 'forbidden', forbidReason),
   ]
+  return `${codexRules.join('\n')}\n`
+}
 
-  writeTextFile(codexRulesPath(dataDir, threadId), `${codexRules.join('\n')}\n`)
+function writeAgentPermissionSetup(
+  dataDir: string,
+  threadId: string,
+  rtkAvailable: boolean,
+): void {
+  const readCommands = ['pwd', 'ls', 'cat', 'grep', 'sed', 'rg', 'read', 'head', 'tail']
+  const workflowCommands = [
+    'git status',
+    'git diff',
+    'npm test',
+    'npm run test',
+    'npm run typecheck',
+    'npm run build',
+    'npm run dev',
+  ]
+  const helperCommands = [
+    'roundtable ready',
+    'roundtable comment',
+    'roundtable pending-discussion',
+    'roundtable done',
+    'roundtable proposal',
+    'roundtable review',
+  ]
+  const allowedBashCommands = [
+    ...readCommands,
+    ...workflowCommands,
+    ...helperCommands,
+  ].flatMap((command) => commandVariants(command, rtkAvailable))
+  const hookPath = writePreToolUseHook(dataDir, threadId, allowedBashCommands)
+
+  writeJsonFile(claudeLocalSettingsPath(dataDir, threadId), claudeLocalSettings(hookPath, rtkAvailable))
+
+  writeTextFile(codexProjectConfigPath(dataDir, threadId), codexProjectConfig(hookPath))
+  writeTextFile(codexRulesPath(dataDir, threadId), codexRulesText(rtkAvailable))
 }
 
 function codexSandboxArgs(): string {
@@ -1215,6 +1243,171 @@ function buildTurnPrompt(job: BoundedJob): string {
 
 function turnPromptRelativePath(job: BoundedJob): string {
   return `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-turn.md`
+}
+
+function sampleJob(
+  id: string,
+  kind: BoundedJob['turn']['kind'],
+  overrides: Partial<BoundedJob['turn']> = {},
+): BoundedJob {
+  const timestamp = '2026-01-01T00:00:00.000Z'
+  const turn: BoundedJob['turn'] = {
+    id,
+    thread_id: 'thread-1',
+    agent: 'codex',
+    kind,
+    scope: 'thread',
+    discussion_id: null,
+    instructions: null,
+    proposal_id: kind.startsWith('proposal') ? 'consolidation-1' : null,
+    revision_id: kind === 'proposal_review' || kind === 'proposal_revision' ? 'rev-1' : null,
+    review_id: kind === 'proposal_revision' ? 'review-1' : null,
+    auto_revision_after_review: false,
+    allow_direct_roots: false,
+    pending_roots_only: false,
+    auto_run_id: null,
+    auto_turn_index: null,
+    created_at: timestamp,
+    timeout_at: timestamp,
+    ...overrides,
+  }
+  return {
+    id,
+    thread_id: 'thread-1',
+    kind: 'agent_turn',
+    status: 'running',
+    agent: turn.agent,
+    started_at: timestamp,
+    timeout_at: timestamp,
+    completed_at: null,
+    logs: [],
+    result: null,
+    failure_reason: null,
+    turn,
+  }
+}
+
+export function systemPromptSections(): SystemPromptSection[] {
+  const sampleInvite: ThreadAgentInvite = {
+    agent_id: 'agent-example',
+    name: 'Example Agent',
+    runtime: 'codex',
+    role_description: 'Roundtable discussion participant',
+    instructions: 'Example configured agent instructions appear here.',
+    model: null,
+    effort: null,
+    color: 'teal',
+    logo_url: null,
+    order: 0,
+  }
+  const promptFile = '.roundtable/agent-example-prompt.md'
+  const hookPath = '.roundtable/pretooluse-hook.js'
+
+  return [
+    {
+      id: 'startup-common',
+      title: 'Startup Prompt',
+      runtime: 'common',
+      kind: 'startup_prompt',
+      used_by: 'Written once per invited agent during room launch, then passed to Claude or Codex as `Read {promptFile} and follow it.`',
+      source: 'packages/backend/src/rooms/manager.ts:startupPrompt()',
+      notes: [
+        'This is shared by both runtimes.',
+        'Configured agent instructions are injected in this prompt as `Agent instructions: ...`.',
+      ],
+      content: startupPrompt(sampleInvite),
+    },
+    {
+      id: 'turn-comment',
+      title: 'Ask / Comment Turn Prompt',
+      runtime: 'common',
+      kind: 'turn_prompt',
+      used_by: 'Written to `.roundtable/tmp/{job}-{agent}-turn.md` for Ask, discussion reply, and auto-discussion turns.',
+      source: 'packages/backend/src/rooms/manager.ts:buildTurnPrompt()',
+      notes: ['The live prompt varies by discussion scope, auto-run policy, and user turn instructions.'],
+      content: buildTurnPrompt(sampleJob('job-001', 'comment')),
+    },
+    {
+      id: 'turn-proposal-draft',
+      title: 'Consolidation Draft Turn Prompt',
+      runtime: 'common',
+      kind: 'turn_prompt',
+      used_by: 'Written when Roundtable asks an agent to draft a proposed next thread.',
+      source: 'packages/backend/src/rooms/manager.ts:buildTurnPrompt()',
+      notes: ['Uses `.roundtable/tmp/consolidation-context.md` and submits with `roundtable proposal`.'],
+      content: buildTurnPrompt(sampleJob('job-002', 'proposal_draft')),
+    },
+    {
+      id: 'turn-proposal-review',
+      title: 'Consolidation Review Turn Prompt',
+      runtime: 'common',
+      kind: 'turn_prompt',
+      used_by: 'Written when Roundtable asks an agent to review a proposed derived thread.',
+      source: 'packages/backend/src/rooms/manager.ts:buildTurnPrompt()',
+      notes: ['Submits with `roundtable review`.'],
+      content: buildTurnPrompt(sampleJob('job-003', 'proposal_review')),
+    },
+    {
+      id: 'turn-proposal-revision',
+      title: 'Consolidation Revision Turn Prompt',
+      runtime: 'common',
+      kind: 'turn_prompt',
+      used_by: 'Written when Roundtable asks an agent to revise the proposed derived thread.',
+      source: 'packages/backend/src/rooms/manager.ts:buildTurnPrompt()',
+      notes: ['Submits the revised body with `roundtable proposal`.'],
+      content: buildTurnPrompt(sampleJob('job-004', 'proposal_revision')),
+    },
+    {
+      id: 'claude-launch',
+      title: 'Claude Launch Command',
+      runtime: 'claude',
+      kind: 'launch_command',
+      used_by: 'Written into the generated launch script for Claude runtime agents.',
+      source: 'packages/backend/src/rooms/manager.ts:cliCommand()',
+      notes: ['The prompt content is not embedded directly; Claude is told to read the generated prompt file.'],
+      content: cliCommand('claude', '<model-if-configured>', '<effort-if-configured>', promptFile),
+    },
+    {
+      id: 'claude-settings',
+      title: 'Claude Local Settings',
+      runtime: 'claude',
+      kind: 'runtime_config',
+      used_by: 'Written to `.claude/settings.local.json` inside each thread workspace.',
+      source: 'packages/backend/src/rooms/manager.ts:claudeLocalSettings()',
+      notes: ['Controls Claude tool permissions and installs the shared Bash PreToolUse hook.'],
+      content: JSON.stringify(claudeLocalSettings(hookPath, true), null, 2),
+    },
+    {
+      id: 'codex-launch',
+      title: 'Codex Launch Command',
+      runtime: 'codex',
+      kind: 'launch_command',
+      used_by: 'Written into the generated launch script for Codex runtime agents.',
+      source: 'packages/backend/src/rooms/manager.ts:cliCommand()',
+      notes: ['The prompt content is not embedded directly; Codex is told to read the generated prompt file.'],
+      content: cliCommand('codex', '<model-if-configured>', '<effort-if-configured>', promptFile),
+    },
+    {
+      id: 'codex-config',
+      title: 'Codex Project Config',
+      runtime: 'codex',
+      kind: 'runtime_config',
+      used_by: 'Written to `.codex/config.toml` inside each thread workspace.',
+      source: 'packages/backend/src/rooms/manager.ts:codexProjectConfig()',
+      notes: ['Sets workspace-write sandboxing, disables approvals, allows localhost network proxy, and installs the shared Bash PreToolUse hook.'],
+      content: codexProjectConfig(hookPath),
+    },
+    {
+      id: 'codex-rules',
+      title: 'Codex Rules',
+      runtime: 'codex',
+      kind: 'runtime_rules',
+      used_by: 'Written to `.codex/rules/default.rules` inside each thread workspace.',
+      source: 'packages/backend/src/rooms/manager.ts:codexRulesText()',
+      notes: ['Shows the rtk-enabled variant; rooms without rtk omit the mirrored `rtk ...` prefix rules.'],
+      content: codexRulesText(true),
+    },
+  ]
 }
 
 function createAgentTurnJob(input: {

@@ -30,6 +30,30 @@ describe('GET /api/health', () => {
   })
 })
 
+describe('GET /api/system/prompts', () => {
+  it('returns prompt and runtime configuration inventory', async () => {
+    const res = await request(app).get('/api/system/prompts')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'startup-common',
+          runtime: 'common',
+          content: expect.stringContaining('Agent instructions:'),
+        }),
+        expect.objectContaining({
+          id: 'claude-settings',
+          runtime: 'claude',
+        }),
+        expect.objectContaining({
+          id: 'codex-config',
+          runtime: 'codex',
+        }),
+      ]),
+    )
+  })
+})
+
 describe('agent catalogue and roster routes', () => {
   it('supports import JSON with generated ids and unique names', async () => {
     const first = await request(app).post('/api/agents/import-json').send({

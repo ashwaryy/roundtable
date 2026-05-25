@@ -155,6 +155,7 @@ export function ThreadListPage() {
       </div>
       <div className="spacer" />
       <div className="meta">
+        <Link className="btn" to="/system"><Icon name="file" className="ic-sm" /> System</Link>
         <Link className="btn" to="/agents"><Icon name="settings" className="ic-sm" /> Agents</Link>
         <ThemeToggle />
       </div>

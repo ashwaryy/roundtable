@@ -6054,6 +6054,114 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   justify-content: center;
   cursor: pointer;
 }
+
+/* System prompt inventory. */
+.system-page { gap: 24px; }
+.system-head { align-items: flex-start; }
+.system-description {
+  width: min(640px, 100%);
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.system-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: -16px;
+}
+.system-sections {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.system-section {
+  min-width: 0;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  padding: 18px;
+}
+.system-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+.system-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.system-kicker span {
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--muted-strong);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.system-meta-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.system-meta-list div {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+.system-meta-list dt {
+  color: var(--muted);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.system-meta-list dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.system-notes {
+  margin: 0 0 12px 18px;
+  padding: 0;
+  color: var(--muted-strong);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.system-code {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  max-height: 520px;
+  overflow: auto;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+.system-code code {
+  display: block;
+  min-width: max-content;
+}
 .agent-remove:hover {
   color: var(--bad);
   border-color: color-mix(in srgb, var(--bad) 38%, var(--rule));

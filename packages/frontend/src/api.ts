@@ -41,6 +41,7 @@ import type {
   ThreadAgentInvite,
   InviteAgentInput,
   UpdateThreadAgentInviteInput,
+  SystemPromptSection,
 } from '@roundtable/shared'
 
 export interface AgentTurnResult {
@@ -147,6 +148,10 @@ async function readJson<T>(url: string, attempt = 0): Promise<T> {
 
 export function listThreads(): Promise<ThreadListItem[]> {
   return readJson<ThreadListItem[]>('/api/threads')
+}
+
+export function listSystemPrompts(): Promise<SystemPromptSection[]> {
+  return readJson<SystemPromptSection[]>('/api/system/prompts')
 }
 
 export function createThread(input: CreateThreadInput): Promise<Thread> {

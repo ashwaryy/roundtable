@@ -45,7 +45,7 @@ import {
   NotFoundError,
   type Storage,
 } from './storage'
-import type { RoomManager } from './rooms/manager'
+import { systemPromptSections, type RoomManager } from './rooms/manager'
 import { openTerminalForTmux } from './terminal'
 
 const THREAD_ID_RE = /^thread-\d+$/
@@ -268,6 +268,10 @@ export function createApp(deps: {
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true })
+  })
+
+  app.get('/api/system/prompts', (_req, res) => {
+    res.json(systemPromptSections())
   })
 
   app.get('/api/agents', (_req, res) => {

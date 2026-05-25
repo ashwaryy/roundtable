@@ -448,6 +448,20 @@ export interface RoomPreflight {
   tools: Record<'tmux' | 'claude' | 'codex', RoomToolPreflight>
 }
 
+export type SystemPromptRuntime = 'common' | AgentRuntime
+export type SystemPromptKind = 'startup_prompt' | 'turn_prompt' | 'runtime_config' | 'runtime_rules' | 'launch_command'
+
+export interface SystemPromptSection {
+  id: string
+  title: string
+  runtime: SystemPromptRuntime
+  kind: SystemPromptKind
+  used_by: string
+  source: string
+  notes: string[]
+  content: string
+}
+
 export interface StartRoomInput {
   /** Legacy built-in override fields; roster APIs are preferred. */
   claude_model?: string | null
