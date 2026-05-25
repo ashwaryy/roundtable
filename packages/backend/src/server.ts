@@ -26,10 +26,10 @@ import {
   startRoomInputSchema,
   createAgentInputSchema,
   updateAgentInputSchema,
-  importAgentsInputSchema,
   inviteAgentInputSchema,
   updateThreadAgentInviteInputSchema,
   reorderThreadAgentsInputSchema,
+  type CreateAgentInput,
   type AgentRoom,
   type ConsolidationStatus,
   type RoundtableEvent,
@@ -104,6 +104,63 @@ function handleStorageError(err: unknown, res: express.Response): boolean {
     return true
   }
   return false
+}
+
+interface ValidationIssue {
+  path: Array<string | number>
+  message: string
+}
+
+function validationPayload(issues: ValidationIssue[]): {
+  formErrors: string[]
+  fieldErrors: Record<string, string[]>
+  issues: ValidationIssue[]
+} {
+  return {
+    formErrors: issues.filter((issue) => issue.path.length === 0).map((issue) => issue.message),
+    fieldErrors: {},
+    issues,
+  }
+}
+
+function parseImportAgentsInput(input: unknown): {
+  success: true
+  data: CreateAgentInput[]
+} | {
+  success: false
+  error: ReturnType<typeof validationPayload>
+} {
+  if (!Array.isArray(input)) {
+    const parsed = createAgentInputSchema.safeParse(input)
+    return parsed.success
+      ? { success: true, data: [parsed.data] }
+      : { success: false, error: validationPayload(parsed.error.issues) }
+  }
+
+  if (input.length < 1) {
+    return { success: false, error: validationPayload([{ path: [], message: 'import must contain at least one agent' }]) }
+  }
+  if (input.length > 50) {
+    return { success: false, error: validationPayload([{ path: [], message: 'import cannot contain more than 50 agents' }]) }
+  }
+
+  const agents: CreateAgentInput[] = []
+  const issues: ValidationIssue[] = []
+  input.forEach((agent, index) => {
+    const parsed = createAgentInputSchema.safeParse(agent)
+    if (parsed.success) {
+      agents.push(parsed.data)
+      return
+    }
+    issues.push(...parsed.error.issues.map((issue) => ({
+      path: [index, ...issue.path],
+      message: issue.message,
+    })))
+  })
+
+  return issues.length > 0
+    ? { success: false, error: validationPayload(issues) }
+    : { success: true, data: agents }
 }
 
 function bearerToken(req: express.Request): string | null {
@@ -234,10 +291,9 @@ export function createApp(deps: {
         return res.status(400).json({ error: 'json must contain valid JSON' })
       }
     }
-    const parsed = importAgentsInputSchema.safeParse(input)
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
-    const imported = (Array.isArray(parsed.data) ? parsed.data : [parsed.data])
-      .map((agent) => storage.createAgent(agent))
+    const parsed = parseImportAgentsInput(input)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error })
+    const imported = parsed.data.map((agent) => storage.createAgent(agent))
     broadcast({ type: 'agents_updated' })
     res.status(201).json(imported)
   })

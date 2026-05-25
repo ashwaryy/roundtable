@@ -56,9 +56,66 @@ export interface AgentTurnSubmission extends AgentTurnResult {
   comment: Comment
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function formatUnknownError(value: unknown): string | null {
+  if (typeof value === 'string') return value
+  if (!isRecord(value)) return null
+
+  const details: string[] = []
+  const issues = value.issues
+  if (Array.isArray(issues)) {
+    for (const issue of issues) {
+      if (!isRecord(issue) || typeof issue.message !== 'string') continue
+      const rawPath = issue.path
+      const path = Array.isArray(rawPath) ? rawPath.join('.') : typeof rawPath === 'string' ? rawPath : ''
+      details.push(path ? `${path}: ${issue.message}` : issue.message)
+    }
+  }
+
+  const fieldErrors = value.fieldErrors
+  if (isRecord(fieldErrors)) {
+    for (const [field, messages] of Object.entries(fieldErrors)) {
+      if (Array.isArray(messages)) {
+        for (const message of messages) {
+          if (typeof message === 'string') details.push(`${field}: ${message}`)
+        }
+      }
+    }
+  }
+
+  const formErrors = value.formErrors
+  if (Array.isArray(formErrors)) {
+    for (const message of formErrors) {
+      if (typeof message === 'string') details.push(message)
+    }
+  }
+
+  if (details.length > 0) return [...new Set(details)].join('; ')
+  return typeof value.message === 'string' ? value.message : null
+}
+
+async function errorMessage(res: Response): Promise<string> {
+  const fallback = `request failed: ${res.status}`
+  const body = await res.text()
+  if (!body) return fallback
+  try {
+    const payload = JSON.parse(body) as unknown
+    if (isRecord(payload)) {
+      const formatted = formatUnknownError(payload.error)
+      if (formatted) return formatted
+    }
+  } catch {
+    return body
+  }
+  return fallback
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    throw new Error(`request failed: ${res.status}`)
+    throw new Error(await errorMessage(res))
   }
   return res.json() as Promise<T>
 }

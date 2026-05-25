@@ -43,6 +43,17 @@ describe('agent catalogue and roster routes', () => {
     expect(second.body[0].name).toBe('Architect (2)')
   })
 
+  it('returns explicit import JSON validation errors', async () => {
+    const res = await request(app).post('/api/agents/import-json').send({
+      json: JSON.stringify([{ name: 'Broken', runtime: 'bogus' }]),
+    })
+
+    expect(res.status).toBe(400)
+    expect(res.body.error.issues).toEqual([
+      expect.objectContaining({ path: [0, 'runtime'] }),
+    ])
+  })
+
   it('lists, adds, overrides, reorders, and removes thread invites', async () => {
     const agent = (await request(app).post('/api/agents').send({
       name: 'Reviewer', runtime: 'claude', color: 'blue',

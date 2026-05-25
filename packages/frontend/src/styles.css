@@ -1516,6 +1516,36 @@ article + ul article { background: var(--surface); }
 }
 .details-drawer__title { font-size: 0.875rem; font-weight: 700; color: var(--text-2); }
 
+/* ── Modal ───────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(28, 25, 23, 0.42);
+  animation: fade-in 0.15s ease-out;
+}
+.modal-panel {
+  width: min(560px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--rule-strong);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(28, 25, 23, 0.24);
+  padding: 18px;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.modal-head .h-2 { margin: 0; }
+
 /* ── Saved outputs section ───────────────────────────────────── */
 .saved-outputs-section {
   flex-shrink: 0;
@@ -5900,18 +5930,24 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .swatch.selected { outline: 2px solid var(--ink); outline-offset: 2px; }
 .color-picker { display: flex; gap: 10px; padding: 6px 0; }
 .agents-page { gap: 28px; }
-.agents-head { align-items: center; }
+.agents-head { align-items: flex-start; }
 .agents-description {
-  width: min(390px, 100%);
-  margin: 0 0 4px;
+  width: min(520px, 100%);
+  margin: 8px 0 0;
   color: var(--muted);
   font-family: 'IBM Plex Sans', system-ui, sans-serif;
   font-size: 13px;
   line-height: 1.55;
 }
+.agents-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .agents-layout {
   display: grid;
-  grid-template-columns: minmax(360px, 1.15fr) minmax(320px, .85fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -5954,14 +5990,33 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .agents-form-panel > .h-2 { margin-bottom: 16px; }
 .agents-page .rail-form { padding: 0; gap: 10px; }
 .agents-page .textarea { min-height: 82px; }
+.agents-form-dialog .rail-form { padding: 0; gap: 10px; }
+.agents-form-dialog .textarea { min-height: 120px; }
 .agents-import {
   display: grid;
   gap: 10px;
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid var(--rule);
 }
 .agents-import .h-2 { margin-bottom: 2px; }
+.agents-import-dialog .textarea { min-height: 260px; }
+.agents-import-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.import-option {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--ink);
+  border-radius: 7px;
+  background: var(--ink);
+  color: var(--bg);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+}
 .agents-import-actions {
   display: flex;
   flex-wrap: wrap;

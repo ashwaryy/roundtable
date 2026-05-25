@@ -20,10 +20,25 @@ export function AgentsPage() {
   const [effort, setEffort] = useState('')
   const [color, setColor] = useState<AgentColorPreset>('blue')
   const [importText, setImportText] = useState('')
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   function refresh() { listAgents().then(setAgents).catch((err) => setError(String(err))) }
   useEffect(refresh, [])
+  useEffect(() => {
+    if (!importOpen && !agentDialogOpen) return undefined
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      if (importOpen) {
+        setImportOpen(false)
+        return
+      }
+      setAgentDialogOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [agentDialogOpen, importOpen])
 
   function clearForm() {
     setFormVersion((version) => version + 1)
@@ -47,6 +62,8 @@ export function AgentsPage() {
     setEffort(agent.effort ?? '')
     setColor(agent.color)
     setError(null)
+    setImportOpen(false)
+    setAgentDialogOpen(true)
   }
 
   async function submit(event: FormEvent) {
@@ -60,6 +77,7 @@ export function AgentsPage() {
         await createAgent(input)
       }
       clearForm()
+      setAgentDialogOpen(false)
       refresh()
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
   }
@@ -75,11 +93,35 @@ export function AgentsPage() {
   }
 
   async function doImport() {
+    setError(null)
     try {
       await importAgents(importText)
       setImportText('')
+      setImportOpen(false)
       refresh()
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setError(`Import failed: ${message}`)
+    }
+  }
+
+  function openImport() {
+    setError(null)
+    setAgentDialogOpen(false)
+    setImportOpen(true)
+  }
+
+  function openCreateAgent() {
+    clearForm()
+    setError(null)
+    setImportOpen(false)
+    setAgentDialogOpen(true)
+  }
+
+  function closeAgentDialog() {
+    clearForm()
+    setError(null)
+    setAgentDialogOpen(false)
   }
 
   return (
@@ -103,10 +145,20 @@ export function AgentsPage() {
           <div>
             <div className="eyebrow tight">Configuration</div>
             <h1 className="h-display">Agents.</h1>
+            <p className="agents-description">
+              Define the AI commenters available for your threads and the roles they bring to a discussion.
+            </p>
           </div>
-          <p className="agents-description">
-            Define the AI commenters available for your threads and the roles they bring to a discussion.
-          </p>
+          <div className="agents-head-actions">
+            <button className="btn primary" type="button" onClick={openCreateAgent}>
+              <Icon name="plus" className="ic-sm" />
+              Create Agent
+            </button>
+            <button className="btn" type="button" onClick={openImport}>
+              <Icon name="file" className="ic-sm" />
+              Import Agent(s)
+            </button>
+          </div>
         </header>
         <div className="agents-layout">
           <section className="panel agents-catalogue-panel">
@@ -133,8 +185,24 @@ export function AgentsPage() {
               ))}
             </div>
           </section>
-          <section className="panel agents-form-panel">
-            <h2 className="h-2">{editingId ? 'Edit agent' : 'New agent'}</h2>
+          {error && !importOpen && !agentDialogOpen ? <p className="agents-error" role="alert">{error}</p> : null}
+        </div>
+      </main>
+      {agentDialogOpen ? (
+        <div className="modal-overlay" onClick={closeAgentDialog}>
+          <section
+            className="modal-panel agents-form-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="agents-form-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2 className="h-2" id="agents-form-title">{editingId ? 'Edit agent' : 'Create agent'}</h2>
+              <button className="btn icon" type="button" aria-label="Close agent dialog" onClick={closeAgentDialog}>
+                <Icon name="close" className="ic-sm" />
+              </button>
+            </div>
             <form className="rail-form" onSubmit={submit}>
               <input className="input" required placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} />
               <select className="input" value={runtime} onChange={(e) => setRuntime(e.target.value as AgentRuntime)}>
@@ -150,13 +218,42 @@ export function AgentsPage() {
               <div className="pending-actions">
                 <button className="btn primary" type="submit">
                   <Icon name={editingId ? 'check' : 'plus'} className="ic-sm" />
-                  {editingId ? 'Save agent' : 'Add agent'}
+                  {editingId ? 'Save agent' : 'Create agent'}
                 </button>
-                {editingId ? <button className="btn" type="button" onClick={clearForm}>Cancel</button> : null}
+                <button className="btn" type="button" onClick={closeAgentDialog}>Cancel</button>
               </div>
             </form>
+            {error ? <p className="agents-error" role="alert">{error}</p> : null}
+          </section>
+        </div>
+      ) : null}
+      {importOpen ? (
+        <div className="modal-overlay" onClick={() => setImportOpen(false)}>
+          <section
+            className="modal-panel agents-import-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="agents-import-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2 className="h-2" id="agents-import-title">Import JSON</h2>
+              <button className="btn icon" type="button" aria-label="Close import dialog" onClick={() => setImportOpen(false)}>
+                <Icon name="close" className="ic-sm" />
+              </button>
+            </div>
             <div className="agents-import">
-              <h2 className="h-2">Import JSON</h2>
+              <div className="agents-import-options" aria-label="Import JSON options">
+                <span className="import-option active">Paste</span>
+                <a className="btn" href="/agent-import.sample.json" download>
+                  <Icon name="file" className="ic-sm" />
+                  Sample
+                </a>
+                <a className="btn" href="/agent-import.schema.json" download>
+                  <Icon name="file" className="ic-sm" />
+                  Schema
+                </a>
+              </div>
               <textarea
                 className="textarea"
                 placeholder={`[
@@ -176,20 +273,12 @@ export function AgentsPage() {
               />
               <div className="agents-import-actions">
                 <button type="button" className="btn" disabled={!importText.trim()} onClick={doImport}>Import</button>
-                <a className="btn" href="/agent-import.sample.json" download>
-                  <Icon name="file" className="ic-sm" />
-                  Sample
-                </a>
-                <a className="btn" href="/agent-import.schema.json" download>
-                  <Icon name="file" className="ic-sm" />
-                  Schema
-                </a>
               </div>
             </div>
             {error ? <p className="agents-error" role="alert">{error}</p> : null}
           </section>
         </div>
-      </main>
+      ) : null}
     </>
   )
 }
