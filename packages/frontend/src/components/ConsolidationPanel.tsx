@@ -3,24 +3,38 @@ import { Link } from 'react-router-dom'
 import type {
   AgentName,
   AgentRoom,
+  BoundedJob,
+  ConsolidationDetail,
   ConsolidationProposal,
+  ThreadStatus,
 } from '@roundtable/shared'
 import {
   finishAndStartConsolidation,
   startConsolidation,
 } from '../api'
 import { Icon, StatusPill } from './primitives'
+import {
+  CONSOLIDATION_STEPS,
+  buildConsolidationUiState,
+  isActiveProposal,
+} from '../lib/consolidationUi'
 
 export function ConsolidationPanel({
   threadId,
+  threadStatus,
   room,
   proposals,
+  jobs,
+  activeDetail,
   summary,
   onUpdate,
 }: {
   threadId: string
+  threadStatus: ThreadStatus
   room: AgentRoom | null
   proposals: ConsolidationProposal[]
+  jobs: BoundedJob[]
+  activeDetail: ConsolidationDetail | null
   summary?: string
   onUpdate: () => void
 }) {
@@ -30,6 +44,7 @@ export function ConsolidationPanel({
   const [instructions, setInstructions] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [finishRequested, setFinishRequested] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const readyAgents = room?.roster.filter((persona) => room.agents[persona.agent_id]?.ready_at) ?? []
 
   const roomReady =
@@ -103,74 +118,125 @@ export function ConsolidationPanel({
     }
   }
 
-  const active = proposals.find((proposal) => proposal.status === 'drafting' || proposal.status === 'review')
+  const active = proposals.find(isActiveProposal)
+  const latest = proposals[proposals.length - 1] ?? null
+  const shownProposal = active ?? latest
+  const uiState = buildConsolidationUiState({
+    proposals,
+    jobs,
+    detail: activeDetail,
+    proposal: shownProposal,
+  })
+  const history = proposals.filter((proposal) => proposal.id !== shownProposal?.id).slice().reverse()
+  const canCreateOutcome = threadStatus === 'open'
+  const outcomeLink = shownProposal?.status === 'saved' && shownProposal.saved_artifact_id
+    ? {
+        to: `/saved/${shownProposal.saved_artifact_id}`,
+        label: 'View saved output',
+      }
+    : shownProposal?.status === 'applied' && shownProposal.applied_thread_id
+      ? {
+          to: `/threads/${shownProposal.applied_thread_id}`,
+          label: 'Open next thread',
+        }
+      : shownProposal
+        ? {
+            to: `/threads/${threadId}/consolidations/${shownProposal.id}`,
+            label: uiState.isReady ? 'Review outcome' : uiState.isTerminal ? 'View outcome' : 'View draft',
+          }
+        : null
 
   return (
     <div className="rail-form">
       <div className="rail-hint" style={{ padding: 0 }}>
-        When the discussion is useful, consolidate it into a proposed next thread for you to review.
+        Turn approved discussion into a reviewable outcome.
         {summary ? ` Current state: ${summary}.` : ''}
       </div>
 
-      {active ? (
+      {shownProposal ? (
         <div className="proposal-card">
           <div className="proposal-card-head">
             <Icon name="file" className="ic-sm" />
-            <span style={{ fontWeight: 600 }}>{active.summary || active.id}</span>
-            <StatusPill status="consolidating" label={active.status} />
+            <span style={{ fontWeight: 600 }}>{shownProposal.summary || shownProposal.id}</span>
+            <StatusPill status={uiState.isTerminal ? 'closed' : 'consolidating'} label={uiState.label} />
           </div>
-          <div className="proposal-card-body">
-            Drafter: <b>{active.drafter_agent}</b> · Reviewer: <b>{active.reviewer_agent}</b>
-          </div>
+          <div className="proposal-card-body">{uiState.helper}</div>
+          {!uiState.isTerminal ? (
+            <div className="outcome-steps outcome-steps--rail">
+              {CONSOLIDATION_STEPS.map((step) => (
+                <span
+                  key={step.phase}
+                  className="outcome-step"
+                  data-active={uiState.phase === step.phase ? '1' : '0'}
+                >
+                  {step.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
           <div className="pending-actions">
-            <Link className="btn sm primary" to={`/threads/${threadId}/consolidations/${active.id}`}>
-              <Icon name="eye" className="ic-sm" /> Open review
-            </Link>
+            {uiState.canOpenDraft && outcomeLink ? (
+              <Link className="btn sm primary" to={outcomeLink.to}>
+                <Icon name="eye" className="ic-sm" /> {outcomeLink.label}
+              </Link>
+            ) : (
+              <span className="outcome-waiting">Draft not ready yet</span>
+            )}
           </div>
         </div>
-      ) : (
+      ) : canCreateOutcome ? (
         <form onSubmit={submit} className="rail-form" style={{ padding: 0 }}>
-          <div className="rail-row three">
-            <div className="rail-mini">
-              <label>Drafter</label>
-              <select className="rail-input" value={drafter} onChange={(event) => setDrafter(event.target.value as AgentName)}>
-                {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
-              </select>
-            </div>
-            <div className="rail-mini">
-              <label>Reviewer</label>
-              <select className="rail-input" value={reviewer} onChange={(event) => setReviewer(event.target.value as AgentName)}>
-                {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
-              </select>
-            </div>
-            <div className="rail-mini">
-              <label>Reviser</label>
-              <select className="rail-input" value={reviser} onChange={(event) => setReviser(event.target.value as AgentName)}>
-                {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
-              </select>
-            </div>
-          </div>
           <textarea
             className="rail-input rail-textarea"
             value={instructions}
             onChange={(event) => setInstructions(event.target.value)}
-            placeholder="Optional consolidation instructions"
+            placeholder="Optional outcome instructions"
           />
+          <button
+            type="button"
+            className="btn sm ghost"
+            onClick={() => setAdvancedOpen((value) => !value)}
+          >
+            <Icon name={advancedOpen ? 'chevronU' : 'chevronD'} className="ic-sm" />
+            Advanced agent roles
+          </button>
+          {advancedOpen ? (
+            <div className="rail-row three">
+              <div className="rail-mini">
+                <label>Drafter</label>
+                <select className="rail-input" value={drafter} onChange={(event) => setDrafter(event.target.value as AgentName)}>
+                  {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
+                </select>
+              </div>
+              <div className="rail-mini">
+                <label>Reviewer</label>
+                <select className="rail-input" value={reviewer} onChange={(event) => setReviewer(event.target.value as AgentName)}>
+                  {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
+                </select>
+              </div>
+              <div className="rail-mini">
+                <label>Reviser</label>
+                <select className="rail-input" value={reviser} onChange={(event) => setReviser(event.target.value as AgentName)}>
+                  {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
+                </select>
+              </div>
+            </div>
+          ) : null}
           <div className="pending-actions">
             <button type="submit" className="btn primary" disabled={!canStart} style={{ flex: 1 }}>
-              <Icon name="play" className="ic-sm" /> Consolidate
+              <Icon name="play" className="ic-sm" /> Create outcome
             </button>
             <button type="button" className="btn" onClick={finishAndConsolidate} disabled={finishButtonDisabled}>
-              {consolidationRequested ? 'Requested' : 'Finish & Consolidate'}
+              {consolidationRequested ? 'Requested' : 'Finish & create'}
             </button>
           </div>
         </form>
-      )}
+      ) : null}
 
-      {proposals.length > 0 ? (
+      {history.length > 0 ? (
         <div className="proposal-history">
-          <div className="rail-hint" style={{ padding: 0 }}>Past proposals</div>
-          {proposals.map((proposal) => (
+          <div className="rail-hint" style={{ padding: 0 }}>Outcome history</div>
+          {history.map((proposal) => (
             <div key={proposal.id} className="proposal-row">
               <Link to={`/threads/${threadId}/consolidations/${proposal.id}`} className="mono" style={{ fontSize: 11 }}>
                 {proposal.id}

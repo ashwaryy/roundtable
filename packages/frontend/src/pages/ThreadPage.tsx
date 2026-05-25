@@ -12,6 +12,7 @@ import type {
   RoomPreflight,
   ThreadContext,
   AgentName,
+  ConsolidationDetail,
   ConsolidationProposal,
   IntegrityReport,
   SavedConsolidation,
@@ -57,12 +58,12 @@ import {
   readStoredBoolean,
   writeStoredBoolean,
 } from '../lib/uiStorage'
+import {
+  buildConsolidationUiState,
+  isActiveProposal,
+} from '../lib/consolidationUi'
 
 // ── Helpers ────────────────────────────────────────────────────
-
-function isActiveProposal(p: ConsolidationProposal) {
-  return p.status === 'drafting' || p.status === 'review'
-}
 
 function displayStatusFor(
   thread: ThreadDetail,
@@ -229,6 +230,8 @@ function SideRailContent({
   threadContext,
   snapshotReports,
   proposals,
+  jobs,
+  activeConsolidationDetail,
   integrity,
   displayStatus,
   emphasizedSection,
@@ -247,6 +250,8 @@ function SideRailContent({
   threadContext: ThreadContext | null
   snapshotReports: SnapshotReport[]
   proposals: ConsolidationProposal[]
+  jobs: BoundedJob[]
+  activeConsolidationDetail: ConsolidationDetail | null
   integrity: IntegrityReport | null
   displayStatus: ThreadDisplayStatus
   emphasizedSection: string | null
@@ -284,18 +289,21 @@ function SideRailContent({
         />
       </div>
 
-      {thread.status === 'open' ? (
+      {thread.status === 'open' || proposals.length > 0 ? (
         <RailSection
-          label="Consolidate"
+          label="Discussion outcome"
           defaultOpen={displayStatus === 'consolidating'}
           storageKey="roundtable.railSection.consolidate"
-          right={proposals.length > 0 ? <span className="rail-section-count">{proposals.length} past</span> : null}
+          right={proposals.length > 0 ? <span className="rail-section-count">{proposals.length}</span> : null}
         >
           <div className={emphasizedSection === 'consolidation' ? 'sidebar-section--active' : ''}>
           <ConsolidationPanel
             threadId={thread.id}
+            threadStatus={thread.status}
             room={room}
             proposals={proposals}
+            jobs={jobs}
+            activeDetail={activeConsolidationDetail}
             summary={consolidationSummary}
             onUpdate={onUpdate}
           />
@@ -353,6 +361,8 @@ export function ThreadPage() {
   const [snapshotReports, setSnapshotReports] = useState<SnapshotReport[]>([])
   const [sourceThread, setSourceThread] = useState<ThreadDetail | null>(null)
   const [sourceProposal, setSourceProposal] = useState<ConsolidationProposal | null>(null)
+  const [activeConsolidationDetail, setActiveConsolidationDetail] =
+    useState<ConsolidationDetail | null>(null)
 
   // Layout state
   const [bodyCollapsed, setBodyCollapsed] = useState(false)
@@ -431,6 +441,19 @@ export function ThreadPage() {
       .then((d) => setSourceProposal(d.proposal))
       .catch(() => setSourceProposal(null))
   }, [thread?.created_from_consolidation_id, thread?.parent_thread_id])
+
+  const activeProposal = proposals.find(isActiveProposal)
+  const selectedOutcomeProposal = activeProposal ?? proposals[proposals.length - 1] ?? null
+
+  useEffect(() => {
+    if (!id || !selectedOutcomeProposal) {
+      setActiveConsolidationDetail(null)
+      return
+    }
+    getConsolidation(id, selectedOutcomeProposal.id)
+      .then(setActiveConsolidationDetail)
+      .catch(() => setActiveConsolidationDetail(null))
+  }, [selectedOutcomeProposal?.id, selectedOutcomeProposal?.updated_at, id])
 
   const onEvent = useCallback(
     (event: RoundtableEvent) => {
@@ -533,13 +556,17 @@ export function ThreadPage() {
     : null
 
   const contextChip = contextSummary(threadContext)
-  const activeProposal = proposals.find(isActiveProposal)
+  const consolidationUi = buildConsolidationUiState({
+    proposals,
+    jobs,
+    detail: activeConsolidationDetail,
+    proposal: selectedOutcomeProposal,
+  })
   const roomSummary = room?.status ? room.status.replaceAll('_', ' ') : 'loading'
   const consolidationSummary = activeProposal
-    ? activeProposal.status
+    ? consolidationUi.label.toLowerCase()
     : proposals.length > 0 ? `${proposals.length} total` : 'none'
   const primarySavedOutput = savedOutputs[0] ?? null
-
   const pendingCount = pendingDiscussions.length
   const commentCount = comments.length
   const threadCount = comments.filter((c) => !c.parent_id).length
@@ -551,6 +578,8 @@ export function ThreadPage() {
     threadContext,
     snapshotReports,
     proposals,
+    jobs,
+    activeConsolidationDetail,
     integrity,
     displayStatus,
     emphasizedSection,

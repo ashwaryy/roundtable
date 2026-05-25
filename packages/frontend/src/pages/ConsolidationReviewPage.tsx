@@ -1,20 +1,20 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type {
   AgentName,
-  Comment,
   ConsolidationDetail,
   RoundtableEvent,
   ThreadDetail,
   AgentRoom,
+  BoundedJob,
 } from '@roundtable/shared'
 import {
   getConsolidation,
   getThread,
   getRoom,
-  listComments,
+  listJobs,
   rejectProposal,
   requestProposalReview,
   requestProposalRevision,
@@ -23,26 +23,70 @@ import {
   startNextIteration,
 } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
+import { Icon } from '../components/primitives'
+import { ThemeToggle } from '../components/ThemeToggle'
+import {
+  CONSOLIDATION_STEPS,
+  buildConsolidationUiState,
+} from '../lib/consolidationUi'
+import {
+  readStoredBoolean,
+  writeStoredBoolean,
+} from '../lib/uiStorage'
+
+const REVIEW_RAIL_COLLAPSED_STORAGE_KEY = 'roundtable.reviewRailCollapsed'
+
+function RailSection({
+  label,
+  count,
+  defaultOpen = true,
+  children,
+}: {
+  label: string
+  count?: number
+  defaultOpen?: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+
+  return (
+    <section className="rail-section" data-open={open ? '1' : '0'}>
+      <button type="button" className="rail-section-head" onClick={() => setOpen((value) => !value)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="lbl">{label}</span>
+          {count != null ? <span className="rail-section-count">{count}</span> : null}
+        </div>
+        <Icon name="chevronD" className="ic-sm chev" />
+      </button>
+      <div className="rail-section-body">{children}</div>
+    </section>
+  )
+}
 
 export function ConsolidationReviewPage() {
   const { id, proposalId } = useParams<{ id: string; proposalId: string }>()
   const navigate = useNavigate()
   const [thread, setThread] = useState<ThreadDetail | null>(null)
-  const [comments, setComments] = useState<Comment[]>([])
   const [detail, setDetail] = useState<ConsolidationDetail | null>(null)
   const [room, setRoom] = useState<AgentRoom | null>(null)
+  const [jobs, setJobs] = useState<BoundedJob[]>([])
   const [body, setBody] = useState('')
   const [reviewInstructions, setReviewInstructions] = useState('')
   const [revisionInstructions, setRevisionInstructions] = useState('')
   const [reviewer, setReviewer] = useState<AgentName>('claude')
   const [reviser, setReviser] = useState<AgentName>('codex')
   const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [railCollapsed, setRailCollapsed] = useState(() =>
+    readStoredBoolean(REVIEW_RAIL_COLLAPSED_STORAGE_KEY, false),
+  )
 
   const refresh = useCallback(() => {
     if (!id || !proposalId) return
     getThread(id).then(setThread)
     getRoom(id).then(setRoom)
-    listComments(id).then(setComments)
+    listJobs(id).then(setJobs)
     getConsolidation(id, proposalId).then((next) => {
       setDetail(next)
       setBody(next.latest_body ?? '')
@@ -55,7 +99,11 @@ export function ConsolidationReviewPage() {
     refresh()
   }, [refresh])
 
-  useLiveRefresh(
+  useEffect(() => {
+    writeStoredBoolean(REVIEW_RAIL_COLLAPSED_STORAGE_KEY, railCollapsed)
+  }, [railCollapsed])
+
+  const backendStatus = useLiveRefresh(
     useCallback(
       (event: RoundtableEvent) => {
         if (!('thread_id' in event) || event.thread_id !== id) return
@@ -75,6 +123,7 @@ export function ConsolidationReviewPage() {
     setError(null)
     try {
       await saveProposalRevision(id, proposalId, { body })
+      setEditing(false)
       refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -148,124 +197,235 @@ export function ConsolidationReviewPage() {
   if (!thread || !detail) return <p>Loading...</p>
 
   const proposal = detail.proposal
+  const uiState = buildConsolidationUiState({
+    proposals: [proposal],
+    jobs,
+    detail,
+    proposal,
+  })
   const locked =
     proposal.status === 'applied' ||
     proposal.status === 'saved' ||
     proposal.status === 'rejected'
+  const busy = uiState.isRunning
+  const readyForDecision = !locked && !busy && Boolean(body.trim())
+  const readyAgents = (room?.roster ?? []).filter((agent) => room?.agents[agent.agent_id]?.ready_at)
+  const backendStatusLabel = `Backend ${backendStatus}`
 
   return (
-    <main className="page-shell">
-      <header className="page-header">
-        <div>
-          <Link to={`/threads/${thread.id}`} className="back-link">
-            Back to thread
-          </Link>
-          <h1>{proposal.id}</h1>
+    <div
+      className="workspace-root consolidation-review-workspace"
+      style={{ '--sidebar-w': railCollapsed ? '52px' : '340px' } as CSSProperties}
+    >
+      <header className="workspace-header" aria-label="outcome review header">
+        <Link to={`/threads/${thread.id}`} className="workspace-back" aria-label="Back to thread" title="Back to thread">
+          <Icon name="arrowLeft" className="ic" />
+        </Link>
+
+        <Link to="/" className="workspace-brand" aria-label="Roundtable home">
+          <span
+            className="workspace-brand__dot"
+            data-backend-status={backendStatus}
+            aria-label={backendStatusLabel}
+            title={backendStatusLabel}
+          />
+          <span>Roundtable</span>
+        </Link>
+
+        <div className="workspace-header__title">
+          <div className="workspace-crumbs">
+            <Link to="/">threads</Link>
+            <span>/</span>
+            <Link to={`/threads/${thread.id}`}>thread.md</Link>
+            <span>/</span>
+            <strong>Discussion outcome</strong>
+          </div>
         </div>
-        <span className={`status-pill status-pill--${proposal.status}`}>{proposal.status}</span>
+
+        <div className="workspace-header__badges">
+          <span className={`status-pill status-pill--${proposal.status}`}>{uiState.label}</span>
+          <ThemeToggle />
+        </div>
       </header>
 
-      <div className="review-layout">
-        <section className="panel">
-          <h2>Current Thread</h2>
-          <Markdown remarkPlugins={[remarkGfm]}>{thread.body}</Markdown>
-          <h2>Approved Discussion</h2>
-          <ul>
-            {comments.map((comment) => (
-              <li key={comment.id}>
-                {comment.id} {comment.author}:
-                <Markdown remarkPlugins={[remarkGfm]}>{comment.body}</Markdown>
-              </li>
-            ))}
-          </ul>
-        </section>
+      <div className="workspace-body">
+        <main className="workspace-main consolidation-review-main" aria-label="discussion outcome review">
+          <div className="thread-body-section">
+            <section className="source review-source">
+              {!uiState.isTerminal ? (
+                <div className="outcome-steps">
+                  {CONSOLIDATION_STEPS.map((step) => (
+                    <span
+                      key={step.phase}
+                      className="outcome-step"
+                      data-active={uiState.phase === step.phase ? '1' : '0'}
+                    >
+                      {step.label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
 
-        <section className="panel">
-          <div className="section-heading">
-            <h2>Proposed Thread</h2>
-            <span>{detail.revisions.length} revisions</span>
-          </div>
-          <form onSubmit={saveRevision}>
-            <textarea
-              className="proposal-editor"
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              disabled={locked}
-            />
-            <button type="submit" disabled={locked || !body.trim()}>
-              Save Revision
-            </button>
-          </form>
+              {editing ? (
+                <form onSubmit={saveRevision} className="proposal-edit-form">
+                  <textarea
+                    className="proposal-editor"
+                    value={body}
+                    onChange={(event) => setBody(event.target.value)}
+                    disabled={locked || busy}
+                  />
+                  <div className="inline-actions">
+                    <button type="submit" className="btn primary" disabled={locked || busy || !body.trim()}>
+                      Save revision
+                    </button>
+                    <button type="button" className="btn" onClick={() => {
+                      setBody(detail.latest_body ?? '')
+                      setEditing(false)
+                    }}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="source-body proposal-preview">
+                  {body.trim() ? (
+                    <Markdown remarkPlugins={[remarkGfm]}>{body}</Markdown>
+                  ) : (
+                    <p className="empty-state">The draft has not been submitted yet.</p>
+                  )}
+                </div>
+              )}
 
-          <h2>Latest Review</h2>
-          <pre>{detail.latest_review_body ?? 'No review yet.'}</pre>
-
-          <div className="proposal-actions">
-            <label>
-              Reviewer
-              <select
-                value={reviewer}
-                onChange={(event) => setReviewer(event.target.value as AgentName)}
-                disabled={locked}
-              >
-                {(room?.roster ?? []).filter((agent) => room?.agents[agent.agent_id]?.ready_at).map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
-              </select>
-            </label>
-            <label>
-              Reviser
-              <select
-                value={reviser}
-                onChange={(event) => setReviser(event.target.value as AgentName)}
-                disabled={locked}
-              >
-                {(room?.roster ?? []).filter((agent) => room?.agents[agent.agent_id]?.ready_at).map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
-              </select>
-            </label>
-            <label>
-              Review instructions
-              <input
-                value={reviewInstructions}
-                onChange={(event) => setReviewInstructions(event.target.value)}
-                disabled={locked}
-              />
-            </label>
-            <button type="button" onClick={askReview} disabled={locked}>
-              Ask Reviewer
-            </button>
-            <label>
-              Revision instructions
-              <input
-                value={revisionInstructions}
-                onChange={(event) => setRevisionInstructions(event.target.value)}
-                disabled={locked}
-              />
-            </label>
-            <button type="button" onClick={askRevision} disabled={locked}>
-              Ask Reviser
-            </button>
+              <div className="source-foot review-source-foot">
+                {!editing ? (
+                  <button type="button" className="btn sm ghost" onClick={() => setEditing(true)} disabled={locked || busy || !body.trim()}>
+                    Edit draft
+                  </button>
+                ) : null}
+                {busy ? <span className="review-muted">Editing unlocks when the current agent pass finishes.</span> : null}
+                <span className="spacer" />
+                {locked ? null : (
+                  <>
+                    <button type="button" className="btn sm primary" onClick={nextIteration} disabled={!readyForDecision}>
+                      Start next thread
+                    </button>
+                    <button type="button" className="btn sm primary" onClick={saveOutput} disabled={!readyForDecision}>
+                      Save & close
+                    </button>
+                    <button type="button" className="btn sm" onClick={reject} disabled={busy}>
+                      Reject
+                    </button>
+                  </>
+                )}
+              </div>
+            </section>
           </div>
 
-          {proposal.status === 'saved' && proposal.saved_artifact_id ? (
-            <p>
-              <Link to={`/saved/${proposal.saved_artifact_id}`}>View final saved revision</Link>
-            </p>
-          ) : locked ? null : (
-            <div className="proposal-actions proposal-actions--final">
-              <button type="button" onClick={nextIteration} disabled={!body.trim()}>
-                Start Next Iteration
+          {error ? <p role="alert" className="review-main-error">{error}</p> : null}
+        </main>
+
+        <aside className={`workspace-sidebar rail review-rail ${railCollapsed ? 'rail--collapsed' : ''}`} aria-label="review context">
+          {railCollapsed ? (
+            <div className="rail-collapsed-strip">
+              <button type="button" className="strip-icon" onClick={() => setRailCollapsed(false)} title="Expand rail">
+                <Icon name="chevronL" className="ic-sm" />
               </button>
-              <button type="button" onClick={saveOutput} disabled={!body.trim()}>
-                Save Output
-              </button>
-              <button type="button" onClick={reject}>
-                Reject
-              </button>
+              <div className="strip-sep" />
+              <div className="vlabel">Review</div>
             </div>
+          ) : (
+            <>
+              <div className="rail-head">
+                <div className="title">
+                  <Icon name="file" className="ic-sm" />
+                  Review Notes
+                </div>
+                <button type="button" className="btn ghost icon" onClick={() => setRailCollapsed(true)} title="Collapse rail">
+                  <Icon name="chevronR" className="ic-sm" />
+                </button>
+              </div>
+              <div className="rail-body">
+                <RailSection label="Latest review" count={detail.reviews.length} defaultOpen>
+                  <div className="review-note review-note--rail">
+                    {detail.latest_review_body ? (
+                      <Markdown remarkPlugins={[remarkGfm]}>{detail.latest_review_body}</Markdown>
+                    ) : (
+                      <p className="empty-state">No review yet.</p>
+                    )}
+                  </div>
+                </RailSection>
+                <RailSection label="Ask for review" defaultOpen={!locked}>
+                  <div className="refine-panel refine-panel--rail">
+                    <button type="button" className="btn sm ghost" onClick={() => setAdvancedOpen((value) => !value)}>
+                      <Icon name={advancedOpen ? 'chevronU' : 'chevronD'} className="ic-sm" />
+                      Advanced roles
+                    </button>
+                    {advancedOpen ? (
+                      <div className="rail-row two">
+                        <div className="rail-mini">
+                          <label>Reviewer</label>
+                          <select
+                            className="rail-input"
+                            value={reviewer}
+                            onChange={(event) => setReviewer(event.target.value as AgentName)}
+                            disabled={locked || busy}
+                          >
+                            {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    ) : null}
+                    <label className="rail-mini">
+                      <span>Review instructions</span>
+                      <input
+                        className="rail-input"
+                        value={reviewInstructions}
+                        onChange={(event) => setReviewInstructions(event.target.value)}
+                        disabled={locked || busy}
+                        placeholder="Optional"
+                      />
+                    </label>
+                    <button type="button" className="btn" onClick={askReview} disabled={locked || busy || !body.trim()}>
+                      Ask for review
+                    </button>
+                    {error ? <p role="alert" className="room-card__error">{error}</p> : null}
+                  </div>
+                </RailSection>
+                <RailSection label="Request revision" defaultOpen={!locked}>
+                  <div className="refine-panel refine-panel--rail">
+                    {advancedOpen ? (
+                      <div className="rail-mini">
+                        <label>Reviser</label>
+                        <select
+                          className="rail-input"
+                          value={reviser}
+                          onChange={(event) => setReviser(event.target.value as AgentName)}
+                          disabled={locked || busy}
+                        >
+                          {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
+                        </select>
+                      </div>
+                    ) : null}
+                    <label className="rail-mini">
+                      <span>Revision instructions</span>
+                      <input
+                        className="rail-input"
+                        value={revisionInstructions}
+                        onChange={(event) => setRevisionInstructions(event.target.value)}
+                        disabled={locked || busy}
+                        placeholder="What should change?"
+                      />
+                    </label>
+                    <button type="button" className="btn" onClick={askRevision} disabled={locked || busy || !body.trim()}>
+                      Request revision
+                    </button>
+                  </div>
+                </RailSection>
+              </div>
+            </>
           )}
-
-          {error ? <p role="alert">{error}</p> : null}
-        </section>
+        </aside>
       </div>
-    </main>
+    </div>
   )
 }
