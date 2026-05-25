@@ -421,12 +421,23 @@ export function ThreadPage() {
     <div className="workspace-root">
       {/* ── Header strip ─────────────────────────────────────── */}
       <header className="workspace-header" aria-label="thread workspace header">
-        <Link to="/" className="workspace-back" aria-label="All threads" title="All threads">
-          ←
+        <Link to="/" className="workspace-back btn-ghost" aria-label="All threads" title="All threads">
+          ‹
+        </Link>
+
+        <Link to="/" className="workspace-brand" aria-label="Roundtable home">
+          <span className="workspace-brand__dot" aria-hidden="true" />
+          <span>Roundtable</span>
         </Link>
 
         <div className="workspace-header__title">
-          <h1>{thread.title}</h1>
+          <div className="workspace-crumbs">
+            <Link to="/">threads</Link>
+            <span>/</span>
+            <span className="workspace-crumbs__file">thread.md</span>
+            <span>/</span>
+            <strong>{thread.title}</strong>
+          </div>
           {(sourceThread || contextChip !== 'No context') ? (
             <div className="workspace-header__meta">
               {contextChip !== 'No context' && contextChip !== 'loading'
@@ -488,6 +499,19 @@ export function ThreadPage() {
               </button>
             ) : (
               <div className="thread-body-card">
+                <div className="thread-body-card__eyebrow">
+                  <span>Source thread</span>
+                  <span>·</span>
+                  <span className="mono">thread.md</span>
+                  <span className="thread-body-card__date">
+                    {new Date(thread.created_at).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                </div>
+                <h1 className="thread-body-card__title">{thread.title}</h1>
                 <div className="thread-body-card__content">
                   <Markdown remarkPlugins={[remarkGfm]}>{thread.body}</Markdown>
                 </div>
