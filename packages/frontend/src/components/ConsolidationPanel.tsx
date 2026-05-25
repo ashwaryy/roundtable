@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import type {
   AgentName,
@@ -28,6 +28,7 @@ export function ConsolidationPanel({
   const [reviser, setReviser] = useState<AgentName>('codex')
   const [instructions, setInstructions] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [finishRequested, setFinishRequested] = useState(false)
 
   const roomReady =
     room &&
@@ -43,6 +44,19 @@ export function ConsolidationPanel({
     room?.status === 'running' &&
     room.active_job_id !== null &&
     room.auto?.status === 'running'
+  const consolidationRequested =
+    finishRequested || room?.auto?.pause_requested === true
+  const finishButtonDisabled = !canFinishAndStart || consolidationRequested
+
+  useEffect(() => {
+    if (room?.auto?.pause_requested) {
+      setFinishRequested(true)
+      return
+    }
+    if (room?.status !== 'running' || room.auto?.status !== 'running') {
+      setFinishRequested(false)
+    }
+  }, [room?.auto?.pause_requested, room?.auto?.status, room?.status])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -70,8 +84,10 @@ export function ConsolidationPanel({
         reviser_agent: reviser,
         instructions: instructions || null,
       })
+      setFinishRequested(true)
       onUpdate()
     } catch (err) {
+      setFinishRequested(false)
       setError(err instanceof Error ? err.message : String(err))
     }
   }
@@ -116,8 +132,15 @@ export function ConsolidationPanel({
           Consolidate
         </button>
       </form>
-      <button type="button" onClick={finishAndConsolidate} disabled={!canFinishAndStart}>
-        Finish &amp; Consolidate
+      <button type="button" onClick={finishAndConsolidate} disabled={finishButtonDisabled}>
+        {consolidationRequested ? (
+          <span className="button-loading" aria-live="polite">
+            <span className="button-spinner" aria-hidden="true" />
+            Requested Consolidation
+          </span>
+        ) : (
+          'Finish & Consolidate'
+        )}
       </button>
       {proposals.length > 0 ? (
         <ul>
