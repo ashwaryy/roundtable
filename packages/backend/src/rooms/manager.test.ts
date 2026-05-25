@@ -438,7 +438,7 @@ describe('createRoomManager', () => {
     })
   })
 
-  it('launches one named tmux window for each invited persona', () => {
+  it('launches one named tmux window for each invited agent', () => {
     const reviewer = createAgent(dataDir, { name: 'Reviewer', runtime: 'codex', color: 'teal' })
     initializeThreadAgents(dataDir, 'thread-1', ['claude', reviewer.id])
     const manager = createRoomManager({ dataDir, backendUrl: 'http://localhost:4319', executor })
@@ -452,7 +452,7 @@ describe('createRoomManager', () => {
     }))
   })
 
-  it('adds and removes persona windows while an idle room is live', () => {
+  it('adds and removes agent windows while an idle room is live', () => {
     const { manager, token } = startReadyRoom()
     const reviewer = createAgent(dataDir, { name: 'Reviewer', runtime: 'codex', color: 'teal' })
     inviteAgent(dataDir, 'thread-1', { agent_id: reviewer.id })

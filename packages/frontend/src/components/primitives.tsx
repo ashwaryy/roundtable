@@ -2,7 +2,7 @@
 // Icon SVG set, colored-initial Avatar, AgentTag, AgentStack, StatusPill, TypeBadge.
 
 import type { CSSProperties, ReactNode } from 'react'
-import type { AgentPersona, CommentType, ThreadAgentInvite, ThreadDisplayStatus } from '@roundtable/shared'
+import type { Agent, CommentType, ThreadAgentInvite, ThreadDisplayStatus } from '@roundtable/shared'
 
 // ── Agent identity ────────────────────────────────────────────────
 interface AgentMeta {
@@ -18,8 +18,8 @@ const AGENTS: Record<string, AgentMeta> = {
   system: { label: 'system', color: 'system', initial: 'S' },
 }
 
-function agentMeta(author: string, persona?: Pick<AgentPersona, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>): AgentMeta {
-  if (persona) return { label: persona.name, color: persona.color, initial: persona.name.charAt(0).toUpperCase() }
+function agentMeta(author: string, agent?: Pick<Agent, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>): AgentMeta {
+  if (agent) return { label: agent.name, color: agent.color, initial: agent.name.charAt(0).toUpperCase() }
   return AGENTS[author] ?? AGENTS.human
 }
 
@@ -144,8 +144,8 @@ export function Icon({ name, className = 'ic' }: { name: IconName; className?: s
 }
 
 // ── Avatar (colored square initial) ───────────────────────────────
-export function Avatar({ author, persona, size = 22 }: { author: string; persona?: Pick<AgentPersona, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>; size?: number }) {
-  const meta = agentMeta(author, persona)
+export function Avatar({ author, agent, size = 22 }: { author: string; agent?: Pick<Agent, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>; size?: number }) {
+  const meta = agentMeta(author, agent)
   return (
     <span
       className={`avatar avatar-${meta.color}`}
@@ -158,8 +158,8 @@ export function Avatar({ author, persona, size = 22 }: { author: string; persona
 }
 
 // ── Agent tag (colored dot + label) ───────────────────────────────
-export function AgentTag({ author, persona, label }: { author: string; persona?: Pick<AgentPersona, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>; label?: string }) {
-  const meta = agentMeta(author, persona)
+export function AgentTag({ author, agent, label }: { author: string; agent?: Pick<Agent, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>; label?: string }) {
+  const meta = agentMeta(author, agent)
   return (
     <span className={`agent-tag agent-${meta.color}`}>
       <span className="agent-tag-dot" />

@@ -34,7 +34,7 @@ function runtimeEffortValid(data: { runtime: 'claude' | 'codex'; effort?: string
     : ['low', 'medium', 'high'].includes(data.effort)
 }
 
-export const createAgentPersonaInputSchema = z.object({
+export const createAgentInputSchema = z.object({
   name: z.string().trim().min(1, 'name is required'),
   runtime: agentRuntimeSchema,
   role_description: z.string().trim().default(''),
@@ -45,7 +45,7 @@ export const createAgentPersonaInputSchema = z.object({
   logo_url: z.string().trim().url('logo_url must be valid').nullable().optional(),
 }).refine(runtimeEffortValid, { path: ['effort'], message: 'effort is not valid for runtime' })
 
-export const updateAgentPersonaInputSchema = z.object({
+export const updateAgentInputSchema = z.object({
   name: z.string().trim().min(1).optional(),
   runtime: agentRuntimeSchema.optional(),
   role_description: z.string().trim().optional(),
@@ -57,9 +57,9 @@ export const updateAgentPersonaInputSchema = z.object({
   archived: z.boolean().optional(),
 })
 
-export const importAgentPersonasInputSchema = z.union([
-  createAgentPersonaInputSchema,
-  z.array(createAgentPersonaInputSchema).min(1).max(50),
+export const importAgentsInputSchema = z.union([
+  createAgentInputSchema,
+  z.array(createAgentInputSchema).min(1).max(50),
 ])
 
 export const createThreadInputSchema = z.object({

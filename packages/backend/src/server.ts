@@ -24,9 +24,9 @@ import {
   startAutoDiscussionInputSchema,
   startConsolidationInputSchema,
   startRoomInputSchema,
-  createAgentPersonaInputSchema,
-  updateAgentPersonaInputSchema,
-  importAgentPersonasInputSchema,
+  createAgentInputSchema,
+  updateAgentInputSchema,
+  importAgentsInputSchema,
   inviteAgentInputSchema,
   updateThreadAgentInviteInputSchema,
   reorderThreadAgentsInputSchema,
@@ -218,7 +218,7 @@ export function createApp(deps: {
   })
 
   app.post('/api/agents', (req, res) => {
-    const parsed = createAgentPersonaInputSchema.safeParse(req.body)
+    const parsed = createAgentInputSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
     const agent = storage.createAgent(parsed.data)
     broadcast({ type: 'agents_updated' })
@@ -234,16 +234,16 @@ export function createApp(deps: {
         return res.status(400).json({ error: 'json must contain valid JSON' })
       }
     }
-    const parsed = importAgentPersonasInputSchema.safeParse(input)
+    const parsed = importAgentsInputSchema.safeParse(input)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
     const imported = (Array.isArray(parsed.data) ? parsed.data : [parsed.data])
-      .map((persona) => storage.createAgent(persona))
+      .map((agent) => storage.createAgent(agent))
     broadcast({ type: 'agents_updated' })
     res.status(201).json(imported)
   })
 
   app.patch('/api/agents/:agentId', (req, res) => {
-    const parsed = updateAgentPersonaInputSchema.safeParse(req.body)
+    const parsed = updateAgentInputSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
     try {
       const agent = storage.updateAgent(req.params.agentId, parsed.data)

@@ -35,9 +35,9 @@ import type {
   IntegrityReport,
   StartConsolidationInput,
   ThreadListItem,
-  AgentPersona,
-  CreateAgentPersonaInput,
-  UpdateAgentPersonaInput,
+  Agent,
+  CreateAgentInput,
+  UpdateAgentInput,
   ThreadAgentInvite,
   InviteAgentInput,
   UpdateThreadAgentInviteInput,
@@ -100,32 +100,32 @@ export function createThread(input: CreateThreadInput): Promise<Thread> {
   }).then((r) => json<Thread>(r))
 }
 
-export function listAgents(): Promise<AgentPersona[]> {
-  return readJson<AgentPersona[]>('/api/agents')
+export function listAgents(): Promise<Agent[]> {
+  return readJson<Agent[]>('/api/agents')
 }
 
-export function createAgent(input: CreateAgentPersonaInput): Promise<AgentPersona> {
+export function createAgent(input: CreateAgentInput): Promise<Agent> {
   return fetch('/api/agents', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
-  }).then((r) => json<AgentPersona>(r))
+  }).then((r) => json<Agent>(r))
 }
 
-export function updateAgent(id: string, input: UpdateAgentPersonaInput): Promise<AgentPersona> {
+export function updateAgent(id: string, input: UpdateAgentInput): Promise<Agent> {
   return fetch(`/api/agents/${id}`, {
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
-  }).then((r) => json<AgentPersona>(r))
+  }).then((r) => json<Agent>(r))
 }
 
-export function deleteAgent(id: string): Promise<AgentPersona | void> {
+export function deleteAgent(id: string): Promise<Agent | void> {
   return fetch(`/api/agents/${id}`, { method: 'DELETE' }).then((r) =>
-    r.status === 204 ? undefined : json<AgentPersona>(r),
+    r.status === 204 ? undefined : json<Agent>(r),
   )
 }
 
-export function importAgents(jsonText: string): Promise<AgentPersona[]> {
+export function importAgents(jsonText: string): Promise<Agent[]> {
   return fetch('/api/agents/import-json', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ json: jsonText }),
-  }).then((r) => json<AgentPersona[]>(r))
+  }).then((r) => json<Agent[]>(r))
 }
 
 export function listThreadAgents(threadId: string): Promise<ThreadAgentInvite[]> {

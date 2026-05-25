@@ -45,7 +45,7 @@ export function ConsolidationPanel({
   const [error, setError] = useState<string | null>(null)
   const [finishRequested, setFinishRequested] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const readyAgents = room?.roster.filter((persona) => room.agents[persona.agent_id]?.ready_at) ?? []
+  const readyAgents = room?.roster.filter((agent) => room.agents[agent.agent_id]?.ready_at) ?? []
 
   const roomReady =
     room &&

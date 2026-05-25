@@ -41,7 +41,7 @@ export type AgentColorPreset =
   | 'violet'
   | 'teal'
 
-export interface AgentPersona {
+export interface Agent {
   id: AgentId
   name: string
   runtime: AgentRuntime
@@ -69,7 +69,7 @@ export interface ThreadAgentInvite {
   order: number
 }
 
-export interface CreateAgentPersonaInput {
+export interface CreateAgentInput {
   name: string
   runtime: AgentRuntime
   role_description?: string
@@ -80,7 +80,7 @@ export interface CreateAgentPersonaInput {
   logo_url?: string | null
 }
 
-export type UpdateAgentPersonaInput = Partial<CreateAgentPersonaInput> & {
+export type UpdateAgentInput = Partial<CreateAgentInput> & {
   archived?: boolean
 }
 

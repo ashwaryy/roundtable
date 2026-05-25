@@ -1,18 +1,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type {
-  AgentPersona,
-  CreateAgentPersonaInput,
+  Agent,
+  CreateAgentInput,
   InviteAgentInput,
   ReorderThreadAgentsInput,
   ThreadAgentInvite,
-  UpdateAgentPersonaInput,
+  UpdateAgentInput,
   UpdateThreadAgentInviteInput,
 } from '@roundtable/shared'
 import { agentJsonPath, agentsDir, threadAgentsPath, threadsDir } from './paths'
 import { BadRequestError, ConflictError, NotFoundError } from './errors'
 
-const BUILTINS: AgentPersona[] = [
+const BUILTINS: Agent[] = [
   {
     id: 'claude',
     name: 'Claude',
@@ -64,20 +64,20 @@ export function seedBuiltInAgents(dataDir: string): void {
   }
 }
 
-export function listAgents(dataDir: string, includeArchived = true): AgentPersona[] {
+export function listAgents(dataDir: string, includeArchived = true): Agent[] {
   seedBuiltInAgents(dataDir)
   return fs.readdirSync(agentsDir(dataDir))
     .filter((name) => name.endsWith('.json'))
-    .map((name) => JSON.parse(fs.readFileSync(path.join(agentsDir(dataDir), name), 'utf8')) as AgentPersona)
-    .filter((persona) => includeArchived || !persona.archived)
+    .map((name) => JSON.parse(fs.readFileSync(path.join(agentsDir(dataDir), name), 'utf8')) as Agent)
+    .filter((agent) => includeArchived || !agent.archived)
     .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.name.localeCompare(b.name))
 }
 
-export function getAgent(dataDir: string, agentId: string): AgentPersona | null {
+export function getAgent(dataDir: string, agentId: string): Agent | null {
   seedBuiltInAgents(dataDir)
   const filePath = agentJsonPath(dataDir, agentId)
   return fs.existsSync(filePath)
-    ? JSON.parse(fs.readFileSync(filePath, 'utf8')) as AgentPersona
+    ? JSON.parse(fs.readFileSync(filePath, 'utf8')) as Agent
     : null
 }
 
@@ -91,12 +91,12 @@ function uniqueName(dataDir: string, requested: string, exceptId?: string): stri
   return `${requested} (${suffix})`
 }
 
-function validateEffort(persona: Pick<AgentPersona, 'runtime' | 'effort'>): void {
-  if (!persona.effort) return
-  const allowed = persona.runtime === 'codex'
+function validateEffort(agent: Pick<Agent, 'runtime' | 'effort'>): void {
+  if (!agent.effort) return
+  const allowed = agent.runtime === 'codex'
     ? ['low', 'medium', 'high', 'xhigh']
     : ['low', 'medium', 'high']
-  if (!allowed.includes(persona.effort)) {
+  if (!allowed.includes(agent.effort)) {
     throw new BadRequestError('effort is not valid for runtime')
   }
 }
@@ -112,9 +112,9 @@ function newId(dataDir: string, name: string): string {
   return id
 }
 
-export function createAgent(dataDir: string, input: CreateAgentPersonaInput): AgentPersona {
+export function createAgent(dataDir: string, input: CreateAgentInput): Agent {
   const timestamp = new Date().toISOString()
-  const persona: AgentPersona = {
+  const agent: Agent = {
     id: newId(dataDir, input.name),
     name: uniqueName(dataDir, input.name),
     runtime: input.runtime,
@@ -128,15 +128,15 @@ export function createAgent(dataDir: string, input: CreateAgentPersonaInput): Ag
     created_at: timestamp,
     updated_at: timestamp,
   }
-  validateEffort(persona)
-  writeJsonAtomic(agentJsonPath(dataDir, persona.id), persona)
-  return persona
+  validateEffort(agent)
+  writeJsonAtomic(agentJsonPath(dataDir, agent.id), agent)
+  return agent
 }
 
-export function updateAgent(dataDir: string, agentId: string, patch: UpdateAgentPersonaInput): AgentPersona {
+export function updateAgent(dataDir: string, agentId: string, patch: UpdateAgentInput): Agent {
   const existing = getAgent(dataDir, agentId)
   if (!existing) throw new NotFoundError(`agent ${agentId} not found`)
-  const updated: AgentPersona = {
+  const updated: Agent = {
     ...existing,
     ...patch,
     name: patch.name ? uniqueName(dataDir, patch.name, agentId) : existing.name,
@@ -157,7 +157,7 @@ function isInvited(dataDir: string, agentId: string): boolean {
   })
 }
 
-export function deleteAgent(dataDir: string, agentId: string): AgentPersona | null {
+export function deleteAgent(dataDir: string, agentId: string): Agent | null {
   const existing = getAgent(dataDir, agentId)
   if (!existing) throw new NotFoundError(`agent ${agentId} not found`)
   if (agentId === 'claude' || agentId === 'codex' || isInvited(dataDir, agentId)) {
@@ -167,17 +167,17 @@ export function deleteAgent(dataDir: string, agentId: string): AgentPersona | nu
   return null
 }
 
-function snapshot(persona: AgentPersona, order: number): ThreadAgentInvite {
+function snapshot(agent: Agent, order: number): ThreadAgentInvite {
   return {
-    agent_id: persona.id,
-    name: persona.name,
-    runtime: persona.runtime,
-    role_description: persona.role_description,
-    instructions: persona.instructions,
-    model: persona.model,
-    effort: persona.effort,
-    color: persona.color,
-    logo_url: persona.logo_url,
+    agent_id: agent.id,
+    name: agent.name,
+    runtime: agent.runtime,
+    role_description: agent.role_description,
+    instructions: agent.instructions,
+    model: agent.model,
+    effort: agent.effort,
+    color: agent.color,
+    logo_url: agent.logo_url,
     order,
   }
 }
@@ -187,9 +187,9 @@ export function initializeThreadAgents(dataDir: string, threadId: string, agentI
   const unique = [...new Set(ids)]
   if (unique.length < 1 || unique.length > 8) throw new BadRequestError('a thread needs 1 to 8 agents')
   const invites = unique.map((id, order) => {
-    const persona = getAgent(dataDir, id)
-    if (!persona || persona.archived) throw new NotFoundError(`agent ${id} not found`)
-    return snapshot(persona, order)
+    const agent = getAgent(dataDir, id)
+    if (!agent || agent.archived) throw new NotFoundError(`agent ${id} not found`)
+    return snapshot(agent, order)
   })
   writeJsonAtomic(threadAgentsPath(dataDir, threadId), invites)
   return invites
@@ -208,9 +208,9 @@ export function inviteAgent(dataDir: string, threadId: string, input: InviteAgen
     throw new ConflictError('agent is already invited')
   }
   if (invites.length >= 8) throw new BadRequestError('a thread cannot invite more than 8 agents')
-  const persona = getAgent(dataDir, input.agent_id)
-  if (!persona || persona.archived) throw new NotFoundError(`agent ${input.agent_id} not found`)
-  invites.push({ ...snapshot(persona, invites.length), model: input.model ?? persona.model, effort: input.effort ?? persona.effort })
+  const agent = getAgent(dataDir, input.agent_id)
+  if (!agent || agent.archived) throw new NotFoundError(`agent ${input.agent_id} not found`)
+  invites.push({ ...snapshot(agent, invites.length), model: input.model ?? agent.model, effort: input.effort ?? agent.effort })
   writeJsonAtomic(threadAgentsPath(dataDir, threadId), invites)
   return invites
 }

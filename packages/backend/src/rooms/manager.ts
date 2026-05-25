@@ -446,7 +446,7 @@ function startupPrompt(invite: ThreadAgentInvite): string {
     '',
     `You are ${invite.name} participating in this Roundtable thread.`,
     `Your role: ${invite.role_description || 'Roundtable discussion participant'}.`,
-    invite.instructions ? `Persona instructions: ${invite.instructions}` : '',
+    invite.instructions ? `Agent instructions: ${invite.instructions}` : '',
     '',
     'When Roundtable explicitly requests work, read `thread.md`, `thread.json`, `comments.jsonl`, and `pending-discussions.jsonl` as needed.',
     'Attachments are optional; if present, they live under `attachments/` and are listed in `context-items.jsonl`.',
@@ -777,7 +777,7 @@ async function main() {
   if (command === 'ready') {
     const agent = argValue('--agent')
     if (!agent) {
-      console.error('usage: roundtable ready --agent <persona-id>')
+      console.error('usage: roundtable ready --agent <agent-id>')
       process.exit(2)
     }
 

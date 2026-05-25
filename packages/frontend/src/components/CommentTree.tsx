@@ -60,23 +60,23 @@ function CommentActions({
       <button type="button" className="cmt-action" onClick={onReply}>
         <Icon name="reply" className="ic-sm" /> Reply
       </button>
-      {roster.map((persona) => {
-        const isActive = activeAgent === persona.agent_id
+      {roster.map((agent) => {
+        const isActive = activeAgent === agent.agent_id
         return (
           <button
-            key={persona.agent_id}
+            key={agent.agent_id}
             type="button"
             className="cmt-action ask"
             disabled={disabled}
             aria-busy={isActive}
-            onClick={() => onAsk(persona.agent_id)}
+            onClick={() => onAsk(agent.agent_id)}
           >
             {isActive ? (
               <span className="button-spinner cmt-action-spinner" aria-hidden="true" />
             ) : (
-              <Avatar author={persona.agent_id} persona={persona} size={14} />
+              <Avatar author={agent.agent_id} agent={agent} size={14} />
             )}
-            {isActive ? `${persona.name} working` : `Ask ${persona.name}`}
+            {isActive ? `${agent.name} working` : `Ask ${agent.name}`}
           </button>
         )
       })}
@@ -175,8 +175,8 @@ const RootComment = memo(function RootComment({
         <div className="cmt-row">
           <div className="cmt-body">
             <div className="cmt-head">
-              <Avatar author={root.author} persona={roster.find((agent) => agent.agent_id === root.author)} size={20} />
-              <AgentTag author={root.author} persona={roster.find((agent) => agent.agent_id === root.author)} />
+              <Avatar author={root.author} agent={roster.find((agent) => agent.agent_id === root.author)} size={20} />
+              <AgentTag author={root.author} agent={roster.find((agent) => agent.agent_id === root.author)} />
               <TypeBadge type={root.type} />
               <span className="time">{formatTs(root.created_at)}</span>
               <span className="cmt-id mono">{root.id}</span>
@@ -247,8 +247,8 @@ const RootComment = memo(function RootComment({
               <div className="reply-cluster-rail" />
               <div className="reply-cluster-body">
                 <div className="cmt-head">
-                  <Avatar author={sub.author} persona={roster.find((agent) => agent.agent_id === sub.author)} size={20} />
-                  <AgentTag author={sub.author} persona={roster.find((agent) => agent.agent_id === sub.author)} />
+                  <Avatar author={sub.author} agent={roster.find((agent) => agent.agent_id === sub.author)} size={20} />
+                  <AgentTag author={sub.author} agent={roster.find((agent) => agent.agent_id === sub.author)} />
                   {sub.comments[0].type !== 'comment' ? (
                     <TypeBadge type={sub.comments[0].type} />
                   ) : null}
@@ -310,7 +310,7 @@ const RootComment = memo(function RootComment({
                 threadId={threadId}
                 discussion={pending}
                 originExcerpt={originExcerpt(pending)}
-                persona={roster.find((agent) => agent.agent_id === pending.author)}
+                agent={roster.find((agent) => agent.agent_id === pending.author)}
                 onUpdate={onPendingUpdate}
               />
             </div>
@@ -435,7 +435,7 @@ export function CommentTree({
               threadId={threadId}
               discussion={pending}
               originExcerpt={originExcerpt(pending)}
-              persona={roster.find((agent) => agent.agent_id === pending.author)}
+              agent={roster.find((agent) => agent.agent_id === pending.author)}
               onUpdate={onPendingUpdate}
             />
           ))}

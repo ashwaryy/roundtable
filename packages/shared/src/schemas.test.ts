@@ -14,7 +14,7 @@ import {
   helperPendingDiscussionInputSchema,
   sendRoomInputResponseInputSchema,
   startAutoDiscussionInputSchema,
-  createAgentPersonaInputSchema,
+  createAgentInputSchema,
   agentColorPresetSchema,
 } from './index'
 
@@ -85,7 +85,7 @@ describe('createPendingDiscussionInputSchema', () => {
     expect(parsed.type).toBeUndefined()
   })
 
-  it('accepts a persona id as author', () => {
+  it('accepts a agent id as author', () => {
     expect(createPendingDiscussionInputSchema.parse({ author: 'agent-architect', body: 'x' }).author)
       .toBe('agent-architect')
   })
@@ -166,7 +166,7 @@ describe('askAgentInputSchema', () => {
     expect(parsed.discussion_id).toBe('c001')
   })
 
-  it('accepts a backend-owned persona id', () => {
+  it('accepts a backend-owned agent id', () => {
     expect(askAgentInputSchema.parse({ agent: 'agent-architect' }).agent).toBe('agent-architect')
   })
 })
@@ -181,9 +181,9 @@ describe('requestIdleSuggestionInputSchema', () => {
   })
 })
 
-describe('persona schemas', () => {
-  it('validates persona configuration and preset colors', () => {
-    const parsed = createAgentPersonaInputSchema.parse({
+describe('agent schemas', () => {
+  it('validates agent configuration and preset colors', () => {
+    const parsed = createAgentInputSchema.parse({
       name: 'Architect', runtime: 'codex', effort: 'xhigh', color: 'teal',
     })
     expect(parsed.name).toBe('Architect')
@@ -192,7 +192,7 @@ describe('persona schemas', () => {
   })
 
   it('validates runtime-aware effort', () => {
-    expect(() => createAgentPersonaInputSchema.parse({
+    expect(() => createAgentInputSchema.parse({
       name: 'Claude', runtime: 'claude', effort: 'xhigh',
     })).toThrow()
   })

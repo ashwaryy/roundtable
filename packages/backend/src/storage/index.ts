@@ -26,9 +26,9 @@ import type {
   SavedOutput,
   IntegrityReport,
   RoundtableEvent,
-  AgentPersona,
-  CreateAgentPersonaInput,
-  UpdateAgentPersonaInput,
+  Agent,
+  CreateAgentInput,
+  UpdateAgentInput,
   ThreadAgentInvite,
   InviteAgentInput,
   UpdateThreadAgentInviteInput,
@@ -321,12 +321,12 @@ export function createStorage(
       threadId: string,
       input: Parameters<typeof comments.addAgentComment>[2],
     ): Comment => comments.addAgentComment(dataDir, threadId, input),
-    listAgents: (): AgentPersona[] => agents.listAgents(dataDir),
-    createAgent: (input: CreateAgentPersonaInput): AgentPersona =>
+    listAgents: (): Agent[] => agents.listAgents(dataDir),
+    createAgent: (input: CreateAgentInput): Agent =>
       agents.createAgent(dataDir, input),
-    updateAgent: (agentId: string, patch: UpdateAgentPersonaInput): AgentPersona =>
+    updateAgent: (agentId: string, patch: UpdateAgentInput): Agent =>
       agents.updateAgent(dataDir, agentId, patch),
-    deleteAgent: (agentId: string): AgentPersona | null =>
+    deleteAgent: (agentId: string): Agent | null =>
       agents.deleteAgent(dataDir, agentId),
     listThreadAgents: (threadId: string): ThreadAgentInvite[] => {
       inspect(threadId)

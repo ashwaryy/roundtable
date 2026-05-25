@@ -5887,7 +5887,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   text-transform: none;
 }
 
-/* Persona catalogue and restrained comment identity accents. */
+/* Agent catalogue and restrained comment identity accents. */
 .avatar-blue, .swatch-blue { background: #dbeafe; color: #2563eb; }
 .avatar-green, .swatch-green { background: #dcfce7; color: #16a34a; }
 .avatar-amber, .swatch-amber { background: #fef3c7; color: #d97706; }
@@ -5962,6 +5962,11 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   border-top: 1px solid var(--rule);
 }
 .agents-import .h-2 { margin-bottom: 2px; }
+.agents-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .agents-import .btn { justify-self: start; }
 .agents-error {
   margin: 16px 0 0;

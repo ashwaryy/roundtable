@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { AgentPersona, Thread } from '@roundtable/shared'
+import type { Agent, Thread } from '@roundtable/shared'
 import {
   addUrlContextItem,
   createProjectSnapshot,
@@ -122,7 +122,7 @@ export function NewThreadForm({
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [catalogue, setCatalogue] = useState<AgentPersona[]>([])
+  const [catalogue, setCatalogue] = useState<Agent[]>([])
   const [agentIds, setAgentIds] = useState<string[]>(['claude', 'codex'])
 
   const roomAgents = agentIds
@@ -305,7 +305,7 @@ export function NewThreadForm({
               reference material attached on the side.
             </p>
           </div>
-          <CtxSection eyebrow="Agents" kicker="Invite personas to this thread" status="set" icon="spark" count={agentIds.length}>
+          <CtxSection eyebrow="Agents" kicker="Invite agents to this thread" status="set" icon="spark" count={agentIds.length}>
             <div className="invite-picker">
               {catalogue.map((agent) => (
                 <label key={agent.id} className="invite-option">

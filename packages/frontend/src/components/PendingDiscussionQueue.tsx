@@ -42,13 +42,13 @@ export function PendingDiscussionModerationCard({
   threadId,
   discussion,
   originExcerpt,
-  persona,
+  agent,
   onUpdate,
 }: {
   threadId: string
   discussion: PendingDiscussion
   originExcerpt?: string | null
-  persona?: ThreadAgentInvite
+  agent?: ThreadAgentInvite
   onUpdate: () => void
 }) {
   const [editing, setEditing] = useState(false)
@@ -99,8 +99,8 @@ export function PendingDiscussionModerationCard({
       aria-label="pending discussion awaiting approval"
     >
       <div className="pending-block__label">
-        <Avatar author={discussion.author} persona={persona} size={20} />
-        <span className="pending-block__author">{persona?.name ?? discussion.author}</span>
+        <Avatar author={discussion.author} agent={agent} size={20} />
+        <span className="pending-block__author">{agent?.name ?? discussion.author}</span>
         <span className="pending-awaiting-badge">Awaiting approval</span>
         {discussion.type !== 'comment' ? (
           <span className={`type-badge type-badge--${discussion.type}`}>{discussion.type}</span>

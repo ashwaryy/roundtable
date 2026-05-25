@@ -44,19 +44,19 @@ describe('agent catalogue and roster routes', () => {
   })
 
   it('lists, adds, overrides, reorders, and removes thread invites', async () => {
-    const persona = (await request(app).post('/api/agents').send({
+    const agent = (await request(app).post('/api/agents').send({
       name: 'Reviewer', runtime: 'claude', color: 'blue',
     })).body
     await request(app).post('/api/threads').send({ title: 'A', body: 'a' })
     expect((await request(app).get('/api/threads/thread-1/agents')).body).toHaveLength(2)
-    await request(app).post('/api/threads/thread-1/agents').send({ agent_id: persona.id })
-    const overridden = await request(app).patch(`/api/threads/thread-1/agents/${persona.id}`).send({ model: 'review-model' })
+    await request(app).post('/api/threads/thread-1/agents').send({ agent_id: agent.id })
+    const overridden = await request(app).patch(`/api/threads/thread-1/agents/${agent.id}`).send({ model: 'review-model' })
     expect(overridden.body[2].model).toBe('review-model')
     const ordered = await request(app).put('/api/threads/thread-1/agents/order').send({
-      agent_ids: [persona.id, 'codex', 'claude'],
+      agent_ids: [agent.id, 'codex', 'claude'],
     })
-    expect(ordered.body[0].agent_id).toBe(persona.id)
-    const removed = await request(app).delete(`/api/threads/thread-1/agents/${persona.id}`)
+    expect(ordered.body[0].agent_id).toBe(agent.id)
+    const removed = await request(app).delete(`/api/threads/thread-1/agents/${agent.id}`)
     expect(removed.body).toHaveLength(2)
   })
 })
@@ -245,7 +245,7 @@ describe('pending discussion routes', () => {
     expect(res.status).toBe(400)
   })
 
-  it('rejects an uninvited persona id author (400)', async () => {
+  it('rejects an uninvited agent id author (400)', async () => {
     const res = await request(app)
       .post('/api/threads/thread-1/pending-discussions')
       .send({ author: 'robot', body: 'hi' })

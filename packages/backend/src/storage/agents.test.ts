@@ -22,7 +22,7 @@ describe('agent catalogue and thread invites', () => {
     expect(storage.listThreadAgents(thread.id).map((agent) => agent.agent_id)).toEqual(['claude', 'codex'])
   })
 
-  it('auto-suffixes names and archives a used persona on delete', () => {
+  it('auto-suffixes names and archives a used agent on delete', () => {
     const storage = createStorage(dataDir)
     const first = storage.createAgent({ name: 'Architect', runtime: 'codex' })
     const second = storage.createAgent({ name: 'Architect', runtime: 'codex' })
