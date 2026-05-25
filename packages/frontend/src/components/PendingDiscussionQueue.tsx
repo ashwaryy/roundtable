@@ -1,10 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import type { CommentType, PendingDiscussion } from '@roundtable/shared'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   approvePendingDiscussion,
   editPendingDiscussion,
   rejectPendingDiscussion,
 } from '../api'
+import { AgentAvatar } from './AgentAvatar'
 
 const TYPES: CommentType[] = ['comment', 'proposal', 'critique', 'question', 'decision']
 
@@ -18,21 +21,20 @@ export function PendingDiscussionQueue({
   onUpdate: () => void
 }) {
   if (discussions.length === 0) {
-    return <p>No pending discussions.</p>
+    return <p className="empty-state">No pending discussions.</p>
   }
 
   return (
-    <ul>
+    <div style={{ display: 'grid', gap: 10 }}>
       {discussions.map((discussion) => (
-        <li key={discussion.id}>
-          <PendingDiscussionModerationCard
-            threadId={threadId}
-            discussion={discussion}
-            onUpdate={onUpdate}
-          />
-        </li>
+        <PendingDiscussionModerationCard
+          key={discussion.id}
+          threadId={threadId}
+          discussion={discussion}
+          onUpdate={onUpdate}
+        />
       ))}
-    </ul>
+    </div>
   )
 }
 
@@ -47,84 +49,132 @@ export function PendingDiscussionModerationCard({
   originExcerpt?: string | null
   onUpdate: () => void
 }) {
-  const [editing, setEditing] = useState<string | null>(null)
-  const [editBody, setEditBody] = useState('')
-  const [editType, setEditType] = useState<CommentType>('comment')
+  const [editing, setEditing] = useState(false)
+  const [editBody, setEditBody] = useState(discussion.body)
+  const [editType, setEditType] = useState<CommentType>(discussion.type)
+  const [confirmingReject, setConfirmingReject] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [errorAction, setErrorAction] = useState<'approve' | 'reject' | null>(null)
 
-  async function handleApprove(id: string) {
-    await approvePendingDiscussion(threadId, id)
-    onUpdate()
+  async function handleApprove() {
+    setError(null)
+    try {
+      await approvePendingDiscussion(threadId, discussion.id)
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to approve')
+      setErrorAction('approve')
+    }
   }
 
-  async function handleReject(id: string) {
-    await rejectPendingDiscussion(threadId, id)
-    onUpdate()
+  async function handleConfirmReject() {
+    setError(null)
+    try {
+      await rejectPendingDiscussion(threadId, discussion.id)
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reject')
+      setErrorAction('reject')
+      setConfirmingReject(false)
+    }
   }
 
-  function startEdit(discussion: PendingDiscussion) {
-    setEditing(discussion.id)
-    setEditBody(discussion.body)
-    setEditType(discussion.type)
-  }
-
-  async function handleEdit(event: FormEvent, id: string) {
-    event.preventDefault()
-    await editPendingDiscussion(threadId, id, { body: editBody, type: editType })
-    setEditing(null)
-    onUpdate()
+  async function handleEdit(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    try {
+      await editPendingDiscussion(threadId, discussion.id, { body: editBody, type: editType })
+      setEditing(false)
+      onUpdate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save')
+    }
   }
 
   return (
-    <article className="pending-card" aria-label="pending new discussion moderation">
-      <header>Pending new discussion</header>
+    <div
+      className="pending-block"
+      aria-label="pending discussion awaiting approval"
+    >
+      <div className="pending-block__label">
+        <AgentAvatar author={discussion.author} size={20} />
+        <span className="pending-block__author">{discussion.author}</span>
+        <span className="pending-awaiting-badge">Awaiting approval</span>
+        {discussion.type !== 'comment' ? (
+          <span className={`type-badge type-badge--${discussion.type}`}>{discussion.type}</span>
+        ) : null}
+      </div>
+
       {originExcerpt ? (
-        <p className="pending-origin">Proposed from: {originExcerpt}</p>
+        <div className="pending-block__origin">Proposed from: {originExcerpt}</div>
       ) : null}
-      {editing === discussion.id ? (
-        <form
-          onSubmit={(event) => handleEdit(event, discussion.id)}
-          aria-label={`edit ${discussion.id}`}
-        >
+
+      {editing ? (
+        <form onSubmit={handleEdit} aria-label={`edit pending ${discussion.id}`}>
           <textarea
             aria-label="edit body"
             value={editBody}
-            onChange={(event) => setEditBody(event.target.value)}
+            onChange={(e) => setEditBody(e.target.value)}
+            style={{ marginBottom: 6 }}
           />
           <select
             aria-label="edit type"
             value={editType}
-            onChange={(event) => setEditType(event.target.value as CommentType)}
+            onChange={(e) => setEditType(e.target.value as CommentType)}
+            style={{ marginBottom: 8 }}
           >
-            {TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
+            {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
-          <button type="submit">Save</button>
-          <button type="button" onClick={() => setEditing(null)}>
-            Cancel
-          </button>
+          <div className="pending-block__actions">
+            <button type="submit" className="btn-approve">Save</button>
+            <button type="button" className="btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
+          </div>
         </form>
       ) : (
         <>
-          <p>{discussion.body}</p>
-          <small>
-            {discussion.author} - {discussion.type}
-          </small>
-          <div className="inline-actions">
-            <button type="button" onClick={() => handleApprove(discussion.id)}>
-              Approve
-            </button>
-            <button type="button" onClick={() => startEdit(discussion)}>
-              Edit
-            </button>
-            <button type="button" onClick={() => handleReject(discussion.id)}>
-              Reject
-            </button>
+          <div className="pending-block__body">
+            <Markdown remarkPlugins={[remarkGfm]}>{discussion.body}</Markdown>
           </div>
+
+          {confirmingReject ? (
+            <div className="reject-confirm">
+              <span className="reject-confirm__label">Remove this pending discussion?</span>
+              <button type="button" className="btn-destructive" onClick={handleConfirmReject}>Remove</button>
+              <button type="button" className="btn-ghost" onClick={() => setConfirmingReject(false)}>Cancel</button>
+            </div>
+          ) : (
+            <div className="pending-block__actions">
+              <button type="button" className="btn-approve" onClick={handleApprove}>Approve</button>
+              <button
+                type="button"
+                onClick={() => { setEditing(true); setError(null) }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className="btn-destructive"
+                style={{ background: 'transparent', borderColor: 'transparent' }}
+                onClick={() => setConfirmingReject(true)}
+              >
+                Reject
+              </button>
+            </div>
+          )}
         </>
       )}
-    </article>
+
+      {error ? (
+        <div className="pending-block__error" role="alert">
+          <span>{error}</span>
+          {errorAction === 'approve' && (
+            <button type="button" style={{ fontSize: '0.8125rem' }} onClick={handleApprove}>Retry</button>
+          )}
+          {errorAction === 'reject' && (
+            <button type="button" style={{ fontSize: '0.8125rem' }} onClick={() => setConfirmingReject(true)}>Retry</button>
+          )}
+        </div>
+      ) : null}
+    </div>
   )
 }

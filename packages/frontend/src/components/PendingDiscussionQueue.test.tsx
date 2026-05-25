@@ -101,6 +101,8 @@ describe('PendingDiscussionQueue', () => {
     )
 
     await userEvent.click(screen.getByRole('button', { name: /reject/i }))
+    // Confirm the destructive action in the inline confirmation
+    await userEvent.click(screen.getByRole('button', { name: /remove/i }))
     expect(mockedApi.rejectPendingDiscussion).toHaveBeenCalledWith(
       'thread-1',
       'pd001',

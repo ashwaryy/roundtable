@@ -37,8 +37,7 @@ describe('CommentTree', () => {
     expect(screen.getByText('root')).toHaveProperty('tagName', 'STRONG')
     expect(screen.getByText('a reply')).toHaveProperty('tagName', 'LI')
     const expectedTimestamp = new Intl.DateTimeFormat(undefined, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
     }).format(new Date('2026-05-23T00:00:00Z'))
     const timestamps = screen.getAllByText(expectedTimestamp)
     expect(timestamps).toHaveLength(2)
@@ -71,7 +70,7 @@ describe('CommentTree', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Ask Claude in this discussion' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Ask Codex in this discussion' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Ask Claude' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Ask Codex' })).toBeDisabled()
   })
 })
