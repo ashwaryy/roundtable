@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import type { AgentName, AgentRoom, RoomPreflight, ThreadStatus } from '@roundtable/shared'
+import type { AgentName, AgentPersona, AgentRoom, RoomPreflight, ThreadStatus } from '@roundtable/shared'
 import {
   askAgent,
   extendAutoDiscussion,
@@ -13,8 +13,44 @@ import {
   startAutoDiscussion,
   startRoom,
   stopRoom,
+  inviteThreadAgent,
+  listAgents,
+  removeThreadAgent,
+  updateThreadAgent,
 } from '../api'
 import { Avatar, Icon } from './primitives'
+import { ModelSelect } from './ModelSelect'
+
+export function RoomRosterPlaceholder() {
+  return (
+    <>
+      <div className="agent-rows" aria-label="Loading invited personas">
+        {[0, 1].map((index) => (
+          <div key={index} className="agent-row agent-row-placeholder">
+            <span className="sk roster-placeholder-avatar" />
+            <div className="agent-meta">
+              <span className="sk roster-placeholder-name" />
+              <span className="sk roster-placeholder-sub" />
+            </div>
+            <div className="agent-row-controls">
+              <span className="sk roster-placeholder-control" />
+              <span className="sk roster-placeholder-effort" />
+              <span className="sk roster-placeholder-remove" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="rail-row roster-invite-placeholder">
+        <select className="rail-input" disabled aria-label="Invite persona loading">
+          <option>Invite persona...</option>
+        </select>
+        <button type="button" className="btn sm" disabled aria-label="Invite persona unavailable">
+          <Icon name="plus" className="ic-sm" />
+        </button>
+      </div>
+    </>
+  )
+}
 
 function sessionLabel(room: AgentRoom | null, summary?: string): string {
   if (room?.auto?.status === 'running') {
@@ -59,8 +95,10 @@ export function RoomPanel({
   summary?: string
   onUpdate: () => void
 }) {
-  const [claudeModel, setClaudeModel] = useState('')
-  const [codexModel, setCodexModel] = useState('')
+  const [models, setModels] = useState<Record<string, string>>({})
+  const [efforts, setEfforts] = useState<Record<string, string>>({})
+  const [catalogue, setCatalogue] = useState<AgentPersona[]>([])
+  const [inviteId, setInviteId] = useState('')
   const [nudgeAgent, setNudgeAgent] = useState<AgentName>('claude')
   const [nudgeBody, setNudgeBody] = useState('')
   const [askAgentName, setAskAgentName] = useState<AgentName>('claude')
@@ -74,6 +112,21 @@ export function RoomPanel({
   const [openingTerminal, setOpeningTerminal] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isThreadOpen = threadStatus === 'open'
+  const roster = room?.roster ?? []
+
+  useEffect(() => {
+    listAgents().then((items) => setCatalogue(items.filter((item) => !item.archived)))
+  }, [])
+
+  useEffect(() => {
+    setModels(Object.fromEntries(roster.map((agent) => [agent.agent_id, agent.model ?? ''])))
+    setEfforts(Object.fromEntries(roster.map((agent) => [agent.agent_id, agent.effort ?? ''])))
+    const first = roster[0]?.agent_id
+    if (first) {
+      setNudgeAgent((value) => roster.some((agent) => agent.agent_id === value) ? value : first)
+      setAskAgentName((value) => roster.some((agent) => agent.agent_id === value) ? value : first)
+    }
+  }, [room?.roster])
 
   async function handleStart(event: FormEvent) {
     event.preventDefault()
@@ -81,8 +134,8 @@ export function RoomPanel({
     setStartingRoom(true)
     try {
       await startRoom(threadId, {
-        claude_model: claudeModel || null,
-        codex_model: codexModel || null,
+        claude_model: models.claude || null,
+        codex_model: models.codex || null,
       })
       onUpdate()
     } catch (err) {
@@ -224,6 +277,29 @@ export function RoomPanel({
     }
   }
 
+  async function handleInvite() {
+    if (!inviteId) return
+    try {
+      await inviteThreadAgent(threadId, { agent_id: inviteId })
+      setInviteId('')
+      onUpdate()
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+  }
+
+  async function handleRemove(agentId: string) {
+    try {
+      await removeThreadAgent(threadId, agentId)
+      onUpdate()
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+  }
+
+  async function saveModel(agentId: string, modelValue = models[agentId] || null) {
+    try {
+      await updateThreadAgent(threadId, agentId, { model: modelValue, effort: efforts[agentId] || null })
+      onUpdate()
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+  }
+
   const canStart = canStartRoom(isThreadOpen, preflight, room)
   const canNudge = isThreadOpen && room?.status === 'idle'
   const canAsk = isThreadOpen && room?.status === 'idle'
@@ -307,48 +383,58 @@ export function RoomPanel({
           ))}
         </div>
 
-        <div className="agent-rows">
-          {(['claude', 'codex'] as AgentName[]).map((agent) => {
-            const ready = showAgentReadiness && Boolean(room?.agents[agent].ready_at)
-            const modelValue = agent === 'claude' ? claudeModel : codexModel
-            const setModel = agent === 'claude' ? setClaudeModel : setCodexModel
+        {room ? <div className="agent-rows">
+          {roster.map((persona) => {
+            const agent = persona.agent_id
+            const ready = showAgentReadiness && Boolean(room?.agents[agent]?.ready_at)
             return (
               <div key={agent} className="agent-row">
-                <Avatar author={agent} size={24} />
+                <Avatar author={agent} persona={persona} size={24} />
                 <div className="agent-meta">
                   <div className="name">
                     <span className={`state ${ready ? 'on' : ''}`} />
-                    {agent}
+                    {persona.name}
                   </div>
-                  <div className="sub">{ready ? 'ready · awaiting turn' : 'not started'}</div>
+                  <div className="sub">{persona.runtime} · {ready ? 'ready' : 'not started'}</div>
                 </div>
-                <select
-                  className="agent-model"
-                  aria-label={`${agent} model`}
-                  value={modelValue}
-                  onChange={(event) => setModel(event.target.value)}
-                  disabled={!isThreadOpen}
-                >
-                  <option value="">CLI default</option>
-                  {agent === 'claude' ? (
-                    <>
-                      <option value="claude-opus-4-7">claude-opus-4-7</option>
-                      <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-                      <option value="claude-haiku-4-5">claude-haiku-4-5</option>
-                    </>
-                  ) : (
-                    <>
-                      <option value="gpt-5.5">gpt-5.5</option>
-                      <option value="gpt-5.4">gpt-5.4</option>
-                      <option value="gpt-5.4-mini">gpt-5.4-mini</option>
-                      <option value="gpt-5.3-codex">gpt-5.3-codex</option>
-                    </>
-                  )}
-                </select>
+                <div className="agent-row-controls">
+                  <ModelSelect
+                    runtime={persona.runtime}
+                    className="agent-model"
+                    ariaLabel={`${agent} model`}
+                    value={models[agent] ?? ''}
+                    onChange={(value) => setModels((modelsByAgent) => ({ ...modelsByAgent, [agent]: value }))}
+                    onCommit={(value) => void saveModel(agent, value || null)}
+                    disabled={!isThreadOpen}
+                  />
+                  <select className="agent-model" aria-label={`${agent} effort`} value={efforts[agent] ?? ''} onChange={(event) => setEfforts((value) => ({ ...value, [agent]: event.target.value }))} onBlur={() => void saveModel(agent)} disabled={!isThreadOpen}>
+                    <option value="">Effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>{persona.runtime === 'codex' ? <option value="xhigh">XHigh</option> : null}
+                  </select>
+                  {roster.length > 1 && (room?.status === 'idle' || room?.status === 'not_started' || room?.status === 'stopped') ? (
+                    <button
+                      type="button"
+                      className="agent-remove"
+                      title={`Remove ${persona.name}`}
+                      aria-label={`Remove ${persona.name}`}
+                      onClick={() => void handleRemove(agent)}
+                    >
+                      <Icon name="close" className="ic-sm" />
+                    </button>
+                  ) : null}
+                </div>
               </div>
             )
           })}
-        </div>
+        </div> : <RoomRosterPlaceholder />}
+        {room && isThreadOpen && (room.status === 'idle' || room.status === 'not_started' || room.status === 'stopped') ? (
+          <div className="rail-row">
+            <select className="rail-input" value={inviteId} onChange={(event) => setInviteId(event.target.value)}>
+              <option value="">Invite persona...</option>
+              {catalogue.filter((agent) => !roster.some((invite) => invite.agent_id === agent.id)).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+            </select>
+            <button type="button" className="btn sm" disabled={!inviteId} onClick={() => void handleInvite()}><Icon name="plus" className="ic-sm" /></button>
+          </div>
+        ) : null}
 
         {room?.auto?.status === 'running' ? (
           <div className="auto-progress">
@@ -467,8 +553,7 @@ export function RoomPanel({
               <div className="rail-hint" style={{ padding: 0 }}>One-line note into the room without consuming a turn.</div>
               <div className="rail-row">
                 <select className="rail-input" aria-label="Nudge agent" value={nudgeAgent} onChange={(e) => setNudgeAgent(e.target.value as AgentName)} disabled={!canNudge}>
-                  <option value="claude">→ claude</option>
-                  <option value="codex">→ codex</option>
+                  {roster.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
                 </select>
                 <button type="submit" className="btn sm primary" disabled={!canNudge || !nudgeBody.trim()}>
                   <Icon name="send" className="ic-sm" />
@@ -483,8 +568,7 @@ export function RoomPanel({
               <div className="rail-hint" style={{ padding: 0 }}>Pose a question; it becomes a top-level discussion point from you.</div>
               <div className="rail-row">
                 <select className="rail-input" aria-label="Ask agent" value={askAgentName} onChange={(e) => setAskAgentName(e.target.value as AgentName)} disabled={!canAsk}>
-                  <option value="claude">claude only</option>
-                  <option value="codex">codex only</option>
+                  {roster.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
                 </select>
                 <button type="submit" className="btn sm primary" disabled={!canAsk || !askBody.trim()}>Ask</button>
               </div>

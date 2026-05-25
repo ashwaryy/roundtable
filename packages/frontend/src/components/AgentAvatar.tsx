@@ -6,7 +6,11 @@ const STYLES: Record<string, { initial: string; bgVar: string; fgVar: string }> 
 }
 
 export function AgentAvatar({ author, size = 28 }: { author: string; size?: number }) {
-  const s = STYLES[author] ?? STYLES.human
+  const s = STYLES[author] ?? {
+    initial: author.charAt(0).toUpperCase(),
+    bgVar: '--agent-codex-bg',
+    fgVar: '--agent-codex-fg',
+  }
   return (
     <span
       className="agent-avatar"

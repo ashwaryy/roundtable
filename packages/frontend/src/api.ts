@@ -34,6 +34,12 @@ import type {
   IntegrityReport,
   StartConsolidationInput,
   ThreadListItem,
+  AgentPersona,
+  CreateAgentPersonaInput,
+  UpdateAgentPersonaInput,
+  ThreadAgentInvite,
+  InviteAgentInput,
+  UpdateThreadAgentInviteInput,
 } from '@roundtable/shared'
 
 export interface AgentTurnResult {
@@ -91,6 +97,55 @@ export function createThread(input: CreateThreadInput): Promise<Thread> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
   }).then((r) => json<Thread>(r))
+}
+
+export function listAgents(): Promise<AgentPersona[]> {
+  return readJson<AgentPersona[]>('/api/agents')
+}
+
+export function createAgent(input: CreateAgentPersonaInput): Promise<AgentPersona> {
+  return fetch('/api/agents', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+  }).then((r) => json<AgentPersona>(r))
+}
+
+export function updateAgent(id: string, input: UpdateAgentPersonaInput): Promise<AgentPersona> {
+  return fetch(`/api/agents/${id}`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+  }).then((r) => json<AgentPersona>(r))
+}
+
+export function deleteAgent(id: string): Promise<AgentPersona | void> {
+  return fetch(`/api/agents/${id}`, { method: 'DELETE' }).then((r) =>
+    r.status === 204 ? undefined : json<AgentPersona>(r),
+  )
+}
+
+export function importAgents(jsonText: string): Promise<AgentPersona[]> {
+  return fetch('/api/agents/import-json', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ json: jsonText }),
+  }).then((r) => json<AgentPersona[]>(r))
+}
+
+export function listThreadAgents(threadId: string): Promise<ThreadAgentInvite[]> {
+  return readJson<ThreadAgentInvite[]>(`/api/threads/${threadId}/agents`)
+}
+
+export function inviteThreadAgent(threadId: string, input: InviteAgentInput): Promise<ThreadAgentInvite[]> {
+  return fetch(`/api/threads/${threadId}/agents`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+  }).then((r) => json<ThreadAgentInvite[]>(r))
+}
+
+export function updateThreadAgent(threadId: string, id: string, input: UpdateThreadAgentInviteInput): Promise<ThreadAgentInvite[]> {
+  return fetch(`/api/threads/${threadId}/agents/${id}`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+  }).then((r) => json<ThreadAgentInvite[]>(r))
+}
+
+export function removeThreadAgent(threadId: string, id: string): Promise<ThreadAgentInvite[]> {
+  return fetch(`/api/threads/${threadId}/agents/${id}`, { method: 'DELETE' })
+    .then((r) => json<ThreadAgentInvite[]>(r))
 }
 
 export function getThread(id: string): Promise<ThreadDetail> {

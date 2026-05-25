@@ -414,7 +414,7 @@ export function ThreadPage() {
 
   const onEvent = useCallback(
     (event: RoundtableEvent) => {
-      if (event.thread_id !== id) return
+      if (!('thread_id' in event) || event.thread_id !== id) return
       if (event.type === 'thread_deleted') {
         navigate('/')
         return
@@ -555,7 +555,7 @@ export function ThreadPage() {
             </span>
           ) : null}
           <StatusPill status={displayStatus} pendingCount={pendingCount} />
-          <AgentStack agents={['claude', 'codex']} size={18} />
+          <AgentStack agents={(room?.roster ?? []).map((agent) => agent.agent_id)} size={18} />
           <ThemeToggle />
         </div>
 
@@ -722,6 +722,7 @@ export function ThreadPage() {
                 disableAgentActions={room?.auto?.status === 'running'}
                 readOnly={thread.status !== 'open'}
                 sortOrder={commentSortOrder}
+                roster={room?.roster ?? []}
               />
             )}
 
@@ -782,8 +783,7 @@ export function ThreadPage() {
               </button>
               <div className="strip-sep" />
               <div className="vlabel">Room</div>
-              <Avatar author="claude" size={26} />
-              <Avatar author="codex" size={26} />
+              {(room?.roster ?? []).map((agent) => <Avatar key={agent.agent_id} author={agent.agent_id} persona={agent} size={26} />)}
               <span title={displayStatus} className="strip-state" data-state={displayStatus} />
               {room?.auto?.status === 'running' ? <span className="strip-auto" title="Auto running">A</span> : null}
               <div className="strip-sep" />

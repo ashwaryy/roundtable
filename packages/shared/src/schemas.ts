@@ -8,13 +8,81 @@ export const commentTypeSchema = z.enum([
   'decision',
 ])
 
-export const commentAuthorSchema = z.enum(['human', 'claude', 'codex', 'system'])
+export const agentIdSchema = z.string().trim().min(1)
+export const agentRuntimeSchema = z.enum(['claude', 'codex'])
+export const agentColorPresetSchema = z.enum([
+  'blue',
+  'green',
+  'amber',
+  'rose',
+  'violet',
+  'teal',
+])
+export const commentAuthorSchema = z.string().trim().min(1)
 
-export const agentNameSchema = z.enum(['claude', 'codex'])
+export const agentNameSchema = agentIdSchema
+
+const nullableTrimmedStringSchema = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? null : value),
+  z.string().trim().min(1).nullable().optional(),
+)
+
+function runtimeEffortValid(data: { runtime: 'claude' | 'codex'; effort?: string | null }): boolean {
+  if (data.effort == null) return true
+  return data.runtime === 'codex'
+    ? ['low', 'medium', 'high', 'xhigh'].includes(data.effort)
+    : ['low', 'medium', 'high'].includes(data.effort)
+}
+
+export const createAgentPersonaInputSchema = z.object({
+  name: z.string().trim().min(1, 'name is required'),
+  runtime: agentRuntimeSchema,
+  role_description: z.string().trim().default(''),
+  instructions: z.string().default(''),
+  model: nullableTrimmedStringSchema,
+  effort: nullableTrimmedStringSchema,
+  color: agentColorPresetSchema.default('blue'),
+  logo_url: z.string().trim().url('logo_url must be valid').nullable().optional(),
+}).refine(runtimeEffortValid, { path: ['effort'], message: 'effort is not valid for runtime' })
+
+export const updateAgentPersonaInputSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  runtime: agentRuntimeSchema.optional(),
+  role_description: z.string().trim().optional(),
+  instructions: z.string().optional(),
+  model: nullableTrimmedStringSchema,
+  effort: nullableTrimmedStringSchema,
+  color: agentColorPresetSchema.optional(),
+  logo_url: z.string().trim().url('logo_url must be valid').nullable().optional(),
+  archived: z.boolean().optional(),
+})
+
+export const importAgentPersonasInputSchema = z.union([
+  createAgentPersonaInputSchema,
+  z.array(createAgentPersonaInputSchema).min(1).max(50),
+])
 
 export const createThreadInputSchema = z.object({
   title: z.string().trim().min(1, 'title is required'),
   body: z.string().min(1, 'body is required'),
+  agent_ids: z.array(agentIdSchema).min(1).max(8).optional(),
+})
+
+export const inviteAgentInputSchema = z.object({
+  agent_id: agentIdSchema,
+  model: nullableTrimmedStringSchema,
+  effort: nullableTrimmedStringSchema,
+})
+
+export const updateThreadAgentInviteInputSchema = z.object({
+  model: nullableTrimmedStringSchema,
+  effort: nullableTrimmedStringSchema,
+}).refine((value) => value.model !== undefined || value.effort !== undefined, {
+  message: 'at least one override is required',
+})
+
+export const reorderThreadAgentsInputSchema = z.object({
+  agent_ids: z.array(agentIdSchema).min(1).max(8),
 })
 
 export const createCommentInputSchema = z.object({

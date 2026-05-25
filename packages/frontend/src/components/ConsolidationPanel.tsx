@@ -30,11 +30,12 @@ export function ConsolidationPanel({
   const [instructions, setInstructions] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [finishRequested, setFinishRequested] = useState(false)
+  const readyAgents = room?.roster.filter((persona) => room.agents[persona.agent_id]?.ready_at) ?? []
 
   const roomReady =
     room &&
-    Boolean(room.agents.claude.ready_at) &&
-    Boolean(room.agents.codex.ready_at)
+    readyAgents.length > 0 &&
+    readyAgents.length === room.roster.length
   const canStart =
     Boolean(roomReady) &&
     !room?.active_job_id &&
@@ -58,6 +59,15 @@ export function ConsolidationPanel({
       setFinishRequested(false)
     }
   }, [room?.auto?.pause_requested, room?.auto?.status, room?.status])
+
+  useEffect(() => {
+    if (readyAgents.length === 0) return
+    const first = readyAgents[0].agent_id
+    const second = readyAgents[1]?.agent_id ?? first
+    setDrafter((value) => readyAgents.some((agent) => agent.agent_id === value) ? value : second)
+    setReviewer((value) => readyAgents.some((agent) => agent.agent_id === value) ? value : first)
+    setReviser((value) => readyAgents.some((agent) => agent.agent_id === value) ? value : second)
+  }, [room?.roster, room?.agents])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -124,22 +134,19 @@ export function ConsolidationPanel({
             <div className="rail-mini">
               <label>Drafter</label>
               <select className="rail-input" value={drafter} onChange={(event) => setDrafter(event.target.value as AgentName)}>
-                <option value="codex">codex</option>
-                <option value="claude">claude</option>
+                {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
               </select>
             </div>
             <div className="rail-mini">
               <label>Reviewer</label>
               <select className="rail-input" value={reviewer} onChange={(event) => setReviewer(event.target.value as AgentName)}>
-                <option value="claude">claude</option>
-                <option value="codex">codex</option>
+                {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
               </select>
             </div>
             <div className="rail-mini">
               <label>Reviser</label>
               <select className="rail-input" value={reviser} onChange={(event) => setReviser(event.target.value as AgentName)}>
-                <option value="codex">codex</option>
-                <option value="claude">claude</option>
+                {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
               </select>
             </div>
           </div>

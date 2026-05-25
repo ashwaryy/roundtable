@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import { Icon } from './primitives'
+import { RoomRosterPlaceholder } from './RoomPanel'
 import { RAIL_COLLAPSED_STORAGE_KEY, readStoredBoolean } from '../lib/uiStorage'
 
 export function ThreadSkeleton() {
@@ -128,15 +129,22 @@ export function ThreadSkeleton() {
                 <span className="sk thread-skeleton__rail-collapse" />
               </div>
               <div className="rail-body">
-                {[0, 1, 2].map((item) => (
+                <div className="room-status thread-skeleton__room-status">
+                  <span className="sk thread-skeleton__session" />
+                  <div className="tool-row">
+                    {[0, 1, 2].map((item) => <span key={item} className="sk thread-skeleton__tool" />)}
+                  </div>
+                  <RoomRosterPlaceholder />
+                </div>
+                {[0, 1].map((item) => (
                   <section key={item} className="rail-section" data-open="1">
                     <div className="rail-section-head">
                       <span className="sk thread-skeleton__rail-label" />
                       <span className="sk thread-skeleton__rail-count" />
                     </div>
                     <div className="rail-section-body thread-skeleton__rail-body">
-                      <span className="sk" style={{ width: '100%', height: item === 0 ? 54 : 34 }} />
-                      <span className="sk" style={{ width: item === 2 ? '72%' : '88%' }} />
+                      <span className="sk" style={{ width: '100%', height: 34 }} />
+                      <span className="sk" style={{ width: item === 1 ? '72%' : '88%' }} />
                     </div>
                   </section>
                 ))}

@@ -16,6 +16,7 @@ import {
 import { BadRequestError, ConflictError } from '../storage/errors'
 import { getJob } from '../storage/jobs'
 import { addComment, listComments } from '../storage/comments'
+import { createAgent, initializeThreadAgents, inviteAgent, removeThreadAgent } from '../storage/agents'
 import { listPendingDiscussions } from '../storage/pendingDiscussions'
 import { createRoomManager, type CommandExecutor } from './manager'
 
@@ -365,11 +366,11 @@ describe('createRoomManager', () => {
 
   it('starts a tmux room, writes helper state, and schedules trust prompt acceptance', async () => {
     executor.paneCaptures.set(
-      'roundtable-thread-1:0.0',
+      'roundtable-thread-1:agent-claude',
       'Quick safety check\n> 1. Yes, I trust this folder',
     )
     executor.paneCaptures.set(
-      'roundtable-thread-1:0.1',
+      'roundtable-thread-1:agent-codex',
       'Do you trust the contents of this directory?\n> 1. Yes, continue',
     )
     const manager = createRoomManager({
@@ -400,10 +401,12 @@ describe('createRoomManager', () => {
     expect(executor.commands).toContainEqual({
       file: 'tmux',
       args: [
-        'split-window',
-        '-h',
+        'new-window',
+        '-d',
         '-t',
-        'roundtable-thread-1:0',
+        'roundtable-thread-1',
+        '-n',
+        'agent-codex',
         '-c',
         path.join(dataDir, 'threads', 'thread-1'),
       ],
@@ -413,17 +416,54 @@ describe('createRoomManager', () => {
 
     expect(executor.commands).toContainEqual({
       file: 'tmux',
-      args: ['send-keys', '-t', 'roundtable-thread-1:0.0', 'C-m'],
+      args: ['send-keys', '-t', 'roundtable-thread-1:agent-claude', 'C-m'],
     })
     expect(executor.commands).toContainEqual({
       file: 'tmux',
-      args: ['send-keys', '-t', 'roundtable-thread-1:0.1', 'C-m'],
+      args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', 'C-m'],
+    })
+  })
+
+  it('launches one named tmux window for each invited persona', () => {
+    const reviewer = createAgent(dataDir, { name: 'Reviewer', runtime: 'codex', color: 'teal' })
+    initializeThreadAgents(dataDir, 'thread-1', ['claude', reviewer.id])
+    const manager = createRoomManager({ dataDir, backendUrl: 'http://localhost:4319', executor })
+
+    const room = manager.startRoom('thread-1', {})
+
+    expect(room.roster.map((agent) => agent.agent_id)).toEqual(['claude', reviewer.id])
+    expect(executor.commands).toContainEqual(expect.objectContaining({
+      file: 'tmux',
+      args: expect.arrayContaining(['new-window', 'agent-agent-reviewer']),
+    }))
+  })
+
+  it('adds and removes persona windows while an idle room is live', () => {
+    const { manager, token } = startReadyRoom()
+    const reviewer = createAgent(dataDir, { name: 'Reviewer', runtime: 'codex', color: 'teal' })
+    inviteAgent(dataDir, 'thread-1', { agent_id: reviewer.id })
+
+    const adding = manager.syncRoster('thread-1')
+    expect(adding.status).toBe('starting')
+    expect(adding.agents[reviewer.id].ready_at).toBeNull()
+    expect(executor.commands).toContainEqual(expect.objectContaining({
+      file: 'tmux',
+      args: expect.arrayContaining(['new-window', 'agent-agent-reviewer']),
+    }))
+    expect(manager.markReady('thread-1', reviewer.id, token).status).toBe('idle')
+
+    removeThreadAgent(dataDir, 'thread-1', reviewer.id)
+    const removing = manager.syncRoster('thread-1')
+    expect(removing.roster.map((agent) => agent.agent_id)).toEqual(['claude', 'codex'])
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: ['kill-window', '-t', 'roundtable-thread-1:agent-agent-reviewer'],
     })
   })
 
   it('does not send startup Enter when a pane is past the trust prompt', async () => {
-    executor.paneCaptures.set('roundtable-thread-1:0.0', 'Claude Code ready')
-    executor.paneCaptures.set('roundtable-thread-1:0.1', 'Codex ready')
+    executor.paneCaptures.set('roundtable-thread-1:agent-claude', 'Claude Code ready')
+    executor.paneCaptures.set('roundtable-thread-1:agent-codex', 'Codex ready')
     const manager = createRoomManager({
       dataDir,
       backendUrl: 'http://localhost:4319',
@@ -446,9 +486,9 @@ describe('createRoomManager', () => {
   })
 
   it('trusts generated Codex hooks when their review prompt appears at startup', async () => {
-    executor.paneCaptures.set('roundtable-thread-1:0.0', 'Claude Code ready')
+    executor.paneCaptures.set('roundtable-thread-1:agent-claude', 'Claude Code ready')
     executor.paneCaptures.set(
-      'roundtable-thread-1:0.1',
+      'roundtable-thread-1:agent-codex',
       'Hooks need review\n1 hook is new or changed.\n> 1. Review hooks\n2. Trust all and continue\n3. Continue without trusting (hooks won\'t run)',
     )
     const manager = createRoomManager({
@@ -464,7 +504,7 @@ describe('createRoomManager', () => {
 
     expect(executor.commands).toContainEqual({
       file: 'tmux',
-      args: ['send-keys', '-t', 'roundtable-thread-1:0.1', 'Down', 'C-m'],
+      args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', 'Down', 'C-m'],
     })
   })
 
@@ -490,11 +530,11 @@ describe('createRoomManager', () => {
     ).toBe(false)
 
     executor.paneCaptures.set(
-      'roundtable-thread-1:0.0',
+      'roundtable-thread-1:agent-claude',
       'Quick safety check\n> 1. Yes, I trust this folder',
     )
     executor.paneCaptures.set(
-      'roundtable-thread-1:0.1',
+      'roundtable-thread-1:agent-codex',
       'Do you trust the contents of this directory?\n> 1. Yes, continue',
     )
 
@@ -502,11 +542,11 @@ describe('createRoomManager', () => {
 
     expect(executor.commands).toContainEqual({
       file: 'tmux',
-      args: ['send-keys', '-t', 'roundtable-thread-1:0.0', 'C-m'],
+      args: ['send-keys', '-t', 'roundtable-thread-1:agent-claude', 'C-m'],
     })
     expect(executor.commands).toContainEqual({
       file: 'tmux',
-      args: ['send-keys', '-t', 'roundtable-thread-1:0.1', 'C-m'],
+      args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', 'C-m'],
     })
   })
 
@@ -639,7 +679,7 @@ describe('createRoomManager', () => {
       args: [
         'send-keys',
         '-t',
-        'roundtable-thread-1:0.1',
+        'roundtable-thread-1:agent-codex',
         'Please inspect this.',
         'C-m',
       ],
@@ -649,7 +689,7 @@ describe('createRoomManager', () => {
   it('detects a pane input prompt and sends a yes response', () => {
     const { manager } = startReadyRoom()
     executor.paneCaptures.set(
-      'roundtable-thread-1:0.1',
+      'roundtable-thread-1:agent-codex',
       [
         'This command requires approval',
         'Do you want to proceed?',
@@ -673,7 +713,7 @@ describe('createRoomManager', () => {
     expect(updated.input_prompt).toBeNull()
     expect(executor.commands).toContainEqual({
       file: 'tmux',
-      args: ['send-keys', '-t', 'roundtable-thread-1:0.1', '1', 'Enter'],
+      args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', '1', 'Enter'],
     })
   })
 
@@ -726,28 +766,28 @@ describe('createRoomManager', () => {
       (command) =>
         command.file === 'tmux' &&
         command.args[0] === 'send-keys' &&
-        command.args[2] === 'roundtable-thread-1:0.1' &&
+        command.args[2] === 'roundtable-thread-1:agent-codex' &&
         command.args[3] === '-l' &&
         command.args[4].includes('job-001-codex-turn.md'),
     )
     expect(executor.commands.slice(promptTextCommandIndex - 1, promptTextCommandIndex + 2)).toEqual([
       {
         file: 'tmux',
-        args: ['send-keys', '-t', 'roundtable-thread-1:0.1', 'C-u'],
+        args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', 'C-u'],
       },
       {
         file: 'tmux',
         args: [
           'send-keys',
           '-t',
-          'roundtable-thread-1:0.1',
+          'roundtable-thread-1:agent-codex',
           '-l',
           'Read .roundtable/tmp/job-001-codex-turn.md and follow it.',
         ],
       },
       {
         file: 'tmux',
-        args: ['send-keys', '-t', 'roundtable-thread-1:0.1', 'Enter'],
+        args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', 'Enter'],
       },
     ])
     expect(executor.commands[promptTextCommandIndex].args[4]).not.toContain('\n')

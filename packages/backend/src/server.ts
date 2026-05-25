@@ -23,6 +23,12 @@ import {
   startAutoDiscussionInputSchema,
   startConsolidationInputSchema,
   startRoomInputSchema,
+  createAgentPersonaInputSchema,
+  updateAgentPersonaInputSchema,
+  importAgentPersonasInputSchema,
+  inviteAgentInputSchema,
+  updateThreadAgentInviteInputSchema,
+  reorderThreadAgentsInputSchema,
   type AgentRoom,
   type ConsolidationProposal,
   type RoundtableEvent,
@@ -47,6 +53,7 @@ const PENDING_ID_RE = /^pd\d+$/
 const JOB_ID_RE = /^job-\d+$/
 const PROPOSAL_ID_RE = /^consolidation-\d+$/
 const SAVED_ID_RE = /^thread-\d+-consolidation-\d+$/
+const AGENT_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
 
 function flattenFiles(files: Record<string, FormidableFile | FormidableFile[]>): FormidableFile[] {
   return Object.values(files).flatMap((file) => (Array.isArray(file) ? file : [file]))
@@ -194,8 +201,69 @@ export function createApp(deps: {
     next()
   })
 
+  app.param('agentId', (_req, res, next, value: string) => {
+    if (!AGENT_ID_RE.test(value)) {
+      return res.status(404).json({ error: 'agent not found' })
+    }
+    next()
+  })
+
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true })
+  })
+
+  app.get('/api/agents', (_req, res) => {
+    res.json(storage.listAgents())
+  })
+
+  app.post('/api/agents', (req, res) => {
+    const parsed = createAgentPersonaInputSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+    const agent = storage.createAgent(parsed.data)
+    broadcast({ type: 'agents_updated' })
+    res.status(201).json(agent)
+  })
+
+  app.post('/api/agents/import-json', (req, res) => {
+    let input: unknown = req.body
+    if (typeof req.body?.json === 'string') {
+      try {
+        input = JSON.parse(req.body.json)
+      } catch {
+        return res.status(400).json({ error: 'json must contain valid JSON' })
+      }
+    }
+    const parsed = importAgentPersonasInputSchema.safeParse(input)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+    const imported = (Array.isArray(parsed.data) ? parsed.data : [parsed.data])
+      .map((persona) => storage.createAgent(persona))
+    broadcast({ type: 'agents_updated' })
+    res.status(201).json(imported)
+  })
+
+  app.patch('/api/agents/:agentId', (req, res) => {
+    const parsed = updateAgentPersonaInputSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+    try {
+      const agent = storage.updateAgent(req.params.agentId, parsed.data)
+      broadcast({ type: 'agents_updated' })
+      res.json(agent)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.delete('/api/agents/:agentId', (req, res) => {
+    try {
+      const archived = storage.deleteAgent(req.params.agentId)
+      broadcast({ type: 'agents_updated' })
+      if (archived) return res.json(archived)
+      return res.status(204).end()
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
   })
 
   app.post('/api/threads', (req, res) => {
@@ -230,6 +298,79 @@ export function createApp(deps: {
     const thread = storage.getThread(req.params.id)
     if (!thread) return res.status(404).json({ error: 'thread not found' })
     res.json(thread)
+  })
+
+  function rosterEditable(threadId: string): boolean {
+    if (!rooms) return true
+    const room = rooms.getRoom(threadId)
+    return room.status === 'not_started' || room.status === 'stopped' || room.status === 'idle'
+  }
+
+  app.get('/api/threads/:id/agents', (req, res) => {
+    try {
+      res.json(storage.listThreadAgents(req.params.id))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/agents', (req, res) => {
+    const parsed = inviteAgentInputSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+    try {
+      if (!rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
+      const roster = storage.inviteAgent(req.params.id, parsed.data)
+      rooms?.syncRoster(req.params.id)
+      broadcast({ type: 'thread_agents_updated', thread_id: req.params.id })
+      res.status(201).json(roster)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.patch('/api/threads/:id/agents/:agentId', (req, res) => {
+    const parsed = updateThreadAgentInviteInputSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+    try {
+      if (!rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
+      const roster = storage.updateThreadAgent(req.params.id, req.params.agentId, parsed.data)
+      rooms?.syncRoster(req.params.id)
+      broadcast({ type: 'thread_agents_updated', thread_id: req.params.id })
+      res.json(roster)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.delete('/api/threads/:id/agents/:agentId', (req, res) => {
+    try {
+      if (!rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
+      const roster = storage.removeThreadAgent(req.params.id, req.params.agentId)
+      rooms?.syncRoster(req.params.id)
+      broadcast({ type: 'thread_agents_updated', thread_id: req.params.id })
+      res.json(roster)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.put('/api/threads/:id/agents/order', (req, res) => {
+    const parsed = reorderThreadAgentsInputSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+    try {
+      if (!rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
+      const roster = storage.reorderThreadAgents(req.params.id, parsed.data)
+      rooms?.syncRoster(req.params.id)
+      broadcast({ type: 'thread_agents_updated', thread_id: req.params.id })
+      res.json(roster)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
   })
 
   app.delete('/api/threads/:id', (req, res) => {
@@ -741,7 +882,7 @@ export function createApp(deps: {
       return res.status(404).json({ error: 'thread not found' })
     }
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
-    res.json(rooms.preflight())
+    res.json(rooms.preflight(req.params.id))
   })
 
   app.get('/api/threads/:id/room', (req, res) => {

@@ -26,6 +26,13 @@ import type {
   SavedOutput,
   IntegrityReport,
   RoundtableEvent,
+  AgentPersona,
+  CreateAgentPersonaInput,
+  UpdateAgentPersonaInput,
+  ThreadAgentInvite,
+  InviteAgentInput,
+  UpdateThreadAgentInviteInput,
+  ReorderThreadAgentsInput,
 } from '@roundtable/shared'
 import * as threads from './threads'
 import * as comments from './comments'
@@ -34,6 +41,7 @@ import * as proposals from './proposals'
 import * as context from './context'
 import * as jobs from './jobs'
 import * as integrity from './integrity'
+import * as agents from './agents'
 import { BadRequestError, NotFoundError } from './errors'
 
 export {
@@ -48,6 +56,7 @@ export function createStorage(
   dataDir: string,
   onIntegrityUpdate?: (event: RoundtableEvent) => void,
 ) {
+  agents.seedBuiltInAgents(dataDir)
   function inspect(threadId: string): void {
     try {
       const previousIssues = integrity.currentIntegrityIssueCount(dataDir, threadId)
@@ -70,6 +79,7 @@ export function createStorage(
   return {
     createThread: (input: CreateThreadInput): Thread => {
       const thread = threads.createThread(dataDir, input)
+      agents.initializeThreadAgents(dataDir, thread.id, input.agent_ids)
       integrity.acceptApplicationWrite(dataDir, thread.id)
       return thread
     },
@@ -83,6 +93,11 @@ export function createStorage(
       },
     ): Thread => {
       const thread = threads.createDerivedThread(dataDir, input)
+      agents.initializeThreadAgents(
+        dataDir,
+        thread.id,
+        agents.listThreadAgents(dataDir, input.parentThreadId).map((invite) => invite.agent_id),
+      )
       if (input.copyContext) {
         context.copyThreadContext(dataDir, input.parentThreadId, thread.id)
       }
@@ -118,7 +133,16 @@ export function createStorage(
       threadId: string,
       input: CreatePendingDiscussionInput,
     ): PendingDiscussion =>
-      mutate(threadId, () => pending.addPendingDiscussion(dataDir, threadId, input)),
+      mutate(threadId, () => {
+        if (
+          input.author !== 'human' &&
+          input.author !== 'system' &&
+          !agents.listThreadAgents(dataDir, threadId).some((invite) => invite.agent_id === input.author)
+        ) {
+          throw new BadRequestError(`agent ${input.author} is not invited to this thread`)
+        }
+        return pending.addPendingDiscussion(dataDir, threadId, input)
+      }),
     approvePendingDiscussion: (threadId: string, pendingId: string): Comment =>
       mutate(threadId, () => pending.approvePendingDiscussion(dataDir, threadId, pendingId)),
     editPendingDiscussion: (
@@ -215,6 +239,11 @@ export function createStorage(
         parentThreadId: threadId,
         consolidationId: proposalId,
       })
+      agents.initializeThreadAgents(
+        dataDir,
+        next.id,
+        agents.listThreadAgents(dataDir, threadId).map((invite) => invite.agent_id),
+      )
       context.copyThreadContext(dataDir, threadId, next.id)
       threads.archiveThread(dataDir, threadId)
       proposals.markApplied(dataDir, threadId, proposalId, next.id)
@@ -288,6 +317,32 @@ export function createStorage(
       threadId: string,
       input: Parameters<typeof comments.addAgentComment>[2],
     ): Comment => comments.addAgentComment(dataDir, threadId, input),
+    listAgents: (): AgentPersona[] => agents.listAgents(dataDir),
+    createAgent: (input: CreateAgentPersonaInput): AgentPersona =>
+      agents.createAgent(dataDir, input),
+    updateAgent: (agentId: string, patch: UpdateAgentPersonaInput): AgentPersona =>
+      agents.updateAgent(dataDir, agentId, patch),
+    deleteAgent: (agentId: string): AgentPersona | null =>
+      agents.deleteAgent(dataDir, agentId),
+    listThreadAgents: (threadId: string): ThreadAgentInvite[] => {
+      inspect(threadId)
+      return agents.listThreadAgents(dataDir, threadId)
+    },
+    inviteAgent: (threadId: string, input: InviteAgentInput): ThreadAgentInvite[] =>
+      mutate(threadId, () => agents.inviteAgent(dataDir, threadId, input)),
+    updateThreadAgent: (
+      threadId: string,
+      agentId: string,
+      patch: UpdateThreadAgentInviteInput,
+    ): ThreadAgentInvite[] =>
+      mutate(threadId, () => agents.updateThreadAgent(dataDir, threadId, agentId, patch)),
+    removeThreadAgent: (threadId: string, agentId: string): ThreadAgentInvite[] =>
+      mutate(threadId, () => agents.removeThreadAgent(dataDir, threadId, agentId)),
+    reorderThreadAgents: (
+      threadId: string,
+      input: ReorderThreadAgentsInput,
+    ): ThreadAgentInvite[] =>
+      mutate(threadId, () => agents.reorderThreadAgents(dataDir, threadId, input)),
   }
 }
 

@@ -30,6 +30,37 @@ describe('GET /api/health', () => {
   })
 })
 
+describe('agent catalogue and roster routes', () => {
+  it('supports import JSON with generated ids and unique names', async () => {
+    const first = await request(app).post('/api/agents/import-json').send({
+      json: JSON.stringify({ name: 'Architect', runtime: 'codex', color: 'teal' }),
+    })
+    const second = await request(app).post('/api/agents/import-json').send({
+      json: JSON.stringify({ name: 'Architect', runtime: 'codex', color: 'rose' }),
+    })
+    expect(first.status).toBe(201)
+    expect(first.body[0].id).toMatch(/^agent-/)
+    expect(second.body[0].name).toBe('Architect (2)')
+  })
+
+  it('lists, adds, overrides, reorders, and removes thread invites', async () => {
+    const persona = (await request(app).post('/api/agents').send({
+      name: 'Reviewer', runtime: 'claude', color: 'blue',
+    })).body
+    await request(app).post('/api/threads').send({ title: 'A', body: 'a' })
+    expect((await request(app).get('/api/threads/thread-1/agents')).body).toHaveLength(2)
+    await request(app).post('/api/threads/thread-1/agents').send({ agent_id: persona.id })
+    const overridden = await request(app).patch(`/api/threads/thread-1/agents/${persona.id}`).send({ model: 'review-model' })
+    expect(overridden.body[2].model).toBe('review-model')
+    const ordered = await request(app).put('/api/threads/thread-1/agents/order').send({
+      agent_ids: [persona.id, 'codex', 'claude'],
+    })
+    expect(ordered.body[0].agent_id).toBe(persona.id)
+    const removed = await request(app).delete(`/api/threads/thread-1/agents/${persona.id}`)
+    expect(removed.body).toHaveLength(2)
+  })
+})
+
 describe('POST /api/threads', () => {
   it('creates a thread and broadcasts thread_created', async () => {
     const res = await request(app)
@@ -214,7 +245,7 @@ describe('pending discussion routes', () => {
     expect(res.status).toBe(400)
   })
 
-  it('rejects a create with an invalid author (400)', async () => {
+  it('rejects an uninvited persona id author (400)', async () => {
     const res = await request(app)
       .post('/api/threads/thread-1/pending-discussions')
       .send({ author: 'robot', body: 'hi' })
@@ -478,6 +509,10 @@ function testRoom(status: AgentRoom['status'] = 'starting'): AgentRoom {
       claude: { ready_at: null },
       codex: { ready_at: null },
     },
+    roster: [
+      { agent_id: 'claude', name: 'Claude', runtime: 'claude', role_description: '', instructions: '', model: null, effort: null, color: 'amber', logo_url: null, order: 0 },
+      { agent_id: 'codex', name: 'Codex', runtime: 'codex', role_description: '', instructions: '', model: null, effort: null, color: 'green', logo_url: null, order: 1 },
+    ],
     created_at: '2026-05-23T00:00:00.000Z',
     updated_at: '2026-05-23T00:00:00.000Z',
     started_at: null,
@@ -564,6 +599,7 @@ describe('room routes', () => {
       preflight: vi.fn(() => testPreflight()),
       getRoom: vi.fn(() => testRoom('not_started')),
       startRoom: vi.fn(() => testRoom('starting')),
+      syncRoster: vi.fn(() => testRoom('idle')),
       restartRoom: vi.fn(() => testRoom('starting')),
       stopRoom: vi.fn(() => testRoom('stopped')),
       nudgeRoom: vi.fn(() => testRoom('idle')),

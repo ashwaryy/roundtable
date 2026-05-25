@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import type { CommentType, PendingDiscussion } from '@roundtable/shared'
+import type { CommentType, PendingDiscussion, ThreadAgentInvite } from '@roundtable/shared'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -7,7 +7,7 @@ import {
   editPendingDiscussion,
   rejectPendingDiscussion,
 } from '../api'
-import { AgentAvatar } from './AgentAvatar'
+import { Avatar } from './primitives'
 
 const TYPES: CommentType[] = ['comment', 'proposal', 'critique', 'question', 'decision']
 
@@ -42,11 +42,13 @@ export function PendingDiscussionModerationCard({
   threadId,
   discussion,
   originExcerpt,
+  persona,
   onUpdate,
 }: {
   threadId: string
   discussion: PendingDiscussion
   originExcerpt?: string | null
+  persona?: ThreadAgentInvite
   onUpdate: () => void
 }) {
   const [editing, setEditing] = useState(false)
@@ -97,8 +99,8 @@ export function PendingDiscussionModerationCard({
       aria-label="pending discussion awaiting approval"
     >
       <div className="pending-block__label">
-        <AgentAvatar author={discussion.author} size={20} />
-        <span className="pending-block__author">{discussion.author}</span>
+        <Avatar author={discussion.author} persona={persona} size={20} />
+        <span className="pending-block__author">{persona?.name ?? discussion.author}</span>
         <span className="pending-awaiting-badge">Awaiting approval</span>
         {discussion.type !== 'comment' ? (
           <span className={`type-badge type-badge--${discussion.type}`}>{discussion.type}</span>

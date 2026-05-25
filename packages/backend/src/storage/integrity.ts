@@ -6,6 +6,7 @@ import {
   attachmentsDir,
   consolidationsDir,
   contextItemsPath,
+  threadAgentsPath,
   integrityPath,
   pendingDiscussionsPath,
   commentsPath,
@@ -99,6 +100,7 @@ function scanCanonical(dataDir: string, threadId: string): Scan {
     commentsPath(dataDir, threadId),
     pendingDiscussionsPath(dataDir, threadId),
     contextItemsPath(dataDir, threadId),
+    threadAgentsPath(dataDir, threadId),
   ]) {
     if (!fs.existsSync(filePath)) {
       const label = toLabel(root, filePath)

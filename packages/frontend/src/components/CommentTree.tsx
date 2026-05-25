@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AgentName, Comment, CommentType, PendingDiscussion } from '@roundtable/shared'
+import type { AgentName, Comment, CommentType, PendingDiscussion, ThreadAgentInvite } from '@roundtable/shared'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { groupComments, type CommentSortOrder } from '../lib/commentTree'
@@ -44,34 +44,25 @@ function CommentActions({
   onDelete,
   onReply,
   onAsk,
+  roster,
 }: {
   disabled: boolean
   deleting: boolean
   onDelete: () => void
   onReply: () => void
   onAsk: (agent: AgentName) => void
+  roster: ThreadAgentInvite[]
 }) {
   return (
     <div className="cmt-actions">
       <button type="button" className="cmt-action" onClick={onReply}>
         <Icon name="reply" className="ic-sm" /> Reply
       </button>
-      <button
-        type="button"
-        className="cmt-action ask"
-        disabled={disabled}
-        onClick={() => onAsk('claude')}
-      >
-        <Avatar author="claude" size={14} /> Ask Claude
-      </button>
-      <button
-        type="button"
-        className="cmt-action ask"
-        disabled={disabled}
-        onClick={() => onAsk('codex')}
-      >
-        <Avatar author="codex" size={14} /> Ask Codex
-      </button>
+      {roster.map((persona) => (
+        <button key={persona.agent_id} type="button" className="cmt-action ask" disabled={disabled} onClick={() => onAsk(persona.agent_id)}>
+          <Avatar author={persona.agent_id} persona={persona} size={14} /> Ask {persona.name}
+        </button>
+      ))}
       <button
         type="button"
         className="cmt-action danger"
@@ -96,6 +87,7 @@ function RootComment({
   onDelete,
   onAskDiscussion,
   onPendingUpdate,
+  roster,
 }: {
   root: Comment
   replies: Comment[]
@@ -108,6 +100,7 @@ function RootComment({
   onDelete: (commentId: string) => Promise<void>
   onAskDiscussion: (discussionId: string, agent: AgentName) => Promise<void>
   onPendingUpdate: () => void
+  roster: ThreadAgentInvite[]
 }) {
   const [openReply, setOpenReply] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
@@ -142,13 +135,13 @@ function RootComment({
   }
 
   return (
-    <div className="cmt-root" data-author={root.author}>
+    <div className="cmt-root" data-author={root.author} data-color={roster.find((agent) => agent.agent_id === root.author)?.color}>
       <div className="cmt cmt-root-row">
         <div className="cmt-row">
-          <Avatar author={root.author} size={28} />
+          <Avatar author={root.author} persona={roster.find((agent) => agent.agent_id === root.author)} size={28} />
           <div className="cmt-body">
             <div className="cmt-head">
-              <AgentTag author={root.author} />
+              <AgentTag author={root.author} persona={roster.find((agent) => agent.agent_id === root.author)} />
               <TypeBadge type={root.type} />
               <span className="time">{formatTs(root.created_at)}</span>
               <span className="cmt-id mono">{root.id}</span>
@@ -178,6 +171,7 @@ function RootComment({
                 onReply={() => setOpenReply((v) => !v)}
                 onDelete={() => void deleteWithConfirm(root)}
                 onAsk={(agent) => onAskDiscussion(root.id, agent)}
+                roster={roster}
               />
             ) : null}
           </div>
@@ -195,8 +189,8 @@ function RootComment({
               <div className="reply-cluster-rail" />
               <div className="reply-cluster-body">
                 <div className="cmt-head">
-                  <Avatar author={sub.author} size={20} />
-                  <AgentTag author={sub.author} />
+                  <Avatar author={sub.author} persona={roster.find((agent) => agent.agent_id === sub.author)} size={20} />
+                  <AgentTag author={sub.author} persona={roster.find((agent) => agent.agent_id === sub.author)} />
                   {sub.comments[0].type !== 'comment' ? (
                     <TypeBadge type={sub.comments[0].type} />
                   ) : null}
@@ -254,6 +248,7 @@ function RootComment({
                 threadId={threadId}
                 discussion={pending}
                 originExcerpt={originExcerpt(pending)}
+                persona={roster.find((agent) => agent.agent_id === pending.author)}
                 onUpdate={onPendingUpdate}
               />
             </div>
@@ -292,6 +287,7 @@ export function CommentTree({
   disableAgentActions = false,
   readOnly = false,
   sortOrder = 'oldest',
+  roster = [],
 }: {
   comments: Comment[]
   pendingDiscussions?: PendingDiscussion[]
@@ -303,6 +299,7 @@ export function CommentTree({
   disableAgentActions?: boolean
   readOnly?: boolean
   sortOrder?: CommentSortOrder
+  roster?: ThreadAgentInvite[]
 }) {
   const groups = groupComments(comments, sortOrder)
 
@@ -354,6 +351,7 @@ export function CommentTree({
           onDelete={onDelete}
           onAskDiscussion={onAskDiscussion}
           onPendingUpdate={onPendingUpdate}
+          roster={roster}
         />
       ))}
 
@@ -369,6 +367,7 @@ export function CommentTree({
               threadId={threadId}
               discussion={pending}
               originExcerpt={originExcerpt(pending)}
+              persona={roster.find((agent) => agent.agent_id === pending.author)}
               onUpdate={onPendingUpdate}
             />
           ))}

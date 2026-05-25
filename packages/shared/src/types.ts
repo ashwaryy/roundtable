@@ -31,7 +31,75 @@ export interface ThreadDetail extends Thread {
   body: string
 }
 
-export type CommentAuthor = 'human' | 'claude' | 'codex' | 'system'
+export type AgentId = string
+export type AgentRuntime = 'claude' | 'codex'
+export type AgentColorPreset =
+  | 'blue'
+  | 'green'
+  | 'amber'
+  | 'rose'
+  | 'violet'
+  | 'teal'
+
+export interface AgentPersona {
+  id: AgentId
+  name: string
+  runtime: AgentRuntime
+  role_description: string
+  instructions: string
+  model: string | null
+  effort: string | null
+  color: AgentColorPreset
+  logo_url: string | null
+  archived: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ThreadAgentInvite {
+  agent_id: AgentId
+  name: string
+  runtime: AgentRuntime
+  role_description: string
+  instructions: string
+  model: string | null
+  effort: string | null
+  color: AgentColorPreset
+  logo_url: string | null
+  order: number
+}
+
+export interface CreateAgentPersonaInput {
+  name: string
+  runtime: AgentRuntime
+  role_description?: string
+  instructions?: string
+  model?: string | null
+  effort?: string | null
+  color?: AgentColorPreset
+  logo_url?: string | null
+}
+
+export type UpdateAgentPersonaInput = Partial<CreateAgentPersonaInput> & {
+  archived?: boolean
+}
+
+export interface InviteAgentInput {
+  agent_id: AgentId
+  model?: string | null
+  effort?: string | null
+}
+
+export interface UpdateThreadAgentInviteInput {
+  model?: string | null
+  effort?: string | null
+}
+
+export interface ReorderThreadAgentsInput {
+  agent_ids: AgentId[]
+}
+
+export type CommentAuthor = 'human' | 'system' | AgentId
 
 export type CommentType =
   | 'comment'
@@ -60,6 +128,7 @@ export interface Comment {
 export interface CreateThreadInput {
   title: string
   body: string
+  agent_ids?: AgentId[]
 }
 
 export interface CreateCommentInput {
@@ -269,7 +338,8 @@ export interface CreateProjectSnapshotInput {
   confirmed?: boolean
 }
 
-export type AgentName = 'claude' | 'codex'
+/** @deprecated Prefer AgentId. Retained as an API-compatible alias. */
+export type AgentName = AgentId
 
 export type RoomStatus =
   | 'not_started'
@@ -305,7 +375,7 @@ export interface AutoDiscussionState {
   total_turns: number
   completed_turns: number
   remaining_turns: number
-  next_agent: AgentName
+  next_agent: AgentId
   allow_direct_roots: boolean
   pause_requested: boolean
   started_at: string
@@ -314,7 +384,7 @@ export interface AutoDiscussionState {
 }
 
 export interface AgentInputPrompt {
-  agent: AgentName
+  agent: AgentId
   excerpt: string
   detected_at: string
 }
@@ -324,9 +394,10 @@ export interface AgentRoom {
   status: RoomStatus
   tmux_session: string
   attach_command: string
-  claude_model: string | null
-  codex_model: string | null
-  agents: Record<AgentName, RoomAgentState>
+  claude_model?: string | null
+  codex_model?: string | null
+  roster: ThreadAgentInvite[]
+  agents: Record<AgentId, RoomAgentState>
   created_at: string
   updated_at: string
   started_at: string | null
@@ -355,7 +426,7 @@ export interface IntegrityReport {
 }
 
 export interface RoomToolPreflight {
-  name: 'tmux' | 'claude' | 'codex'
+  name: 'tmux' | AgentRuntime
   available: boolean
   path: string | null
   version: string | null
@@ -368,6 +439,7 @@ export interface RoomPreflight {
 }
 
 export interface StartRoomInput {
+  /** Legacy built-in override fields; roster APIs are preferred. */
   claude_model?: string | null
   codex_model?: string | null
 }

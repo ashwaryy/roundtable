@@ -2,7 +2,7 @@
 // Icon SVG set, colored-initial Avatar, AgentTag, AgentStack, StatusPill, TypeBadge.
 
 import type { CSSProperties, ReactNode } from 'react'
-import type { CommentType, ThreadDisplayStatus } from '@roundtable/shared'
+import type { AgentPersona, CommentType, ThreadAgentInvite, ThreadDisplayStatus } from '@roundtable/shared'
 
 // ── Agent identity ────────────────────────────────────────────────
 interface AgentMeta {
@@ -18,7 +18,8 @@ const AGENTS: Record<string, AgentMeta> = {
   system: { label: 'system', color: 'system', initial: 'S' },
 }
 
-function agentMeta(author: string): AgentMeta {
+function agentMeta(author: string, persona?: Pick<AgentPersona, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>): AgentMeta {
+  if (persona) return { label: persona.name, color: persona.color, initial: persona.name.charAt(0).toUpperCase() }
   return AGENTS[author] ?? AGENTS.human
 }
 
@@ -143,8 +144,8 @@ export function Icon({ name, className = 'ic' }: { name: IconName; className?: s
 }
 
 // ── Avatar (colored square initial) ───────────────────────────────
-export function Avatar({ author, size = 22 }: { author: string; size?: number }) {
-  const meta = agentMeta(author)
+export function Avatar({ author, persona, size = 22 }: { author: string; persona?: Pick<AgentPersona, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>; size?: number }) {
+  const meta = agentMeta(author, persona)
   return (
     <span
       className={`avatar avatar-${meta.color}`}
@@ -157,8 +158,8 @@ export function Avatar({ author, size = 22 }: { author: string; size?: number })
 }
 
 // ── Agent tag (colored dot + label) ───────────────────────────────
-export function AgentTag({ author, label }: { author: string; label?: string }) {
-  const meta = agentMeta(author)
+export function AgentTag({ author, persona, label }: { author: string; persona?: Pick<AgentPersona, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>; label?: string }) {
+  const meta = agentMeta(author, persona)
   return (
     <span className={`agent-tag agent-${meta.color}`}>
       <span className="agent-tag-dot" />

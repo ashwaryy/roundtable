@@ -498,6 +498,7 @@ function listKnownWorkspacePaths(
     'comments.jsonl',
     'pending-discussions.jsonl',
     'context-items.jsonl',
+    'agents.json',
     'project-snapshot.json',
     'project-snapshot-manifest.json',
   ])

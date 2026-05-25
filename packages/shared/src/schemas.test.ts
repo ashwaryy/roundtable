@@ -13,6 +13,8 @@ import {
   helperPendingDiscussionInputSchema,
   sendRoomInputResponseInputSchema,
   startAutoDiscussionInputSchema,
+  createAgentPersonaInputSchema,
+  agentColorPresetSchema,
 } from './index'
 
 describe('createThreadInputSchema', () => {
@@ -82,10 +84,9 @@ describe('createPendingDiscussionInputSchema', () => {
     expect(parsed.type).toBeUndefined()
   })
 
-  it('rejects an invalid author', () => {
-    expect(() =>
-      createPendingDiscussionInputSchema.parse({ author: 'robot', body: 'x' }),
-    ).toThrow()
+  it('accepts a persona id as author', () => {
+    expect(createPendingDiscussionInputSchema.parse({ author: 'agent-architect', body: 'x' }).author)
+      .toBe('agent-architect')
   })
 
   it('rejects an empty body', () => {
@@ -164,8 +165,25 @@ describe('askAgentInputSchema', () => {
     expect(parsed.discussion_id).toBe('c001')
   })
 
-  it('rejects an invalid agent', () => {
-    expect(() => askAgentInputSchema.parse({ agent: 'robot' })).toThrow()
+  it('accepts a backend-owned persona id', () => {
+    expect(askAgentInputSchema.parse({ agent: 'agent-architect' }).agent).toBe('agent-architect')
+  })
+})
+
+describe('persona schemas', () => {
+  it('validates persona configuration and preset colors', () => {
+    const parsed = createAgentPersonaInputSchema.parse({
+      name: 'Architect', runtime: 'codex', effort: 'xhigh', color: 'teal',
+    })
+    expect(parsed.name).toBe('Architect')
+    expect(agentColorPresetSchema.parse('rose')).toBe('rose')
+    expect(() => agentColorPresetSchema.parse('#fff')).toThrow()
+  })
+
+  it('validates runtime-aware effort', () => {
+    expect(() => createAgentPersonaInputSchema.parse({
+      name: 'Claude', runtime: 'claude', effort: 'xhigh',
+    })).toThrow()
   })
 })
 

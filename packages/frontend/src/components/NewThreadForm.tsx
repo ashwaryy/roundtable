@@ -1,15 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Thread } from '@roundtable/shared'
+import type { AgentPersona, Thread } from '@roundtable/shared'
 import {
   addUrlContextItem,
   createProjectSnapshot,
   createThread,
+  listAgents,
   uploadAttachmentFiles,
 } from '../api'
 import { AgentStack, Icon, type IconName } from './primitives'
-
-type AgentKey = 'claude' | 'codex'
 
 interface DraftUrl {
   id: string
@@ -123,10 +122,16 @@ export function NewThreadForm({
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [catalogue, setCatalogue] = useState<AgentPersona[]>([])
+  const [agentIds, setAgentIds] = useState<string[]>(['claude', 'codex'])
 
-  const roomAgents: AgentKey[] = ['claude', 'codex']
+  const roomAgents = agentIds
   const ctxCount = (snapStaged ? 1 : 0) + files.length + urls.length
   const hasContext = ctxCount > 0
+
+  useEffect(() => {
+    listAgents().then((items) => setCatalogue(items.filter((item) => !item.archived)))
+  }, [])
 
   function resetCompose() {
     setStep(1)
@@ -141,6 +146,7 @@ export function NewThreadForm({
     setSnapshotPath('')
     setSnapStaged(false)
     setError(null)
+    setAgentIds(['claude', 'codex'])
   }
 
   function addFiles(list: FileList | File[]) {
@@ -165,7 +171,7 @@ export function NewThreadForm({
     setSubmitting(true)
     setError(null)
     try {
-      const thread = await createThread({ title: title.trim(), body })
+      const thread = await createThread({ title: title.trim(), body, agent_ids: agentIds })
       if (!skipContext) {
         if (files.length > 0) await uploadAttachmentFiles(thread.id, files)
         for (const u of urls) {
@@ -299,6 +305,23 @@ export function NewThreadForm({
               reference material attached on the side.
             </p>
           </div>
+          <CtxSection eyebrow="Agents" kicker="Invite personas to this thread" status="set" icon="spark" count={agentIds.length}>
+            <div className="invite-picker">
+              {catalogue.map((agent) => (
+                <label key={agent.id} className="invite-option">
+                  <input
+                    type="checkbox"
+                    checked={agentIds.includes(agent.id)}
+                    disabled={agentIds.includes(agent.id) && agentIds.length === 1}
+                    onChange={(event) => setAgentIds((current) =>
+                      event.target.checked ? [...current, agent.id] : current.filter((id) => id !== agent.id))}
+                  />
+                  <AgentStack agents={[agent.id]} size={16} />
+                  {agent.name}
+                </label>
+              ))}
+            </div>
+          </CtxSection>
 
           <CtxSection
             eyebrow="Project snapshot"

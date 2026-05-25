@@ -8,10 +8,12 @@ import type {
   ConsolidationDetail,
   RoundtableEvent,
   ThreadDetail,
+  AgentRoom,
 } from '@roundtable/shared'
 import {
   getConsolidation,
   getThread,
+  getRoom,
   listComments,
   rejectProposal,
   requestProposalReview,
@@ -28,6 +30,7 @@ export function ConsolidationReviewPage() {
   const [thread, setThread] = useState<ThreadDetail | null>(null)
   const [comments, setComments] = useState<Comment[]>([])
   const [detail, setDetail] = useState<ConsolidationDetail | null>(null)
+  const [room, setRoom] = useState<AgentRoom | null>(null)
   const [body, setBody] = useState('')
   const [reviewInstructions, setReviewInstructions] = useState('')
   const [revisionInstructions, setRevisionInstructions] = useState('')
@@ -38,6 +41,7 @@ export function ConsolidationReviewPage() {
   const refresh = useCallback(() => {
     if (!id || !proposalId) return
     getThread(id).then(setThread)
+    getRoom(id).then(setRoom)
     listComments(id).then(setComments)
     getConsolidation(id, proposalId).then((next) => {
       setDetail(next)
@@ -54,7 +58,7 @@ export function ConsolidationReviewPage() {
   useLiveRefresh(
     useCallback(
       (event: RoundtableEvent) => {
-        if (event.thread_id !== id) return
+        if (!('thread_id' in event) || event.thread_id !== id) return
         if (event.type === 'thread_deleted') {
           navigate('/')
           return
@@ -204,8 +208,7 @@ export function ConsolidationReviewPage() {
                 onChange={(event) => setReviewer(event.target.value as AgentName)}
                 disabled={locked}
               >
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
+                {(room?.roster ?? []).filter((agent) => room?.agents[agent.agent_id]?.ready_at).map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
               </select>
             </label>
             <label>
@@ -215,8 +218,7 @@ export function ConsolidationReviewPage() {
                 onChange={(event) => setReviser(event.target.value as AgentName)}
                 disabled={locked}
               >
-                <option value="codex">Codex</option>
-                <option value="claude">Claude</option>
+                {(room?.roster ?? []).filter((agent) => room?.agents[agent.agent_id]?.ready_at).map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
               </select>
             </label>
             <label>

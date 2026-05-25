@@ -29,6 +29,8 @@ import type {
   StartConsolidationInput,
   StartRoomInput,
   ThreadStatus,
+  ThreadAgentInvite,
+  AgentRuntime,
 } from '@roundtable/shared'
 import {
   preToolUseHookPath,
@@ -52,6 +54,7 @@ import {
   projectSnapshotJsonPath,
 } from '../storage/paths'
 import { BadRequestError, ConflictError, NotFoundError } from '../storage/errors'
+import { listThreadAgents } from '../storage/agents'
 import { addAgentComment, listComments } from '../storage/comments'
 import { addPendingDiscussion } from '../storage/pendingDiscussions'
 import { getJob, nextJobId, writeJob } from '../storage/jobs'
@@ -100,9 +103,10 @@ export class SystemCommandExecutor implements CommandExecutor {
 }
 
 export interface RoomManager {
-  preflight(): RoomPreflight
+  preflight(threadId?: string): RoomPreflight
   getRoom(threadId: string): AgentRoom
   startRoom(threadId: string, input: StartRoomInput): AgentRoom
+  syncRoster(threadId: string): AgentRoom
   restartRoom(threadId: string): AgentRoom
   stopRoom(threadId: string): AgentRoom
   nudgeRoom(threadId: string, input: NudgeRoomInput): AgentRoom
@@ -236,8 +240,9 @@ function ensureOpenThread(dataDir: string, threadId: string): void {
   }
 }
 
-function defaultRoom(threadId: string): InternalRoom {
+function defaultRoom(dataDir: string, threadId: string): InternalRoom {
   const timestamp = now()
+  const roster = listThreadAgents(dataDir, threadId)
   return {
     thread_id: threadId,
     status: 'not_started',
@@ -245,10 +250,8 @@ function defaultRoom(threadId: string): InternalRoom {
     attach_command: attachCommand(threadId),
     claude_model: null,
     codex_model: null,
-    agents: {
-      claude: { ready_at: null },
-      codex: { ready_at: null },
-    },
+    roster,
+    agents: Object.fromEntries(roster.map((agent) => [agent.agent_id, { ready_at: null }])),
     created_at: timestamp,
     updated_at: timestamp,
     started_at: null,
@@ -264,15 +267,17 @@ function defaultRoom(threadId: string): InternalRoom {
 
 function readRoom(dataDir: string, threadId: string): InternalRoom {
   const filePath = roomJsonPath(dataDir, threadId)
-  if (!fs.existsSync(filePath)) return defaultRoom(threadId)
+  if (!fs.existsSync(filePath)) return defaultRoom(dataDir, threadId)
   const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as InternalRoom
+  const roster = parsed.roster ?? listThreadAgents(dataDir, threadId)
   return {
-    ...defaultRoom(threadId),
+    ...defaultRoom(dataDir, threadId),
     ...parsed,
-    agents: {
-      claude: parsed.agents?.claude ?? { ready_at: null },
-      codex: parsed.agents?.codex ?? { ready_at: null },
-    },
+    roster,
+    agents: Object.fromEntries(roster.map((agent) => [
+      agent.agent_id,
+      parsed.agents?.[agent.agent_id] ?? { ready_at: null },
+    ])),
     auto: parsed.auto ?? null,
     input_prompt: parsed.input_prompt ?? null,
   }
@@ -333,10 +338,6 @@ function cleanupStoppedRoomFiles(dataDir: string, threadId: string): void {
   for (const filePath of [
     currentTurnPath(dataDir, threadId),
     queuedConsolidationPath(dataDir, threadId),
-    roomPromptPath(dataDir, threadId, 'claude'),
-    roomPromptPath(dataDir, threadId, 'codex'),
-    path.join(roundtableInternalDir(dataDir, threadId), 'launch-claude.sh'),
-    path.join(roundtableInternalDir(dataDir, threadId), 'launch-codex.sh'),
     path.join(roundtableTmpDir(dataDir, threadId), 'consolidation-context.md'),
     roundtableHelperPath(dataDir, threadId),
     preToolUseHookPath(dataDir, threadId),
@@ -345,6 +346,14 @@ function cleanupStoppedRoomFiles(dataDir: string, threadId: string): void {
     codexRulesPath(dataDir, threadId),
   ]) {
     removeIfExists(filePath)
+  }
+  const internalDir = roundtableInternalDir(dataDir, threadId)
+  if (fs.existsSync(internalDir)) {
+    for (const file of fs.readdirSync(internalDir)) {
+      if (file.endsWith('-startup.md') || /^launch-.*\.sh$/.test(file)) {
+        removeIfExists(path.join(internalDir, file))
+      }
+    }
   }
   fs.rmSync(roundtableTmpDir(dataDir, threadId), { recursive: true, force: true })
 }
@@ -364,12 +373,20 @@ function isTimedOut(job: BoundedJob): boolean {
   return Date.now() >= new Date(job.timeout_at).getTime()
 }
 
-function paneForAgent(agent: AgentName): string {
-  return agent === 'claude' ? '0.0' : '0.1'
+function windowForAgent(agent: AgentName): string {
+  return `agent-${agent.replace(/[^a-zA-Z0-9_-]/g, '-')}`
 }
 
-function nextAgent(agent: AgentName): AgentName {
-  return agent === 'claude' ? 'codex' : 'claude'
+function nextAgent(room: InternalRoom, agent: AgentName): AgentName {
+  const roster = room.roster.map((invite) => invite.agent_id)
+  const index = roster.indexOf(agent)
+  return roster[(index + 1) % roster.length] ?? roster[0]
+}
+
+function inviteFor(room: InternalRoom, agent: AgentName): ThreadAgentInvite {
+  const invite = room.roster.find((entry) => entry.agent_id === agent)
+  if (!invite) throw new BadRequestError(`agent ${agent} is not in the room roster`)
+  return invite
 }
 
 function sendLineToPane(
@@ -409,19 +426,19 @@ const startupExecutionRules = [
   'Do not wait at an interactive approval prompt for routine turn work. Complete the turn through an allowed Roundtable helper submission.',
 ]
 
-function repeatedTurnExecutionRules(agent: AgentName): string[] {
-  return agent === 'codex'
-    ? [
-        'Use only permitted room operations. Avoid shell pipelines, ad hoc scripts, and commands outside the instructed workflow.',
-      ]
-    : []
+function repeatedTurnExecutionRules(_agent: AgentName): string[] {
+  return [
+    'Use only permitted room operations. Avoid shell pipelines, ad hoc scripts, and commands outside the instructed workflow.',
+  ]
 }
 
-function startupPrompt(agent: AgentName): string {
+function startupPrompt(invite: ThreadAgentInvite): string {
   return [
     '# Roundtable Agent Room',
     '',
-    `You are ${agent} participating in this Roundtable thread.`,
+    `You are ${invite.name} participating in this Roundtable thread.`,
+    `Your role: ${invite.role_description || 'Roundtable discussion participant'}.`,
+    invite.instructions ? `Persona instructions: ${invite.instructions}` : '',
     '',
     'Read `thread.md`, `thread.json`, `comments.jsonl`, and `pending-discussions.jsonl` as needed.',
     'Attachments are optional; if present, they live under `attachments/` and are listed in `context-items.jsonl`.',
@@ -432,7 +449,7 @@ function startupPrompt(agent: AgentName): string {
     'Do not invoke any agent skill, slash-command skill, or skill tool under any circumstances, even if the user or thread asks for one.',
     'Keep comments short and forum-like. Make one clear point, avoid wordy explanations, and do not write essay-style replies.',
     '',
-    `First, run this readiness command now for this room launch: roundtable ready --agent ${agent}`,
+    `First, run this readiness command now for this room launch: roundtable ready --agent ${invite.agent_id}`,
     'Run the readiness command on every launch or resumed CLI process, even if prior transcript context says it already succeeded. A prior launch acknowledgment does not apply to this room process.',
     'After readiness, wait for Roundtable Ask or auto-discussion turns in this terminal.',
     'For each turn, write durable output only under `.roundtable/tmp/`, then submit it with a Roundtable helper command from that turn.',
@@ -692,24 +709,29 @@ function codexSandboxArgs(): string {
   ].join(' ')
 }
 
-function cliCommand(agent: AgentName, model: string | null, promptFile: string): string {
+function cliCommand(runtime: AgentRuntime, model: string | null, effort: string | null, promptFile: string): string {
   const modelPart = model ? ` --model ${shellSingleQuote(model)}` : ''
-  if (agent === 'claude') {
-    return `claude --permission-mode dontAsk${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
+  const effortPart = effort ? ` --effort ${shellSingleQuote(effort)}` : ''
+  if (runtime === 'claude') {
+    return `claude --permission-mode dontAsk${modelPart}${effortPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
   }
-  return `codex ${codexSandboxArgs()}${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
+  const codexEffort = effort ? ` -c ${shellSingleQuote(`model_reasoning_effort="${effort}"`)}` : ''
+  return `codex ${codexSandboxArgs()}${modelPart}${codexEffort} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
 }
 
 function resumeCliCommand(
-  agent: AgentName,
+  runtime: AgentRuntime,
   model: string | null,
+  effort: string | null,
   promptFile: string,
 ): string {
   const modelPart = model ? ` --model ${shellSingleQuote(model)}` : ''
-  if (agent === 'claude') {
-    return `claude --continue --permission-mode dontAsk${modelPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
+  const effortPart = effort ? ` --effort ${shellSingleQuote(effort)}` : ''
+  if (runtime === 'claude') {
+    return `claude --continue --permission-mode dontAsk${modelPart}${effortPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
   }
-  return `codex resume --last ${codexSandboxArgs()}${modelPart}`
+  const codexEffort = effort ? ` -c ${shellSingleQuote(`model_reasoning_effort="${effort}"`)}` : ''
+  return `codex resume --last ${codexSandboxArgs()}${modelPart}${codexEffort}`
 }
 
 function writeHelperScript(
@@ -745,8 +767,8 @@ async function main() {
 
   if (command === 'ready') {
     const agent = argValue('--agent')
-    if (agent !== 'claude' && agent !== 'codex') {
-      console.error('usage: roundtable ready --agent claude|codex')
+    if (!agent) {
+      console.error('usage: roundtable ready --agent <persona-id>')
       process.exit(2)
     }
 
@@ -910,13 +932,13 @@ main().catch((err) => {
 `,
   )
 
-  for (const agent of ['claude', 'codex'] as const) {
+  for (const invite of room.roster) {
+    const agent = invite.agent_id
     const promptFile = roomPromptPath(dataDir, room.thread_id, agent)
-    fs.writeFileSync(promptFile, startupPrompt(agent))
-    const model = agent === 'claude' ? room.claude_model : room.codex_model
+    fs.writeFileSync(promptFile, startupPrompt(invite))
     const command = shouldResume[agent]
-      ? resumeCliCommand(agent, model, promptFile)
-      : cliCommand(agent, model, promptFile)
+      ? resumeCliCommand(invite.runtime, invite.model, invite.effort, promptFile)
+      : cliCommand(invite.runtime, invite.model, invite.effort, promptFile)
     writeExecutable(
       path.join(roundtableInternalDir(dataDir, room.thread_id), `launch-${agent}.sh`),
       `#!/bin/sh
@@ -975,7 +997,7 @@ function sendStartupPromptKeys(
   executor.execFile('tmux', [
     'send-keys',
     '-t',
-    `${room.tmux_session}:${paneForAgent(agent)}`,
+    `${room.tmux_session}:${windowForAgent(agent)}`,
     ...keys,
   ])
 }
@@ -988,7 +1010,7 @@ function startupPromptAcceptanceKeys(
   const output = executor.execFile('tmux', [
     'capture-pane',
     '-t',
-    `${room.tmux_session}:${paneForAgent(agent)}`,
+    `${room.tmux_session}:${windowForAgent(agent)}`,
     '-p',
     '-S',
     '-80',
@@ -1296,11 +1318,11 @@ export function createRoomManager(options: {
       return updated
     }
 
-    for (const agent of ['claude', 'codex'] as const) {
+    for (const { agent_id: agent } of room.roster) {
       const output = executor.execFile('tmux', [
         'capture-pane',
         '-t',
-        `${room.tmux_session}:${paneForAgent(agent)}`,
+        `${room.tmux_session}:${windowForAgent(agent)}`,
         '-p',
         '-S',
         '-80',
@@ -1384,7 +1406,7 @@ export function createRoomManager(options: {
     writeTextFile(path.join(threadDir(dataDir, room.thread_id), promptPath), buildTurnPrompt(job))
     sendLineToPane(
       executor,
-      `${room.tmux_session}:${paneForAgent(job.agent)}`,
+      `${room.tmux_session}:${windowForAgent(job.agent)}`,
       `Read ${promptPath} and follow it.`,
     )
   }
@@ -1403,7 +1425,7 @@ export function createRoomManager(options: {
           return
         }
 
-        for (const agent of ['claude', 'codex'] as const) {
+        for (const { agent_id: agent } of current.roster) {
           const promptKeys =
             !accepted.has(agent) && !current.agents[agent].ready_at
               ? startupPromptAcceptanceKeys(executor, current, agent)
@@ -1416,8 +1438,8 @@ export function createRoomManager(options: {
           }
         }
 
-        const allAgentsReadyOrAccepted = (['claude', 'codex'] as const).every(
-          (agent) => current.agents[agent].ready_at || accepted.has(agent),
+        const allAgentsReadyOrAccepted = current.roster.every(
+          ({ agent_id: agent }) => current.agents[agent].ready_at || accepted.has(agent),
         )
         if (
           allAgentsReadyOrAccepted ||
@@ -1574,8 +1596,8 @@ export function createRoomManager(options: {
     ) {
       throw new BadRequestError('room must be idle, paused, or at turn limit before consolidation')
     }
-    if (!room.agents.claude.ready_at || !room.agents.codex.ready_at) {
-      throw new BadRequestError('both agents must be ready before consolidation')
+    if (!room.roster.every(({ agent_id }) => room.agents[agent_id]?.ready_at)) {
+      throw new BadRequestError('all room agents must be ready before consolidation')
     }
     if (!sessionExists(executor, room.tmux_session)) {
       throw new ConflictError('tmux session is not running')
@@ -1605,8 +1627,19 @@ export function createRoomManager(options: {
     input: StartConsolidationInput,
   ): ConsolidationTurnResult {
     ensureConsolidationRoomAvailable(room)
+    const first = room.roster[0].agent_id
+    const second = room.roster[1]?.agent_id ?? first
+    const resolved: StartConsolidationInput = {
+      ...input,
+      drafter_agent: input.drafter_agent ?? second,
+      reviewer_agent: input.reviewer_agent ?? first,
+      reviser_agent: input.reviser_agent ?? second,
+    }
+    for (const agent of [resolved.drafter_agent, resolved.reviewer_agent, resolved.reviser_agent]) {
+      inviteFor(room, agent!)
+    }
     options.beforeCanonicalWrite?.(room.thread_id)
-    const proposal = createProposal(dataDir, room.thread_id, input)
+    const proposal = createProposal(dataDir, room.thread_id, resolved)
     options.onCanonicalWrite?.(room.thread_id)
     const job = createConsolidationJob({
       dataDir,
@@ -1614,7 +1647,7 @@ export function createRoomManager(options: {
       proposalId: proposal.id,
       agent: proposal.drafter_agent,
       kind: 'proposal_draft',
-      instructions: input.instructions,
+      instructions: resolved.instructions,
     })
     return startConsolidationJob(room, proposal, job)
   }
@@ -1629,6 +1662,7 @@ export function createRoomManager(options: {
   }
 
   function createAutoState(
+    threadId: string,
     input: StartAutoDiscussionInput,
     existing?: AutoDiscussionState | null,
   ): AutoDiscussionState {
@@ -1639,7 +1673,7 @@ export function createRoomManager(options: {
       total_turns: input.turn_count,
       completed_turns: 0,
       remaining_turns: input.turn_count,
-      next_agent: 'claude',
+      next_agent: readRoom(dataDir, threadId).roster[0]?.agent_id ?? 'claude',
       allow_direct_roots: input.allow_direct_roots ?? false,
       pause_requested: false,
       started_at: timestamp,
@@ -1706,7 +1740,7 @@ export function createRoomManager(options: {
       ...auto,
       completed_turns: completedTurns,
       remaining_turns: remainingTurns,
-      next_agent: nextAgent(job.agent),
+      next_agent: nextAgent(room, job.agent),
       updated_at: timestamp,
     }
 
@@ -1866,14 +1900,17 @@ export function createRoomManager(options: {
   }
 
   const manager: RoomManager = {
-    preflight(): RoomPreflight {
+    preflight(threadId?: string): RoomPreflight {
       const tools = {
         tmux: toolPreflight(executor, 'tmux'),
         claude: toolPreflight(executor, 'claude'),
         codex: toolPreflight(executor, 'codex'),
       }
+      const required = threadId
+        ? new Set(['tmux', ...listThreadAgents(dataDir, threadId).map((invite) => invite.runtime)])
+        : new Set(Object.keys(tools))
       return {
-        ok: Object.values(tools).every((tool) => tool.available),
+        ok: Object.values(tools).every((tool) => !required.has(tool.name) || tool.available),
         tools,
       }
     },
@@ -1889,12 +1926,17 @@ export function createRoomManager(options: {
 
     startRoom(threadId: string, input: StartRoomInput): AgentRoom {
       ensureOpenThread(dataDir, threadId)
-      const preflight = this.preflight()
-      if (!preflight.ok) {
-        const missing = Object.values(preflight.tools)
-          .filter((tool) => !tool.available)
-          .map((tool) => tool.name)
-          .join(', ')
+      const roster = listThreadAgents(dataDir, threadId).map((invite) => ({
+        ...invite,
+        model: invite.agent_id === 'claude'
+          ? normalizeModel(input.claude_model) ?? invite.model
+          : invite.agent_id === 'codex'
+            ? normalizeModel(input.codex_model) ?? invite.model
+            : invite.model,
+      }))
+      const requiredTools = ['tmux', ...new Set(roster.map((invite) => invite.runtime))]
+      const missing = requiredTools.filter((tool) => !toolAvailable(executor, tool))
+      if (missing.length > 0) {
         throw new ConflictError(`missing required room tools: ${missing}`)
       }
 
@@ -1915,19 +1957,19 @@ export function createRoomManager(options: {
       }
 
       const timestamp = now()
-      const shouldResume = {
-        claude: existing.started_at !== null && existing.agents.claude.ready_at !== null,
-        codex: existing.started_at !== null && existing.agents.codex.ready_at !== null,
-      }
+      const shouldResume: Record<AgentName, boolean> = Object.fromEntries(
+        roster.map((invite) => [
+          invite.agent_id,
+          existing.started_at !== null && existing.agents[invite.agent_id]?.ready_at !== null,
+        ]),
+      )
       const room: InternalRoom = {
         ...existing,
         status: 'starting',
         claude_model: normalizeModel(input.claude_model),
         codex_model: normalizeModel(input.codex_model),
-        agents: {
-          claude: { ready_at: null },
-          codex: { ready_at: null },
-        },
+        roster,
+        agents: Object.fromEntries(roster.map((invite) => [invite.agent_id, { ready_at: null }])),
         updated_at: timestamp,
         started_at: existing.started_at ?? timestamp,
         stopped_at: null,
@@ -1937,8 +1979,10 @@ export function createRoomManager(options: {
         session_state: 'connected',
         token: randomToken(),
       }
-      if (shouldResume.codex) {
-        room.agents.codex.ready_at = existing.agents.codex.ready_at
+      for (const invite of roster) {
+        if (shouldResume[invite.agent_id] && existing.agents[invite.agent_id]?.ready_at) {
+          room.agents[invite.agent_id].ready_at = existing.agents[invite.agent_id].ready_at
+        }
       }
       writeHelperScript(dataDir, room, backendUrl, shouldResume)
 
@@ -1950,31 +1994,37 @@ export function createRoomManager(options: {
           '-d',
           '-s',
           room.tmux_session,
+          '-n',
+          windowForAgent(roster[0].agent_id),
           '-c',
           cwd,
         ])
         executor.execFile('tmux', [
           'send-keys',
           '-t',
-          `${room.tmux_session}:0.0`,
-          path.join(internalDir, 'launch-claude.sh'),
+          `${room.tmux_session}:${windowForAgent(roster[0].agent_id)}`,
+          path.join(internalDir, `launch-${roster[0].agent_id}.sh`),
           'C-m',
         ])
-        executor.execFile('tmux', [
-          'split-window',
-          '-h',
-          '-t',
-          `${room.tmux_session}:0`,
-          '-c',
-          cwd,
-        ])
-        executor.execFile('tmux', [
-          'send-keys',
-          '-t',
-          `${room.tmux_session}:0.1`,
-          path.join(internalDir, 'launch-codex.sh'),
-          'C-m',
-        ])
+        for (const invite of roster.slice(1)) {
+          executor.execFile('tmux', [
+            'new-window',
+            '-d',
+            '-t',
+            room.tmux_session,
+            '-n',
+            windowForAgent(invite.agent_id),
+            '-c',
+            cwd,
+          ])
+          executor.execFile('tmux', [
+            'send-keys',
+            '-t',
+            `${room.tmux_session}:${windowForAgent(invite.agent_id)}`,
+            path.join(internalDir, `launch-${invite.agent_id}.sh`),
+            'C-m',
+          ])
+        }
         scheduleStartupTrustPromptAcceptance(room)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -1983,6 +2033,68 @@ export function createRoomManager(options: {
 
       writeRoom(dataDir, room)
       return stripToken(room)
+    },
+
+    syncRoster(threadId: string): AgentRoom {
+      ensureOpenThread(dataDir, threadId)
+      const room = expireActiveTurn(threadId)
+      if (room.status !== 'not_started' && room.status !== 'stopped' && room.status !== 'idle') {
+        throw new ConflictError('room must be idle before changing its roster')
+      }
+      const roster = listThreadAgents(dataDir, threadId)
+      if (room.status === 'not_started' || room.status === 'stopped') {
+        const updated = {
+          ...room,
+          roster,
+          agents: Object.fromEntries(roster.map((invite) => [invite.agent_id, { ready_at: null }])),
+          updated_at: now(),
+        }
+        writeRoom(dataDir, updated)
+        return stripToken(updated)
+      }
+      const previousIds = new Set(room.roster.map((invite) => invite.agent_id))
+      const nextIds = new Set(roster.map((invite) => invite.agent_id))
+      const previousById = new Map(room.roster.map((invite) => [invite.agent_id, invite]))
+      const restartIds = new Set(roster
+        .filter((invite) => {
+          const previous = previousById.get(invite.agent_id)
+          return !previous || previous.model !== invite.model || previous.effort !== invite.effort
+        })
+        .map((invite) => invite.agent_id))
+      for (const invite of room.roster) {
+        if (!nextIds.has(invite.agent_id) || restartIds.has(invite.agent_id)) {
+          executor.execFile('tmux', ['kill-window', '-t', `${room.tmux_session}:${windowForAgent(invite.agent_id)}`])
+        }
+      }
+      const updated: InternalRoom = {
+        ...room,
+        roster,
+        agents: Object.fromEntries(roster.map((invite) => [
+          invite.agent_id,
+          restartIds.has(invite.agent_id) ? { ready_at: null } : room.agents[invite.agent_id] ?? { ready_at: null },
+        ])),
+        status: restartIds.size > 0 ? 'starting' : 'idle',
+        updated_at: now(),
+      }
+      writeHelperScript(
+        dataDir,
+        updated,
+        backendUrl,
+          Object.fromEntries(roster.map((invite) => [invite.agent_id, previousIds.has(invite.agent_id)])),
+      )
+      for (const invite of roster) {
+        if (!restartIds.has(invite.agent_id)) continue
+        executor.execFile('tmux', [
+          'new-window', '-d', '-t', room.tmux_session, '-n', windowForAgent(invite.agent_id),
+          '-c', threadDir(dataDir, threadId),
+        ])
+        executor.execFile('tmux', [
+          'send-keys', '-t', `${room.tmux_session}:${windowForAgent(invite.agent_id)}`,
+          path.join(roundtableInternalDir(dataDir, threadId), `launch-${invite.agent_id}.sh`), 'C-m',
+        ])
+      }
+      writeRoom(dataDir, updated)
+      return stripToken(updated)
     },
 
     restartRoom(threadId: string): AgentRoom {
@@ -2054,6 +2166,7 @@ export function createRoomManager(options: {
       if (room.status !== 'idle') {
         throw new BadRequestError('room must be idle before sending nudges')
       }
+      inviteFor(room, input.agent)
       if (!sessionExists(executor, room.tmux_session)) {
         return markError(dataDir, room, 'tmux session is not running')
       }
@@ -2063,7 +2176,7 @@ export function createRoomManager(options: {
       executor.execFile('tmux', [
         'send-keys',
         '-t',
-        `${room.tmux_session}:${paneForAgent(input.agent)}`,
+        `${room.tmux_session}:${windowForAgent(input.agent)}`,
         body,
         'C-m',
       ])
@@ -2085,6 +2198,7 @@ export function createRoomManager(options: {
       ) {
         throw new BadRequestError('room is not starting')
       }
+      inviteFor(room, agent)
       const updated: InternalRoom = {
         ...room,
         agents: {
@@ -2096,7 +2210,7 @@ export function createRoomManager(options: {
         updated_at: now(),
         last_error: null,
       }
-      if (updated.agents.claude.ready_at && updated.agents.codex.ready_at) {
+      if (updated.roster.every(({ agent_id }) => updated.agents[agent_id]?.ready_at)) {
         updated.status = updated.active_job_id ? 'needs_attention' : 'idle'
       }
       updated.session_state = 'connected'
@@ -2110,6 +2224,7 @@ export function createRoomManager(options: {
       if (room.status !== 'idle') {
         throw new BadRequestError('room must be idle before starting an ask turn')
       }
+      inviteFor(room, input.agent)
       if (!sessionExists(executor, room.tmux_session)) {
         const failed = {
           ...createAgentTurnJob({ dataDir, threadId, ask: input }),
@@ -2147,7 +2262,7 @@ export function createRoomManager(options: {
         throw new BadRequestError('room must be idle before starting auto discussion')
       }
 
-      const auto = createAutoState(input)
+      const auto = createAutoState(threadId, input)
       return startNextAutoTurn(room, auto)
     },
 
@@ -2195,12 +2310,14 @@ export function createRoomManager(options: {
       ensureConsolidationRoomAvailable(room)
       const proposal = getProposal(dataDir, threadId, proposalId)
       if (!proposal) throw new NotFoundError(`proposal ${proposalId} not found`)
+      if (input.reviewer_agent) inviteFor(room, input.reviewer_agent)
       const revisionId = latestRevisionId(threadId, proposalId)
       if (!revisionId) throw new BadRequestError('proposal has no revision to review')
       options.beforeCanonicalWrite?.(threadId)
       const updated = updateProposal(dataDir, threadId, proposalId, {
         reviewer_agent: input.reviewer_agent ?? proposal.reviewer_agent,
       })
+      inviteFor(room, updated.reviewer_agent)
       options.onCanonicalWrite?.(threadId)
       const job = createConsolidationJob({
         dataDir,
@@ -2224,6 +2341,8 @@ export function createRoomManager(options: {
       ensureConsolidationRoomAvailable(room)
       const proposal = getProposal(dataDir, threadId, proposalId)
       if (!proposal) throw new NotFoundError(`proposal ${proposalId} not found`)
+      if (input.reviewer_agent) inviteFor(room, input.reviewer_agent)
+      if (input.reviser_agent) inviteFor(room, input.reviser_agent)
       const revisionId = latestRevisionId(threadId, proposalId)
       if (!revisionId) throw new BadRequestError('proposal has no revision to revise')
       options.beforeCanonicalWrite?.(threadId)
@@ -2231,6 +2350,7 @@ export function createRoomManager(options: {
         reviewer_agent: input.reviewer_agent ?? proposal.reviewer_agent,
         reviser_agent: input.reviser_agent ?? proposal.reviser_agent,
       })
+      inviteFor(room, updated.reviser_agent)
       options.onCanonicalWrite?.(threadId)
       const job = createConsolidationJob({
         dataDir,
@@ -2307,7 +2427,7 @@ export function createRoomManager(options: {
         room.input_prompt?.agent === input.agent ? room.input_prompt.excerpt : null
       sendKeysToPane(
         executor,
-        `${room.tmux_session}:${paneForAgent(input.agent)}`,
+        `${room.tmux_session}:${windowForAgent(input.agent)}`,
         promptAnswerKeys(excerpt, input.response),
       )
 
@@ -2676,7 +2796,7 @@ export function createRoomManager(options: {
             createAgentTurnJob({
               dataDir,
               threadId,
-              ask: { agent: 'claude' },
+              ask: { agent: room.roster[0]?.agent_id ?? 'claude' },
             }),
         }
       }

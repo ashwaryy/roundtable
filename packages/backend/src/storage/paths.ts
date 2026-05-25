@@ -9,6 +9,14 @@ export function threadsDir(dataDir: string): string {
   return path.join(dataDir, 'threads')
 }
 
+export function agentsDir(dataDir: string): string {
+  return path.join(dataDir, 'agents')
+}
+
+export function agentJsonPath(dataDir: string, agentId: string): string {
+  return path.join(agentsDir(dataDir), `${agentId}.json`)
+}
+
 export function savedDir(dataDir: string): string {
   return path.join(dataDir, 'saved')
 }
@@ -39,6 +47,10 @@ export function pendingDiscussionsPath(dataDir: string, threadId: string): strin
 
 export function contextItemsPath(dataDir: string, threadId: string): string {
   return path.join(threadDir(dataDir, threadId), 'context-items.jsonl')
+}
+
+export function threadAgentsPath(dataDir: string, threadId: string): string {
+  return path.join(threadDir(dataDir, threadId), 'agents.json')
 }
 
 export function attachmentsDir(dataDir: string, threadId: string): string {
@@ -115,7 +127,7 @@ export function jobJsonPath(
 export function roomPromptPath(
   dataDir: string,
   threadId: string,
-  agent: 'claude' | 'codex',
+  agent: string,
 ): string {
   return path.join(roundtableInternalDir(dataDir, threadId), `${agent}-startup.md`)
 }
