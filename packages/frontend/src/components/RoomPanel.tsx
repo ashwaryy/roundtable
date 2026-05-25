@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import type { AgentName, AgentRoom, RoomPreflight } from '@roundtable/shared'
+import type { AgentName, AgentRoom, RoomPreflight, ThreadStatus } from '@roundtable/shared'
 import {
   askAgent,
   extendAutoDiscussion,
@@ -17,6 +17,7 @@ import {
 
 export function RoomPanel({
   threadId,
+  threadStatus,
   room,
   preflight,
   hideRecoveryControls = false,
@@ -24,6 +25,7 @@ export function RoomPanel({
   onUpdate,
 }: {
   threadId: string
+  threadStatus: ThreadStatus
   room: AgentRoom | null
   preflight: RoomPreflight | null
   hideRecoveryControls?: boolean
@@ -40,6 +42,7 @@ export function RoomPanel({
   const [extendTurns, setExtendTurns] = useState(4)
   const [allowDirectRoots, setAllowDirectRoots] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isThreadOpen = threadStatus === 'open'
 
   async function handleStart(event: FormEvent) {
     event.preventDefault()
@@ -175,19 +178,22 @@ export function RoomPanel({
   }
 
   const canStart =
+    isThreadOpen &&
     (preflight?.ok ?? false) &&
     (!room ||
       room.status === 'not_started' ||
       room.status === 'stopped' ||
       room.status === 'error')
-  const canNudge = room?.status === 'idle'
-  const canAsk = room?.status === 'idle'
-  const canStartAuto = room?.status === 'idle'
-  const canPauseAuto = room?.auto?.status === 'running'
-  const canExtendAuto = room?.status === 'paused' || room?.status === 'turn_limit_reached'
-  const canStop = room && room.status !== 'not_started' && room.status !== 'stopped'
-  const needsAttention = room?.status === 'needs_attention'
-  const canRestart = room?.session_state === 'missing'
+  const canNudge = isThreadOpen && room?.status === 'idle'
+  const canAsk = isThreadOpen && room?.status === 'idle'
+  const canStartAuto = isThreadOpen && room?.status === 'idle'
+  const canPauseAuto = isThreadOpen && room?.auto?.status === 'running'
+  const canExtendAuto =
+    isThreadOpen && (room?.status === 'paused' || room?.status === 'turn_limit_reached')
+  const canStop =
+    isThreadOpen && !!room && room.status !== 'not_started' && room.status !== 'stopped'
+  const needsAttention = isThreadOpen && room?.status === 'needs_attention'
+  const canRestart = isThreadOpen && room?.session_state === 'missing'
   const canResolveTurn =
     needsAttention &&
     !!room?.active_job_id &&
@@ -265,6 +271,10 @@ export function RoomPanel({
           </p>
         ) : null}
 
+        {!isThreadOpen ? (
+          <p className="room-card__muted">Thread is {threadStatus}; room controls are disabled.</p>
+        ) : null}
+
         {/* Input prompt (recovery) */}
         {!hideRecoveryControls && room?.input_prompt ? (
           <div role="alert" aria-label="agent-input-prompt" className="room-card__prompt">
@@ -286,6 +296,7 @@ export function RoomPanel({
                 aria-label="Claude model"
                 value={claudeModel}
                 onChange={(e) => setClaudeModel(e.target.value)}
+                disabled={!isThreadOpen}
               >
                 <option value="">CLI default</option>
                 <option value="claude-opus-4-7">claude-opus-4-7</option>
@@ -299,6 +310,7 @@ export function RoomPanel({
                 aria-label="Codex model"
                 value={codexModel}
                 onChange={(e) => setCodexModel(e.target.value)}
+                disabled={!isThreadOpen}
               >
                 <option value="">CLI default</option>
                 <option value="gpt-5.5">gpt-5.5</option>

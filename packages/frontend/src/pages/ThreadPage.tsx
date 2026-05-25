@@ -208,6 +208,7 @@ function SideRailContent({
       <div className={`sidebar-section ${emphasizedSection === 'room' ? 'sidebar-section--active' : ''}`}>
         <RoomPanel
           threadId={thread.id}
+          threadStatus={thread.status}
           room={room}
           preflight={roomPreflight}
           hideRecoveryControls
@@ -231,6 +232,7 @@ function SideRailContent({
       <div className={`sidebar-section ${emphasizedSection === 'context' ? 'sidebar-section--active' : ''}`}>
         <ThreadContextPanel
           threadId={thread.id}
+          threadStatus={thread.status}
           context={threadContext}
           reports={snapshotReports}
           summary={contextChip}

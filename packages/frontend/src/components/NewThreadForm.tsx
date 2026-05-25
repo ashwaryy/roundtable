@@ -48,6 +48,7 @@ export function NewThreadForm({ onCreated }: { onCreated: (thread: Thread) => vo
         </div>
         <ThreadContextPanel
           threadId={createdThread.id}
+          threadStatus="open"
           context={context}
           reports={reports}
           onSnapshotSelectionChange={setSnapshotSelected}

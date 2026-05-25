@@ -28,6 +28,7 @@ import type {
   StartAutoDiscussionInput,
   StartConsolidationInput,
   StartRoomInput,
+  ThreadStatus,
 } from '@roundtable/shared'
 import {
   preToolUseHookPath,
@@ -217,6 +218,21 @@ function normalizeModel(value: string | null | undefined): string | null {
 function ensureThread(dataDir: string, threadId: string): void {
   if (!fs.existsSync(threadJsonPath(dataDir, threadId))) {
     throw new NotFoundError(`thread ${threadId} not found`)
+  }
+}
+
+function threadStatus(dataDir: string, threadId: string): ThreadStatus {
+  ensureThread(dataDir, threadId)
+  const thread = JSON.parse(fs.readFileSync(threadJsonPath(dataDir, threadId), 'utf8')) as {
+    status?: ThreadStatus
+  }
+  return thread.status ?? 'open'
+}
+
+function ensureOpenThread(dataDir: string, threadId: string): void {
+  const status = threadStatus(dataDir, threadId)
+  if (status !== 'open') {
+    throw new BadRequestError(`thread is ${status}; room actions require an open thread`)
   }
 }
 
@@ -1763,10 +1779,8 @@ export function createRoomManager(options: {
     const room = readRoom(dataDir, threadId)
     const roomFileExists = fs.existsSync(roomJsonPath(dataDir, threadId))
     const live = sessionExists(executor, room.tmux_session)
-    const thread = JSON.parse(fs.readFileSync(threadJsonPath(dataDir, threadId), 'utf8')) as {
-      status: string
-    }
-    if ((thread.status === 'closed' || thread.status === 'archived') && live) {
+    const status = threadStatus(dataDir, threadId)
+    if ((status === 'closed' || status === 'archived') && live) {
       executor.execFile('tmux', ['kill-session', '-t', room.tmux_session])
       const stopped = {
         ...room,
@@ -1874,7 +1888,7 @@ export function createRoomManager(options: {
     },
 
     startRoom(threadId: string, input: StartRoomInput): AgentRoom {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const preflight = this.preflight()
       if (!preflight.ok) {
         const missing = Object.values(preflight.tools)
@@ -1972,7 +1986,7 @@ export function createRoomManager(options: {
     },
 
     restartRoom(threadId: string): AgentRoom {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const existing = reconcileRoom(threadId)
       if (sessionExists(executor, existing.tmux_session)) {
         throw new ConflictError('room session is already running')
@@ -2035,7 +2049,7 @@ export function createRoomManager(options: {
     },
 
     nudgeRoom(threadId: string, input: NudgeRoomInput): AgentRoom {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (room.status !== 'idle') {
         throw new BadRequestError('room must be idle before sending nudges')
@@ -2059,7 +2073,7 @@ export function createRoomManager(options: {
     },
 
     markReady(threadId: string, agent: AgentName, token: string | null): AgentRoom {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (!token || token !== room.token) {
         throw new BadRequestError('invalid room token')
@@ -2091,7 +2105,7 @@ export function createRoomManager(options: {
     },
 
     askAgent(threadId: string, input: AskAgentInput): AgentTurnResult {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (room.status !== 'idle') {
         throw new BadRequestError('room must be idle before starting an ask turn')
@@ -2127,7 +2141,7 @@ export function createRoomManager(options: {
       threadId: string,
       input: StartAutoDiscussionInput,
     ): AgentTurnResult {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (room.status !== 'idle') {
         throw new BadRequestError('room must be idle before starting auto discussion')
@@ -2141,7 +2155,7 @@ export function createRoomManager(options: {
       threadId: string,
       input: StartConsolidationInput,
     ): ConsolidationTurnResult {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       clearQueuedConsolidation(threadId)
       return startConsolidationSequence(room, input)
@@ -2151,7 +2165,7 @@ export function createRoomManager(options: {
       threadId: string,
       input: StartConsolidationInput,
     ): AgentRoom {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (!room.auto || room.auto.status !== 'running' || !room.active_job_id) {
         throw new BadRequestError('finish and consolidate requires an active auto turn')
@@ -2176,7 +2190,7 @@ export function createRoomManager(options: {
       proposalId: string,
       input: RequestProposalReviewInput,
     ): ConsolidationTurnResult {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       ensureConsolidationRoomAvailable(room)
       const proposal = getProposal(dataDir, threadId, proposalId)
@@ -2205,7 +2219,7 @@ export function createRoomManager(options: {
       proposalId: string,
       input: RequestProposalRevisionInput,
     ): ConsolidationTurnResult {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       ensureConsolidationRoomAvailable(room)
       const proposal = getProposal(dataDir, threadId, proposalId)
@@ -2231,7 +2245,7 @@ export function createRoomManager(options: {
     },
 
     pauseAutoDiscussion(threadId: string): AgentRoom {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (!room.auto || room.auto.status !== 'running') {
         throw new BadRequestError('auto discussion is not running')
@@ -2257,7 +2271,7 @@ export function createRoomManager(options: {
       threadId: string,
       input: ExtendAutoDiscussionInput,
     ): AgentTurnResult {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (!room.auto) {
         throw new BadRequestError('auto discussion has not been started')
@@ -2283,7 +2297,7 @@ export function createRoomManager(options: {
       threadId: string,
       input: SendRoomInputResponseInput,
     ): AgentRoom {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = refreshInputPrompt(expireActiveTurn(threadId))
       if (!sessionExists(executor, room.tmux_session)) {
         return markError(dataDir, room, 'tmux session is not running')
@@ -2312,7 +2326,7 @@ export function createRoomManager(options: {
       input: HelperCommentInput,
       token: string | null,
     ): AgentTurnSubmission {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (!token || token !== room.token) {
         throw new BadRequestError('invalid room token')
@@ -2386,7 +2400,7 @@ export function createRoomManager(options: {
       input: HelperPendingDiscussionInput,
       token: string | null,
     ): AgentPendingDiscussionSubmission {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (!token || token !== room.token) {
         throw new BadRequestError('invalid room token')
@@ -2456,7 +2470,7 @@ export function createRoomManager(options: {
       input: HelperProposalInput,
       token: string | null,
     ): AgentProposalSubmission {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (!token || token !== room.token) {
         throw new BadRequestError('invalid room token')
@@ -2556,7 +2570,7 @@ export function createRoomManager(options: {
       input: HelperReviewInput,
       token: string | null,
     ): AgentReviewSubmission {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (!token || token !== room.token) {
         throw new BadRequestError('invalid room token')
@@ -2650,7 +2664,7 @@ export function createRoomManager(options: {
     },
 
     retryTurn(threadId: string): AgentTurnResult {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (room.status !== 'needs_attention' || !room.active_job_id) {
         throw new BadRequestError('room does not have a turn needing attention')
@@ -2695,7 +2709,7 @@ export function createRoomManager(options: {
     },
 
     skipTurn(threadId: string): AgentTurnResult {
-      ensureThread(dataDir, threadId)
+      ensureOpenThread(dataDir, threadId)
       const room = expireActiveTurn(threadId)
       if (room.status !== 'needs_attention' || !room.active_job_id) {
         throw new BadRequestError('room does not have a turn needing attention')

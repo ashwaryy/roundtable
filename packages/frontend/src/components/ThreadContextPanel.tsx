@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
-import type { SnapshotPreflight, SnapshotReport, ThreadContext } from '@roundtable/shared'
+import type { SnapshotPreflight, SnapshotReport, ThreadContext, ThreadStatus } from '@roundtable/shared'
 import {
   addUrlContextItem,
   createProjectSnapshot,
@@ -16,6 +16,7 @@ function formatBytes(bytes: number): string {
 
 export function ThreadContextPanel({
   threadId,
+  threadStatus,
   context,
   reports = [],
   summary,
@@ -23,6 +24,7 @@ export function ThreadContextPanel({
   onUpdate,
 }: {
   threadId: string
+  threadStatus: ThreadStatus
   context: ThreadContext | null
   reports?: SnapshotReport[]
   summary?: string
@@ -34,8 +36,10 @@ export function ThreadContextPanel({
   const [sourcePath, setSourcePath] = useState('')
   const [preflight, setPreflight] = useState<SnapshotPreflight | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const isThreadOpen = threadStatus === 'open'
 
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
+    if (!isThreadOpen) return
     const files = event.target.files
     if (!files || files.length === 0) return
     await uploadAttachmentFiles(threadId, files)
@@ -45,6 +49,7 @@ export function ThreadContextPanel({
 
   async function handleAddUrl(event: FormEvent) {
     event.preventDefault()
+    if (!isThreadOpen) return
     if (!url.trim()) return
     await addUrlContextItem(threadId, { url, label: label || null })
     setUrl('')
@@ -54,6 +59,7 @@ export function ThreadContextPanel({
 
   async function handlePreflight(event: FormEvent) {
     event.preventDefault()
+    if (!isThreadOpen) return
     if (!sourcePath.trim()) return
     setMessage(null)
     const result = await preflightProjectSnapshot(threadId, { source_path: sourcePath })
@@ -63,6 +69,7 @@ export function ThreadContextPanel({
   }
 
   async function handleCreateSnapshot(confirmed: boolean) {
+    if (!isThreadOpen) return
     if (!preflight) return
     await createProjectSnapshot(threadId, {
       source_path: preflight.source_path,
@@ -75,6 +82,7 @@ export function ThreadContextPanel({
   }
 
   async function handleRefreshSnapshot() {
+    if (!isThreadOpen) return
     await refreshProjectSnapshot(threadId)
     setMessage('Snapshot refreshed.')
     onUpdate()
@@ -87,11 +95,15 @@ export function ThreadContextPanel({
         {summary ? <span>{summary}</span> : null}
       </div>
 
+      {!isThreadOpen ? (
+        <p className="room-card__muted">Thread is {threadStatus}; context controls are disabled.</p>
+      ) : null}
+
       <section>
         <h3>Attachments</h3>
         <label>
           Add files
-          <input type="file" multiple onChange={handleUpload} />
+          <input type="file" multiple onChange={handleUpload} disabled={!isThreadOpen} />
         </label>
       </section>
 
@@ -103,14 +115,16 @@ export function ThreadContextPanel({
             value={url}
             onChange={(event) => setUrl(event.target.value)}
             placeholder="https://example.com"
+            disabled={!isThreadOpen}
           />
           <input
             aria-label="URL label"
             value={label}
             onChange={(event) => setLabel(event.target.value)}
             placeholder="Optional label"
+            disabled={!isThreadOpen}
           />
-          <button type="submit">Add URL</button>
+          <button type="submit" disabled={!isThreadOpen}>Add URL</button>
         </form>
       </section>
 
@@ -122,8 +136,9 @@ export function ThreadContextPanel({
             value={sourcePath}
             onChange={(event) => setSourcePath(event.target.value)}
             placeholder="/path/to/project"
+            disabled={!isThreadOpen}
           />
-          <button type="submit">Check Snapshot</button>
+          <button type="submit" disabled={!isThreadOpen}>Check Snapshot</button>
         </form>
 
         {preflight ? (
@@ -139,7 +154,10 @@ export function ThreadContextPanel({
                 ))}
               </ul>
             ) : null}
-            <button onClick={() => handleCreateSnapshot(preflight.requires_confirmation)}>
+            <button
+              onClick={() => handleCreateSnapshot(preflight.requires_confirmation)}
+              disabled={!isThreadOpen}
+            >
               {preflight.requires_confirmation ? 'Confirm Snapshot' : 'Create Snapshot'}
             </button>
           </div>
@@ -154,7 +172,7 @@ export function ThreadContextPanel({
             <p className="context-path" title={context.snapshot.source_path}>
               {context.snapshot.source_path}
             </p>
-            <button onClick={handleRefreshSnapshot}>Refresh Snapshot</button>
+            <button onClick={handleRefreshSnapshot} disabled={!isThreadOpen}>Refresh Snapshot</button>
             {reports.length > 0 ? (
               <div aria-label="snapshot-report-history">
                 <h3>Snapshot Changes</h3>

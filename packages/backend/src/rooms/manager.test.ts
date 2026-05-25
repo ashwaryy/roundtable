@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { archiveThread, createThread } from '../storage/threads'
+import { archiveThread, closeThread, createThread } from '../storage/threads'
 import {
   preToolUseHookPath,
   claudeLocalSettingsPath,
@@ -13,7 +13,7 @@ import {
   roomJsonPath,
   roundtableHelperPath,
 } from '../storage/paths'
-import { ConflictError } from '../storage/errors'
+import { BadRequestError, ConflictError } from '../storage/errors'
 import { getJob } from '../storage/jobs'
 import { addComment, listComments } from '../storage/comments'
 import { listPendingDiscussions } from '../storage/pendingDiscussions'
@@ -118,6 +118,33 @@ describe('createRoomManager', () => {
     })
 
     expect(() => manager.startRoom('thread-1', {})).toThrow(ConflictError)
+  })
+
+  it('rejects starting rooms for archived and closed threads', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    })
+
+    archiveThread(dataDir, 'thread-1')
+    expect(() => manager.startRoom('thread-1', {})).toThrow(BadRequestError)
+    expect(executor.sessions.has('roundtable-thread-1')).toBe(false)
+
+    createThread(dataDir, { title: 'Closed', body: '# Closed' })
+    closeThread(dataDir, 'thread-2')
+    expect(() => manager.startRoom('thread-2', {})).toThrow(BadRequestError)
+    expect(executor.sessions.has('roundtable-thread-2')).toBe(false)
+  })
+
+  it('rejects room mutations after a thread is archived', () => {
+    const { manager, token } = startReadyRoom()
+    archiveThread(dataDir, 'thread-1')
+
+    expect(() => manager.nudgeRoom('thread-1', { agent: 'claude' })).toThrow(BadRequestError)
+    expect(() => manager.askAgent('thread-1', { agent: 'claude' })).toThrow(BadRequestError)
+    expect(() => manager.startAutoDiscussion('thread-1', { turn_count: 1 })).toThrow(BadRequestError)
+    expect(() => manager.markReady('thread-1', 'claude', token)).toThrow(BadRequestError)
   })
 
   it('writes per-thread agent permission setup without requiring rtk', () => {
