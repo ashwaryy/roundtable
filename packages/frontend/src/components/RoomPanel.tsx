@@ -14,9 +14,6 @@ import {
   stopRoom,
 } from '../api'
 
-function readyText(readyAt: string | null): string {
-  return readyAt ? 'ready' : 'waiting'
-}
 
 export function RoomPanel({
   threadId,
@@ -214,207 +211,239 @@ export function RoomPanel({
 
   return (
     <>
-      <section aria-label="room-initiation">
+      {/* ── Room Initiation Card ─────────────────────────────── */}
+      <section aria-label="room-initiation" className="room-card">
         <div className="section-heading">
           <h2>Agent Room</h2>
-          {summary ? <span>{summary}</span> : null}
+          {room ? (
+            <span className={`status-pill status-pill--${room.status}`}>
+              {room.status.replaceAll('_', ' ')}
+            </span>
+          ) : summary ? (
+            <span>{summary}</span>
+          ) : null}
         </div>
 
-        {toolEntries.length > 0 ? (
-          <ul>
-            {toolEntries.map((tool) => (
-              <li key={tool.name}>
-                {tool.name}: {tool.available ? tool.version ?? tool.path : 'missing'}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>Checking room tools...</p>
-        )}
-
-        <p>Status: {room?.status ?? 'loading'}</p>
-        {room ? (
-          <>
-            <p>Claude: {readyText(room.agents.claude.ready_at)}</p>
-            <p>Codex: {readyText(room.agents.codex.ready_at)}</p>
-            {room.auto ? (
-              <p>
-                Auto: {room.auto.status} ({room.auto.completed_turns}/
-                {room.auto.total_turns})
-              </p>
-            ) : null}
-            <p>Attach: {room.attach_command}</p>
-            <p>Session: {room.session_state.replaceAll('_', ' ')}</p>
-            {room.last_error ? <p role="alert">{room.last_error}</p> : null}
-          </>
-        ) : null}
-
-        {!hideRecoveryControls && room?.input_prompt ? (
-          <div role="alert" aria-label="agent-input-prompt">
-            <h3>{room.input_prompt.agent} is waiting for input</h3>
-            <pre>{room.input_prompt.excerpt}</pre>
-            <button type="button" onClick={() => handleInputResponse('yes')}>
-              Send Yes
-            </button>
-            <button type="button" onClick={() => handleInputResponse('no')}>
-              Send No
-            </button>
+        {/* Agent presence tiles — only meaningful once the room is running */}
+        {room && room.status !== 'not_started' && room.status !== 'stopped' ? (
+          <div className="room-card__agents">
+            <div className={`room-card__agent room-card__agent--claude${room.agents.claude.ready_at ? ' room-card__agent--ready' : ''}`}>
+              <span className="room-card__dot" aria-hidden="true" />
+              <span className="room-card__agent-name">Claude</span>
+            </div>
+            <div className={`room-card__agent room-card__agent--codex${room.agents.codex.ready_at ? ' room-card__agent--ready' : ''}`}>
+              <span className="room-card__dot" aria-hidden="true" />
+              <span className="room-card__agent-name">Codex</span>
+            </div>
           </div>
         ) : null}
 
-        <form onSubmit={handleStart} aria-label="start-room">
-          <label>
-            Claude model
-            <select
-              aria-label="Claude model"
-              value={claudeModel}
-              onChange={(event) => setClaudeModel(event.target.value)}
-            >
-              <option value="">CLI default</option>
-              <option value="claude-opus-4-7">claude-opus-4-7</option>
-              <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-              <option value="claude-haiku-4-5">claude-haiku-4-5</option>
-            </select>
-          </label>
-          <label>
-            Codex model
-            <select
-              aria-label="Codex model"
-              value={codexModel}
-              onChange={(event) => setCodexModel(event.target.value)}
-            >
-              <option value="">CLI default</option>
-              <option value="gpt-5.5">gpt-5.5</option>
-              <option value="gpt-5.4">gpt-5.4</option>
-              <option value="gpt-5.4-mini">gpt-5.4-mini</option>
-              <option value="gpt-5.3-codex">gpt-5.3-codex</option>
-            </select>
-          </label>
-          <button type="submit" disabled={!canStart}>
-            Start Room
-          </button>
-        </form>
+        {/* Tool preflight chips */}
+        {toolEntries.length > 0 ? (
+          <div className="room-card__tools">
+            {toolEntries.map((tool) => (
+              <span
+                key={tool.name}
+                className={`room-card__tool${tool.available ? '' : ' room-card__tool--missing'}`}
+                title={tool.available ? (tool.version ?? tool.path ?? '') : (tool.error ?? 'missing')}
+              >
+                <span className="room-card__tool-icon" aria-hidden="true">
+                  {tool.available ? '✓' : '✗'}
+                </span>
+                {tool.name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="room-card__muted">Checking tools…</p>
+        )}
 
-        <button type="button" onClick={handleStop} disabled={!canStop}>
-          Stop Room
-        </button>
-        {!hideRecoveryControls && canRestart ? (
-          <button type="button" onClick={handleRestart}>
-            Restart Room
-          </button>
+        {/* Auto progress */}
+        {room?.auto ? (
+          <p className="room-card__muted">
+            Auto {room.auto.status} · {room.auto.completed_turns}/{room.auto.total_turns} turns
+          </p>
         ) : null}
 
-        {error ? <p role="alert">{error}</p> : null}
+        {/* Input prompt (recovery) */}
+        {!hideRecoveryControls && room?.input_prompt ? (
+          <div role="alert" aria-label="agent-input-prompt" className="room-card__prompt">
+            <h3>{room.input_prompt.agent} is waiting for input</h3>
+            <pre>{room.input_prompt.excerpt}</pre>
+            <div className="inline-actions">
+              <button type="button" onClick={() => handleInputResponse('yes')}>Send Yes</button>
+              <button type="button" onClick={() => handleInputResponse('no')}>Send No</button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Model config + start */}
+        <form onSubmit={handleStart} aria-label="start-room" className="room-card__start-form">
+          <div className="room-card__model-row">
+            <label>
+              Claude
+              <select
+                aria-label="Claude model"
+                value={claudeModel}
+                onChange={(e) => setClaudeModel(e.target.value)}
+              >
+                <option value="">CLI default</option>
+                <option value="claude-opus-4-7">claude-opus-4-7</option>
+                <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+                <option value="claude-haiku-4-5">claude-haiku-4-5</option>
+              </select>
+            </label>
+            <label>
+              Codex
+              <select
+                aria-label="Codex model"
+                value={codexModel}
+                onChange={(e) => setCodexModel(e.target.value)}
+              >
+                <option value="">CLI default</option>
+                <option value="gpt-5.5">gpt-5.5</option>
+                <option value="gpt-5.4">gpt-5.4</option>
+                <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+                <option value="gpt-5.3-codex">gpt-5.3-codex</option>
+              </select>
+            </label>
+          </div>
+          <div className="room-card__start-row">
+            <button type="submit" disabled={!canStart}>Start Room</button>
+            <button type="button" onClick={handleStop} disabled={!canStop} className="btn-destructive">
+              Stop
+            </button>
+          </div>
+        </form>
+
+        {/* Attach command */}
+        {room?.attach_command ? (
+          <p className="room-card__attach"><code>{room.attach_command}</code></p>
+        ) : null}
+
+        {!hideRecoveryControls && canRestart ? (
+          <button type="button" onClick={handleRestart}>Restart Room</button>
+        ) : null}
+
+        {error ? <p role="alert" className="room-card__error">{error}</p> : null}
       </section>
 
-      <section aria-label="room-controls">
+      {/* ── Room Controls Card ───────────────────────────────── */}
+      <section aria-label="room-controls" className="room-card">
         <div className="section-heading">
-          <h2>Room Controls</h2>
+          <h2>Controls</h2>
         </div>
 
-        <form onSubmit={handleNudge} aria-label="nudge-room">
-          <select
-            aria-label="Nudge agent"
-            value={nudgeAgent}
-            onChange={(event) => setNudgeAgent(event.target.value as AgentName)}
-            disabled={!canNudge}
-          >
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
-          </select>
-          <input
-            aria-label="Nudge body"
-            value={nudgeBody}
-            onChange={(event) => setNudgeBody(event.target.value)}
-            placeholder="Optional nudge"
-            disabled={!canNudge}
-          />
-          <button type="submit" disabled={!canNudge}>
-            Send Nudge
-          </button>
-        </form>
-
-        <form onSubmit={handleAsk} aria-label="ask-agent">
-          <select
-            aria-label="Ask agent"
-            value={askAgentName}
-            onChange={(event) => setAskAgentName(event.target.value as AgentName)}
-            disabled={!canAsk}
-          >
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
-          </select>
-          <input
-            aria-label="Ask body"
-            value={askBody}
-            onChange={(event) => setAskBody(event.target.value)}
-            placeholder="Optional ask instructions"
-            disabled={!canAsk}
-          />
-          <button type="submit" disabled={!canAsk}>
-            Ask about a new topic
-          </button>
-        </form>
-
-        <form onSubmit={handleStartAuto} aria-label="start-auto-discussion">
-          <label>
-            Turns
+        {/* Nudge */}
+        <div className="room-ctrls__group">
+          <h3>Nudge</h3>
+          <form onSubmit={handleNudge} aria-label="nudge-room" className="room-ctrls__inline-form">
+            <select
+              aria-label="Nudge agent"
+              value={nudgeAgent}
+              onChange={(e) => setNudgeAgent(e.target.value as AgentName)}
+              disabled={!canNudge}
+              className="room-ctrls__agent-select"
+            >
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+            </select>
             <input
-              aria-label="Auto turns"
-              type="number"
-              min={1}
-              max={20}
-              value={autoTurns}
-              onChange={(event) => setAutoTurns(Number(event.target.value))}
-              disabled={!canStartAuto}
+              aria-label="Nudge body"
+              value={nudgeBody}
+              onChange={(e) => setNudgeBody(e.target.value)}
+              placeholder="Message"
+              disabled={!canNudge}
             />
-          </label>
-          <label>
+            <button type="submit" disabled={!canNudge}>Send</button>
+          </form>
+        </div>
+
+        {/* Ask */}
+        <div className="room-ctrls__group">
+          <h3>Ask</h3>
+          <form onSubmit={handleAsk} aria-label="ask-agent" className="room-ctrls__inline-form">
+            <select
+              aria-label="Ask agent"
+              value={askAgentName}
+              onChange={(e) => setAskAgentName(e.target.value as AgentName)}
+              disabled={!canAsk}
+              className="room-ctrls__agent-select"
+            >
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+            </select>
             <input
-              aria-label="Allow direct roots"
-              type="checkbox"
-              checked={allowDirectRoots}
-              onChange={(event) => setAllowDirectRoots(event.target.checked)}
-              disabled={!canStartAuto}
+              aria-label="Ask body"
+              value={askBody}
+              onChange={(e) => setAskBody(e.target.value)}
+              placeholder="Instructions"
+              disabled={!canAsk}
             />
-            Allow direct roots
-          </label>
-          <button type="submit" disabled={!canStartAuto}>
-            Let Them Discuss
-          </button>
-        </form>
+            <button type="submit" disabled={!canAsk}>Ask</button>
+          </form>
+        </div>
 
-        <button type="button" onClick={handlePauseAuto} disabled={!canPauseAuto}>
-          Pause
-        </button>
+        {/* Auto discussion */}
+        <div className="room-ctrls__group">
+          <h3>Auto</h3>
+          <form onSubmit={handleStartAuto} aria-label="start-auto-discussion" className="room-ctrls__auto-form">
+            <div className="room-ctrls__auto-config">
+              <label className="room-ctrls__turns-label">
+                Turns
+                <div className="room-ctrls__num-wrap">
+                  <input
+                    aria-label="Auto turns"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={autoTurns}
+                    onChange={(e) => setAutoTurns(Number(e.target.value))}
+                    disabled={!canStartAuto}
+                  />
+                </div>
+              </label>
+              <label className="room-ctrls__check-label">
+                <input
+                  aria-label="Allow direct roots"
+                  type="checkbox"
+                  checked={allowDirectRoots}
+                  onChange={(e) => setAllowDirectRoots(e.target.checked)}
+                  disabled={!canStartAuto}
+                />
+                Direct roots
+              </label>
+            </div>
+            <button type="submit" disabled={!canStartAuto}>Let Them Discuss</button>
+          </form>
+          <div className="room-ctrls__auto-secondary">
+            <button type="button" onClick={handlePauseAuto} disabled={!canPauseAuto}>Pause</button>
+            <form onSubmit={handleExtendAuto} aria-label="extend-auto-discussion" className="room-ctrls__extend-form">
+              <div className="room-ctrls__num-wrap">
+                <input
+                  aria-label="Extend turns"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={extendTurns}
+                  onChange={(e) => setExtendTurns(Number(e.target.value))}
+                  disabled={!canExtendAuto}
+                />
+              </div>
+              <button type="submit" disabled={!canExtendAuto}>Extend</button>
+            </form>
+          </div>
+        </div>
 
-        <form onSubmit={handleExtendAuto} aria-label="extend-auto-discussion">
-          <label>
-            Extend turns
-            <input
-              aria-label="Extend turns"
-              type="number"
-              min={1}
-              max={20}
-              value={extendTurns}
-              onChange={(event) => setExtendTurns(Number(event.target.value))}
-              disabled={!canExtendAuto}
-            />
-          </label>
-          <button type="submit" disabled={!canExtendAuto}>
-            Extend
-          </button>
-        </form>
-
+        {/* Recovery actions */}
         {!hideRecoveryControls && canResolveTurn ? (
-          <p>
-            <button type="button" onClick={handleRetry}>
-              Retry Turn
-            </button>
-            <button type="button" onClick={handleSkip}>
-              Skip Turn
-            </button>
-          </p>
+          <div className="room-ctrls__group">
+            <h3>Recovery</h3>
+            <div className="inline-actions">
+              <button type="button" onClick={handleRetry}>Retry Turn</button>
+              <button type="button" onClick={handleSkip}>Skip Turn</button>
+            </div>
+          </div>
         ) : null}
       </section>
     </>

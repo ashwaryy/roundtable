@@ -93,7 +93,7 @@ export function ConsolidationPanel({
   }
 
   return (
-    <section aria-label="consolidation">
+    <section aria-label="consolidation" className="room-card">
       <div className="section-heading">
         <h2>Consolidation</h2>
         {summary ? <span>{summary}</span> : null}

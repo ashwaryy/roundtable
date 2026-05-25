@@ -168,6 +168,7 @@ button, input, select, textarea { font: inherit; }
 
 input, select, textarea {
   width: 100%;
+  min-width: 0; /* prevent grid blowout */
   border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
   padding: 0.45rem 0.6rem;
@@ -188,7 +189,7 @@ input:disabled, select:disabled, textarea:disabled {
   opacity: 0.5;
 }
 
-form { display: grid; gap: 0.6rem; }
+form { display: grid; gap: 0.6rem; min-width: 0; }
 
 label {
   display: grid;
@@ -335,8 +336,7 @@ button[type="submit"]:hover:not(:disabled),
 
 /* ── Panels (sidebar + other pages) ─────────────────────────── */
 .panel,
-section[aria-label="thread-context"],
-section[aria-label="agent-room"] {
+section[aria-label="thread-context"] {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   padding: 14px;
@@ -356,15 +356,42 @@ section[aria-label="agent-room"] {
 .warning-panel { border-color: var(--pending-border); background: var(--pending-bg); }
 .recovery-card { border-color: #fca5a5; background: #fef2f2; }
 
-section[aria-label="agent-room"],
 section[aria-label="consolidation"],
 section[aria-label="thread-context"] { display: grid; gap: 0.8rem; }
 
 section[aria-label="thread-context"] > section {
   border-top: 1px solid var(--border);
   padding-top: 0.8rem;
+  min-width: 0; /* grid item blowout prevention */
 }
 section[aria-label="thread-context"] > section:first-of-type { border-top: 0; padding-top: 0; }
+
+/* Sub-section submit buttons: auto-width, don't stretch full column */
+.room-card > section form button[type="submit"] {
+  justify-self: start;
+}
+
+/* File input: hide native, use label as styled trigger */
+input[type="file"] { display: none; }
+
+label:has(input[type="file"]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--btn-border);
+  border-radius: var(--r-sm);
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+label:has(input[type="file"]):hover {
+  background: var(--btn-hover-bg);
+  border-color: var(--border-strong);
+}
 
 section[aria-label="consolidation"] {
   border: 1px solid var(--border);
@@ -374,14 +401,12 @@ section[aria-label="consolidation"] {
   box-shadow: var(--shadow-sm);
 }
 
-section[aria-label="agent-room"] ul,
 section[aria-label="consolidation"] ul,
 section[aria-label="thread-context"] ul,
 .panel > ul:not(.thread-list) {
   margin: 0; padding: 0; list-style: none;
 }
 
-section[aria-label="agent-room"] li,
 section[aria-label="consolidation"] li,
 section[aria-label="thread-context"] li,
 .panel > ul:not(.thread-list) > li {
@@ -390,14 +415,15 @@ section[aria-label="thread-context"] li,
   padding: 0.55rem 0;
 }
 
-section[aria-label="agent-room"] li:first-child,
 section[aria-label="consolidation"] li:first-child,
 section[aria-label="thread-context"] li:first-child,
 .panel > ul:not(.thread-list) > li:first-child { border-top: 0; padding-top: 0; }
 
 .sidebar-section--active > .panel,
 .sidebar-section--active > section,
-.panel.sidebar-section--active {
+.sidebar-section--active > .room-card,
+.panel.sidebar-section--active,
+.room-card.sidebar-section--active {
   border-color: var(--agent-claude-accent);
   box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.14);
 }
@@ -521,7 +547,7 @@ article + ul article { background: var(--surface); }
 .pending-card { border-color: var(--pending-border); background: var(--pending-bg); }
 .pending-origin { margin-bottom: 0.4rem; color: var(--text-2); font-size: 0.8125rem; }
 .pending-inline { display: grid; gap: 0.7rem; }
-.sidebar-section { display: flex; flex-direction: column; }
+.sidebar-section { display: flex; flex-direction: column; gap: 10px; }
 
 
 /* ================================================================
@@ -1094,7 +1120,7 @@ article + ul article { background: var(--surface); }
 }
 
 .workspace-sidebar .panel,
-.workspace-sidebar section[aria-label="agent-room"],
+.workspace-sidebar .room-card,
 .workspace-sidebar section[aria-label="consolidation"],
 .workspace-sidebar section[aria-label="thread-context"] {
   font-size: 0.8125rem;
@@ -1189,6 +1215,256 @@ article + ul article { background: var(--surface); }
   background: var(--surface);
 }
 
+/* ── Room cards ──────────────────────────────────────────────── */
+.room-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 0.75rem;
+}
+
+
+/* All direct children are grid items — prevent min-width: auto blowout */
+.room-card > * { min-width: 0; }
+
+/* Long unbreakable strings (paths, URLs) must wrap within the card */
+.room-card p,
+.room-card li {
+  overflow-wrap: break-word;
+  word-break: break-all;
+  min-width: 0;
+}
+
+/* Source path: truncate to one line, show full on hover via title */
+.context-path {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+}
+
+/* Agent presence tiles */
+.room-card__agents {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.room-card__agent {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.room-card__agent--claude {
+  background: var(--agent-claude-bg);
+  border-color: rgba(109, 40, 217, 0.14);
+}
+.room-card__agent--codex {
+  background: var(--agent-codex-bg);
+  border-color: rgba(3, 105, 161, 0.14);
+}
+
+.room-card__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  flex-shrink: 0;
+  transition: background 0.25s, box-shadow 0.25s;
+}
+
+.room-card__agent--ready.room-card__agent--claude .room-card__dot {
+  background: var(--agent-claude-accent);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2);
+}
+.room-card__agent--ready.room-card__agent--codex .room-card__dot {
+  background: var(--agent-codex-accent);
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.2);
+}
+
+.room-card__agent-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.room-card__agent--ready.room-card__agent--claude .room-card__agent-name { color: var(--agent-claude-fg); }
+.room-card__agent--ready.room-card__agent--codex  .room-card__agent-name { color: var(--agent-codex-fg); }
+
+/* Tool preflight chips */
+.room-card__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.room-card__tool {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 0.695rem;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: default;
+}
+.room-card__tool--missing {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.room-card__tool-icon {
+  font-family: var(--font-ui);
+  font-size: 0.6rem;
+  opacity: 0.7;
+  margin-right: 0.2rem;
+}
+
+/* Model selection grid */
+.room-card__start-form { display: grid; gap: 0.5rem; }
+
+.room-card__model-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.room-card__model-row label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-2);
+  gap: 0.25rem;
+}
+
+/* Start / Stop row */
+.room-card__start-row {
+  display: flex;
+  gap: 0.4rem;
+}
+.room-card__start-row > button[type="submit"] { flex: 1; }
+
+/* Attach command */
+.room-card__attach {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.room-card__attach code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.72rem;
+  color: var(--text-3);
+}
+
+/* Muted meta text */
+.room-card__muted {
+  margin: 0;
+  font-size: 0.775rem;
+  color: var(--text-3);
+}
+
+/* Input prompt box */
+.room-card__prompt {
+  padding: 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+}
+.room-card__prompt h3 { color: #991b1b; margin-bottom: 0.4rem; }
+.room-card__prompt pre { margin-bottom: 0.6rem; }
+
+/* Error banner */
+.room-card__error {
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+/* ── Room controls card internals ───────────────────────────── */
+.room-ctrls__group {
+  display: grid;
+  gap: 0.35rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border);
+}
+.room-ctrls__group:first-of-type { border-top: 0; padding-top: 0; }
+
+/* Inline form: [agent-select] [text-input] [button] */
+.room-ctrls__inline-form {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.3rem;
+  align-items: start;
+}
+
+.room-ctrls__agent-select { width: auto; }
+
+/* Auto form */
+.room-ctrls__auto-form { display: grid; gap: 0.4rem; }
+
+.room-ctrls__auto-config {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.room-ctrls__turns-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.room-ctrls__check-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.room-ctrls__check-label input[type="checkbox"] { width: auto; }
+
+/* Number input wrapper constrains width */
+.room-ctrls__num-wrap { width: 3.5rem; }
+.room-ctrls__num-wrap input { width: 100%; }
+
+/* Pause + extend row */
+.room-ctrls__auto-secondary {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.room-ctrls__extend-form {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 960px) {
   .workspace-sidebar { display: none; }
@@ -1208,7 +1484,7 @@ article + ul article { background: var(--surface); }
     padding-top: 14px;
   }
   .page-header { align-items: flex-start; flex-direction: column; }
-  .panel, section[aria-label="thread-context"], section[aria-label="agent-room"] { padding: 12px; }
+  .panel, section[aria-label="thread-context"], .room-card { padding: 12px; }
   .review-layout { grid-template-columns: 1fr; }
   .thread-layout { grid-template-columns: 1fr; }
   .thread-sidebar { position: static; }

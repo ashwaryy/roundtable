@@ -81,7 +81,7 @@ export function ThreadContextPanel({
   }
 
   return (
-    <section aria-label="thread-context">
+    <section aria-label="thread-context" className="room-card">
       <div className="section-heading">
         <h2>Context</h2>
         {summary ? <span>{summary}</span> : null}
@@ -151,7 +151,9 @@ export function ThreadContextPanel({
               Latest: {context.snapshot.mode}, {context.snapshot.file_count} files,{' '}
               {formatBytes(context.snapshot.total_bytes)}.
             </p>
-            <p>Source: {context.snapshot.source_path}</p>
+            <p className="context-path" title={context.snapshot.source_path}>
+              {context.snapshot.source_path}
+            </p>
             <button onClick={handleRefreshSnapshot}>Refresh Snapshot</button>
             {reports.length > 0 ? (
               <div aria-label="snapshot-report-history">
