@@ -49,6 +49,9 @@ export function reserveMonotonicCounter(
   namespace: string,
   scanOnDiskMax: () => number,
 ): number {
+  // This reservation is atomic only within one backend process: the synchronous
+  // read/scan/write sequence cannot interleave on Node's event loop. Multi-process
+  // backends need an exclusive file lock before reserving from this namespace.
   const onDiskMax = scanOnDiskMax()
   const current = readCounterState(dataDir, namespace)?.value ?? onDiskMax
   const next = Math.max(current, onDiskMax) + 1
@@ -182,6 +185,39 @@ function proposalIds(dataDir: string, threadId: string): string[] {
     .map((entry) => entry.name)
 }
 
+function mtimeMs(filePath: string): number | null {
+  try {
+    return fs.statSync(filePath).mtimeMs
+  } catch {
+    return null
+  }
+}
+
+function shouldSkipCounterScan(dataDir: string, namespace: string, artifactPaths: string[]): boolean {
+  const counterMtime = mtimeMs(counterFilePath(dataDir, namespace))
+  if (counterMtime === null) return false
+  const counterUpdatedAt = Date.parse(readCounterState(dataDir, namespace)?.updated_at ?? '')
+  if (!Number.isFinite(counterUpdatedAt)) return false
+  const artifactMtime = Math.max(0, ...artifactPaths.map((artifactPath) => mtimeMs(artifactPath) ?? 0))
+
+  // Heuristic startup fast path: a newer counter file implies no relevant artifact
+  // changed since the last reservation/repair. Explicit integrity acknowledgment
+  // remains the authoritative path for repairing counters discovered by a scan.
+  return Math.min(counterMtime, counterUpdatedAt) > artifactMtime
+}
+
+function validateCounterNamespace(
+  dataDir: string,
+  namespace: string,
+  artifactPaths: string[],
+  scanOnDiskMax: () => number,
+  logResult: (namespace: string, oldValue: number | null, newValue: number) => void,
+): void {
+  if (shouldSkipCounterScan(dataDir, namespace, artifactPaths)) return
+  const result = ensureCounterAhead(dataDir, namespace, scanOnDiskMax())
+  if (result.repaired) logResult(namespace, result.oldValue, result.newValue)
+}
+
 export function threadCounterNamespace(): string {
   return 'threads'
 }
@@ -290,73 +326,71 @@ export function validateAllMonotonicCounters(
     logRepair(`counter repaired namespace=${namespace} old=${oldValue ?? 'missing'} new=${newValue}`)
   }
 
-  const threadResult = ensureCounterAhead(dataDir, threadCounterNamespace(), scanThreadIdMax(dataDir))
-  if (threadResult.repaired) logResult(threadCounterNamespace(), threadResult.oldValue, threadResult.newValue)
+  validateCounterNamespace(
+    dataDir,
+    threadCounterNamespace(),
+    [threadsDir(dataDir)],
+    () => scanThreadIdMax(dataDir),
+    logResult,
+  )
 
   for (const threadId of threadIds(dataDir)) {
-    const pendingResult = ensureCounterAhead(
+    validateCounterNamespace(
       dataDir,
       pendingDiscussionCounterNamespace(threadId),
-      scanPendingDiscussionMax(dataDir, threadId),
+      [pendingDiscussionsPath(dataDir, threadId), commentsPath(dataDir, threadId)],
+      () => scanPendingDiscussionMax(dataDir, threadId),
+      logResult,
     )
-    if (pendingResult.repaired) {
-      logResult(pendingDiscussionCounterNamespace(threadId), pendingResult.oldValue, pendingResult.newValue)
-    }
 
-    const consolidationResult = ensureCounterAhead(
+    validateCounterNamespace(
       dataDir,
       consolidationCounterNamespace(threadId),
-      scanConsolidationMax(dataDir, threadId),
+      [consolidationsDir(dataDir, threadId)],
+      () => scanConsolidationMax(dataDir, threadId),
+      logResult,
     )
-    if (consolidationResult.repaired) {
-      logResult(consolidationCounterNamespace(threadId), consolidationResult.oldValue, consolidationResult.newValue)
-    }
 
-    const contextResult = ensureCounterAhead(
+    validateCounterNamespace(
       dataDir,
       contextItemCounterNamespace(threadId),
-      scanContextItemMax(dataDir, threadId),
+      [contextItemsPath(dataDir, threadId)],
+      () => scanContextItemMax(dataDir, threadId),
+      logResult,
     )
-    if (contextResult.repaired) {
-      logResult(contextItemCounterNamespace(threadId), contextResult.oldValue, contextResult.newValue)
-    }
 
-    const snapshotResult = ensureCounterAhead(
+    validateCounterNamespace(
       dataDir,
       snapshotReportCounterNamespace(threadId),
-      scanSnapshotReportMax(dataDir, threadId),
+      [projectSnapshotReportsDir(dataDir, threadId)],
+      () => scanSnapshotReportMax(dataDir, threadId),
+      logResult,
     )
-    if (snapshotResult.repaired) {
-      logResult(snapshotReportCounterNamespace(threadId), snapshotResult.oldValue, snapshotResult.newValue)
-    }
 
-    const jobResult = ensureCounterAhead(
+    validateCounterNamespace(
       dataDir,
       jobCounterNamespace(threadId),
-      scanJobMax(dataDir, threadId),
+      [jobsDir(dataDir, threadId)],
+      () => scanJobMax(dataDir, threadId),
+      logResult,
     )
-    if (jobResult.repaired) {
-      logResult(jobCounterNamespace(threadId), jobResult.oldValue, jobResult.newValue)
-    }
 
     for (const proposalId of proposalIds(dataDir, threadId)) {
-      const revisionResult = ensureCounterAhead(
+      validateCounterNamespace(
         dataDir,
         revisionCounterNamespace(threadId, proposalId),
-        scanRevisionMax(dataDir, threadId, proposalId),
+        [revisionsDir(dataDir, threadId, proposalId)],
+        () => scanRevisionMax(dataDir, threadId, proposalId),
+        logResult,
       )
-      if (revisionResult.repaired) {
-        logResult(revisionCounterNamespace(threadId, proposalId), revisionResult.oldValue, revisionResult.newValue)
-      }
 
-      const reviewResult = ensureCounterAhead(
+      validateCounterNamespace(
         dataDir,
         reviewCounterNamespace(threadId, proposalId),
-        scanReviewMax(dataDir, threadId, proposalId),
+        [reviewsDir(dataDir, threadId, proposalId)],
+        () => scanReviewMax(dataDir, threadId, proposalId),
+        logResult,
       )
-      if (reviewResult.repaired) {
-        logResult(reviewCounterNamespace(threadId, proposalId), reviewResult.oldValue, reviewResult.newValue)
-      }
     }
   }
 }

@@ -90,6 +90,11 @@ export function createStorage(
   onIntegrityUpdate?: (event: RoundtableEvent) => void,
 ) {
   agents.seedBuiltInAgents(dataDir)
+  for (const repair of proposals.repairLatestProposalPointers(dataDir)) {
+    integrity.acceptApplicationWrite(dataDir, repair.threadId, {
+      filesAddedOrUpdated: [proposalJsonPath(dataDir, repair.threadId, repair.proposalId)],
+    })
+  }
 
   function activeProposalCount(threadId: string): number {
     return proposals

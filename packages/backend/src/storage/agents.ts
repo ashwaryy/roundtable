@@ -80,9 +80,18 @@ function invalidateAgentIndex(dataDir: string): void {
 }
 
 function buildAgentIndex(dataDir: string): AgentIndex {
-  const agents = fs.readdirSync(agentsDir(dataDir))
+  let names: string[]
+  try {
+    names = fs.readdirSync(agentsDir(dataDir))
+  } catch {
+    names = []
+  }
+  const agents = names
     .filter((name) => name.endsWith('.json'))
     .map((name) => JSON.parse(fs.readFileSync(path.join(agentsDir(dataDir), name), 'utf8')) as Agent)
+  const existingIds = new Set(agents.map((agent) => agent.id))
+  agents.push(...BUILTINS.filter((agent) => !existingIds.has(agent.id)))
+  agents
     .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.name.localeCompare(b.name))
 
   const byId = new Map<string, Agent>()
@@ -99,7 +108,6 @@ function buildAgentIndex(dataDir: string): AgentIndex {
 }
 
 function getAgentIndex(dataDir: string): AgentIndex {
-  seedBuiltInAgents(dataDir)
   const cached = agentIndexes.get(dataDir)
   if (cached) return cached
 
@@ -228,6 +236,7 @@ function snapshot(agent: Agent, order: number): ThreadAgentInvite {
 }
 
 export function initializeThreadAgents(dataDir: string, threadId: string, agentIds?: string[]): ThreadAgentInvite[] {
+  seedBuiltInAgents(dataDir)
   const ids = agentIds ?? ['claude', 'codex']
   const unique = [...new Set(ids)]
   if (unique.length < 1 || unique.length > 8) throw new BadRequestError('a thread needs 1 to 8 agents')

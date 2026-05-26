@@ -227,6 +227,7 @@ async function runPreflight(request) {
   return {
     source_path: sourcePath,
     mode,
+    candidates,
     requires_confirmation: true,
     file_count: candidates.length,
     total_bytes: totalBytes,
@@ -237,7 +238,7 @@ async function runPreflight(request) {
 
 async function runCreate(request) {
   const preflight = await runPreflight(request)
-  const { candidates } = collectCandidates(preflight.source_path)
+  const { candidates } = preflight
   const manifest = []
   const stagedSnapshotDir = path.join(request.stagingRoot, 'project-snapshot')
 
@@ -301,7 +302,8 @@ async function runCreate(request) {
 async function main() {
   await maybeDelay()
   if (workerData.kind === 'preflight') {
-    parentPort?.postMessage({ ok: true, result: await runPreflight(workerData) })
+    const { candidates, ...result } = await runPreflight(workerData)
+    parentPort?.postMessage({ ok: true, result })
     return
   }
   parentPort?.postMessage({ ok: true, result: await runCreate(workerData) })

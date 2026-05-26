@@ -28,6 +28,7 @@ import {
   savedConsolidationDir,
   savedDir,
   threadJsonPath,
+  threadsDir,
 } from './paths'
 import { BadRequestError, ConflictError, NotFoundError } from './errors'
 
@@ -73,6 +74,27 @@ function nextRevisionId(dataDir: string, threadId: string, proposalId: string): 
 
 function nextReviewId(dataDir: string, threadId: string, proposalId: string): string {
   return `review-${String(nextReviewCounterValue(dataDir, threadId, proposalId)).padStart(3, '0')}`
+}
+
+function idNumber(id: string | null | undefined): number {
+  const match = id ? /(\d+)$/.exec(id) : null
+  return match ? Number(match[1]) : 0
+}
+
+function latestIdFromDir(dir: string, pattern: RegExp): string | null {
+  if (!fs.existsSync(dir)) return null
+  let latest: string | null = null
+  let latestNumber = 0
+  for (const file of fs.readdirSync(dir)) {
+    const match = pattern.exec(file)
+    if (!match) continue
+    const currentNumber = Number(match[1])
+    if (currentNumber > latestNumber) {
+      latestNumber = currentNumber
+      latest = file.replace(/\.json$/, '')
+    }
+  }
+  return latest
 }
 
 function ensureProposal(
@@ -238,7 +260,16 @@ export function addProposalRevision(
 
   writeTextAtomic(revisionPath(dataDir, threadId, proposalId, id), body)
   writeJsonAtomic(path.join(revDir, `${id}.json`), revision)
-  updateProposal(dataDir, threadId, proposalId, { latest_revision_id: id })
+  try {
+    updateProposal(dataDir, threadId, proposalId, { latest_revision_id: id })
+  } catch (err) {
+    console.error(
+      `failed to update latest revision pointer proposal=${proposalId} revision=${id}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    )
+    throw err
+  }
   return revision
 }
 
@@ -281,6 +312,8 @@ export function getLatestRevision(
     const body = getRevisionBody(dataDir, threadId, proposalId, proposal.latest_revision_id)
     if (body !== null) return body
   }
+  // Recovery-only fallback for a crash/failure before latest_revision_id was updated.
+  // Steady-state reads should use the authoritative pointer after startup repair.
   const revisions = listRevisions(dataDir, threadId, proposalId)
   const latest = revisions[revisions.length - 1]
   return latest ? getRevisionBody(dataDir, threadId, proposalId, latest.id) : null
@@ -317,7 +350,16 @@ export function addProposalReview(
 
   writeTextAtomic(reviewPath(dataDir, threadId, proposalId, id), body)
   writeJsonAtomic(reviewJsonPath(dataDir, threadId, proposalId, id), review)
-  updateProposal(dataDir, threadId, proposalId, { latest_review_id: id })
+  try {
+    updateProposal(dataDir, threadId, proposalId, { latest_review_id: id })
+  } catch (err) {
+    console.error(
+      `failed to update latest review pointer proposal=${proposalId} review=${id}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    )
+    throw err
+  }
   return review
 }
 
@@ -360,9 +402,62 @@ export function getLatestReviewBody(
     const body = getReviewBody(dataDir, threadId, proposalId, proposal.latest_review_id)
     if (body !== null) return body
   }
+  // Recovery-only fallback for a crash/failure before latest_review_id was updated.
+  // Steady-state reads should use the authoritative pointer after startup repair.
   const reviews = listReviews(dataDir, threadId, proposalId)
   const latest = reviews[reviews.length - 1]
   return latest ? getReviewBody(dataDir, threadId, proposalId, latest.id) : null
+}
+
+export function repairLatestProposalPointers(
+  dataDir: string,
+  logRepair: (message: string) => void = console.warn,
+): Array<{ threadId: string; proposalId: string }> {
+  const repaired: Array<{ threadId: string; proposalId: string }> = []
+  if (!fs.existsSync(threadsDir(dataDir))) return repaired
+  for (const threadEntry of fs.readdirSync(threadsDir(dataDir), { withFileTypes: true })) {
+    if (!threadEntry.isDirectory()) continue
+    const threadId = threadEntry.name
+    const root = consolidationsDir(dataDir, threadId)
+    if (!fs.existsSync(root)) continue
+
+    for (const proposalEntry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!proposalEntry.isDirectory()) continue
+      const proposalId = proposalEntry.name
+      const proposal = getProposal(dataDir, threadId, proposalId)
+      if (!proposal) continue
+
+      const latestRevisionId = latestIdFromDir(
+        revisionsDir(dataDir, threadId, proposalId),
+        /^r(\d+)\.json$/,
+      )
+      if (latestRevisionId && idNumber(proposal.latest_revision_id) < idNumber(latestRevisionId)) {
+        updateProposal(dataDir, threadId, proposalId, { latest_revision_id: latestRevisionId })
+        repaired.push({ threadId, proposalId })
+        logRepair(
+          `proposal pointer repaired proposal=${proposalId} field=latest_revision_id old=${
+            proposal.latest_revision_id ?? 'missing'
+          } new=${latestRevisionId}`,
+        )
+      }
+
+      const updatedProposal = getProposal(dataDir, threadId, proposalId) ?? proposal
+      const latestReviewId = latestIdFromDir(
+        reviewsDir(dataDir, threadId, proposalId),
+        /^review-(\d+)\.json$/,
+      )
+      if (latestReviewId && idNumber(updatedProposal.latest_review_id) < idNumber(latestReviewId)) {
+        updateProposal(dataDir, threadId, proposalId, { latest_review_id: latestReviewId })
+        repaired.push({ threadId, proposalId })
+        logRepair(
+          `proposal pointer repaired proposal=${proposalId} field=latest_review_id old=${
+            updatedProposal.latest_review_id ?? 'missing'
+          } new=${latestReviewId}`,
+        )
+      }
+    }
+  }
+  return repaired
 }
 
 export function rejectProposal(

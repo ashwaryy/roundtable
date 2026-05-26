@@ -21,6 +21,7 @@ import {
 } from './paths'
 import { NotFoundError } from './errors'
 import type { CanonicalTouched } from './touched'
+import { validateAllMonotonicCounters } from './counters'
 
 interface IntegrityState {
   version: 1
@@ -546,6 +547,7 @@ export function acceptApplicationWrite(
 
 export function acknowledgeIntegrity(dataDir: string, threadId: string): IntegrityReport {
   const scan = scanCanonical(dataDir, threadId)
+  validateAllMonotonicCounters(dataDir)
   const timestamp = new Date().toISOString()
   const report: IntegrityReport = {
     thread_id: threadId,

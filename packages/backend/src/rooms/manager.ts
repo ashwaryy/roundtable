@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import type {
   AgentName,
@@ -67,7 +67,7 @@ import {
 import { BadRequestError, ConflictError, NotFoundError } from '../storage/errors'
 import type { CanonicalTouched } from '../storage/touched'
 import { listThreadAgents } from '../storage/agents'
-import { addAgentComment, listComments } from '../storage/comments'
+import { addAgentComment, isDiscussionRoot, listComments } from '../storage/comments'
 import { addPendingDiscussion, listPendingDiscussions } from '../storage/pendingDiscussions'
 import { setThreadSummaryDirty, updateThreadSummary } from '../storage/threads'
 import { getJob, nextJobId, writeJob } from '../storage/jobs'
@@ -1106,6 +1106,23 @@ function sessionExists(executor: CommandExecutor, sessionName: string): boolean 
   }
 }
 
+function sessionExistsAsync(executor: CommandExecutor, sessionName: string): Promise<boolean> {
+  if (!(executor instanceof SystemCommandExecutor)) {
+    return Promise.resolve(sessionExists(executor, sessionName))
+  }
+  return new Promise((resolve) => {
+    execFile(
+      'tmux',
+      ['has-session', '-t', sessionName],
+      {
+        encoding: 'utf8',
+        timeout: DEFAULT_EXEC_TIMEOUT_MS,
+      },
+      (err) => resolve(!err),
+    )
+  })
+}
+
 function paneExists(
   executor: CommandExecutor,
   room: Pick<AgentRoom, 'tmux_session'>,
@@ -1863,6 +1880,12 @@ export function createRoomManager(options: {
       .filter((status) => status === 'drafting' || status === 'review').length
   }
 
+  function acceptDirtyThreadSummaryWrite(threadId: string): void {
+    options.onCanonicalWrite?.(threadId, {
+      filesAddedOrUpdated: [threadJsonPath(dataDir, threadId)],
+    })
+  }
+
   function revisionJsonFile(
     threadId: string,
     proposalId: string,
@@ -2000,7 +2023,13 @@ export function createRoomManager(options: {
       inviteFor(room, agent!)
     }
     setThreadSummaryDirty(dataDir, room.thread_id, 'active_proposal_count')
-    const proposal = createProposal(dataDir, room.thread_id, resolved)
+    let proposal: ConsolidationProposal
+    try {
+      proposal = createProposal(dataDir, room.thread_id, resolved)
+    } catch (err) {
+      acceptDirtyThreadSummaryWrite(room.thread_id)
+      throw err
+    }
     try {
       updateThreadSummary(
         dataDir,
@@ -2026,10 +2055,7 @@ export function createRoomManager(options: {
   }
 
   function validateDiscussionRoot(threadId: string, discussionId: string): void {
-    const root = listComments(dataDir, threadId).find(
-      (comment) => comment.id === discussionId && comment.parent_id === null,
-    )
-    if (!root) {
+    if (!isDiscussionRoot(dataDir, threadId, discussionId)) {
       throw new NotFoundError(`discussion ${discussionId} not found`)
     }
   }
@@ -2367,29 +2393,42 @@ export function createRoomManager(options: {
     )
   }
 
-  function flushSummaryProbes(): void {
-    summaryProbeScheduled = false
+  function takeNextSummaryProbe(): string | null {
     const threadIds = [...queuedSummaryProbes]
-    queuedSummaryProbes.clear()
+    if (threadIds.length === 0) return null
     threadIds.sort((left, right) => {
       const leftAt = Date.parse(cachedRoom(left).session_checked_at ?? '1970-01-01T00:00:00.000Z')
       const rightAt = Date.parse(cachedRoom(right).session_checked_at ?? '1970-01-01T00:00:00.000Z')
       return leftAt - rightAt
     })
-    for (const threadId of threadIds) {
-      const room = cachedRoom(threadId)
-      if (!roomSummaryNeedsProbe(room)) continue
-      const checkedAt = now()
-      const live = sessionExists(executor, room.tmux_session)
-      applySummaryProbeResult(threadId, live, checkedAt)
+    const threadId = threadIds[0]
+    queuedSummaryProbes.delete(threadId)
+    return threadId
+  }
+
+  function processNextSummaryProbe(): void {
+    const threadId = takeNextSummaryProbe()
+    if (!threadId) {
+      summaryProbeScheduled = false
+      return
     }
+    void (async () => {
+      const room = cachedRoom(threadId)
+      if (roomSummaryNeedsProbe(room)) {
+        const checkedAt = now()
+        const live = await sessionExistsAsync(executor, room.tmux_session)
+        applySummaryProbeResult(threadId, live, checkedAt)
+      }
+    })().finally(() => {
+      setImmediate(processNextSummaryProbe)
+    })
   }
 
   function queueSummaryProbe(threadId: string): void {
     queuedSummaryProbes.add(threadId)
     if (summaryProbeScheduled) return
     summaryProbeScheduled = true
-    setTimeout(flushSummaryProbes, 0)
+    setTimeout(processNextSummaryProbe, 0)
   }
 
   function getRoomSummary(threadId: string): AgentRoom {
@@ -3249,13 +3288,19 @@ export function createRoomManager(options: {
           throw new BadRequestError('idle pending discussion cannot continue a turn')
         }
         setThreadSummaryDirty(dataDir, threadId, 'pending_count')
-        const pending = addPendingDiscussion(dataDir, threadId, {
-          author: input.agent,
-          body: input.body,
-          type: input.type,
-          origin_discussion_id: input.origin_discussion_id ?? null,
-          origin_comment_id: input.origin_comment_id ?? null,
-        })
+        let pending: PendingDiscussion
+        try {
+          pending = addPendingDiscussion(dataDir, threadId, {
+            author: input.agent,
+            body: input.body,
+            type: input.type,
+            origin_discussion_id: input.origin_discussion_id ?? null,
+            origin_comment_id: input.origin_comment_id ?? null,
+          })
+        } catch (err) {
+          acceptDirtyThreadSummaryWrite(threadId)
+          throw err
+        }
         try {
           updateThreadSummary(
             dataDir,
@@ -3311,14 +3356,20 @@ export function createRoomManager(options: {
       }
 
       setThreadSummaryDirty(dataDir, threadId, 'pending_count')
-      const pending = addPendingDiscussion(dataDir, threadId, {
-        author: input.agent,
-        body: input.body,
-        type: input.type,
-        origin_discussion_id:
-          input.origin_discussion_id ?? job.turn.discussion_id ?? null,
-        origin_comment_id: input.origin_comment_id ?? null,
-      })
+      let pending: PendingDiscussion
+      try {
+        pending = addPendingDiscussion(dataDir, threadId, {
+          author: input.agent,
+          body: input.body,
+          type: input.type,
+          origin_discussion_id:
+            input.origin_discussion_id ?? job.turn.discussion_id ?? null,
+          origin_comment_id: input.origin_comment_id ?? null,
+        })
+      } catch (err) {
+        acceptDirtyThreadSummaryWrite(threadId)
+        throw err
+      }
       try {
         updateThreadSummary(
           dataDir,

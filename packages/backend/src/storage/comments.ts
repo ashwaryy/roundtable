@@ -80,6 +80,10 @@ function getReplyDiscussionIds(dataDir: string, threadId: string): Map<string, s
   return built
 }
 
+export function isDiscussionRoot(dataDir: string, threadId: string, discussionId: string): boolean {
+  return getReplyDiscussionIds(dataDir, threadId).get(discussionId) === discussionId
+}
+
 function clearReplyDiscussionIds(dataDir: string, threadId: string): void {
   replyDiscussionIdsByThread.delete(replyCacheKey(dataDir, threadId))
 }
