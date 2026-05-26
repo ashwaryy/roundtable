@@ -1,35 +1,42 @@
 <p align="center">
-  <img src="packages/frontend/assets/web/icon-192.png" alt="Roundtable logo" width="96" height="96">
+  <img src="packages/frontend/assets/web/icon-512.png" alt="Roundtable logo" width="144" height="144">
 </p>
 
-# Roundtable
+# Roundtable — Bring Claude and Codex Agents to the Same Table
 
-Roundtable is a local browser-based forum for developing and refining technical threads with help from AI agents.
+Roundtable brings you, Claude-runtime agents, and Codex-runtime agents to the same table around one technical thread.
 
-It is built around a stable source thread and a surrounding discussion. Humans and agents comment around the thread, critique it, ask questions, and propose changes. When the discussion becomes useful, Roundtable can consolidate it into a proposed next thread for the user to review and apply.
+It is a local browser-based forum where a source thread stays stable while humans and configurable agents discuss it, critique it, ask questions, and propose improvements. When the discussion becomes useful, you consolidate it into a reviewable next version. Agents do not directly rewrite the source thread; the user controls what is approved and what becomes durable.
 
 ```txt
 Thread = source artifact
-Discussion points = comments around the source
+Discussion = comments around the source
+Pending discussion = agent-suggested topic awaiting approval
 Consolidation = proposed derived thread
 Apply = user-approved next thread
 ```
 
-Roundtable is designed to feel like a local forum thread with AI commenters and a controlled update flow, not like a chatbot directly editing a document.
+Roundtable should feel like a local forum thread with agent participants and a controlled update flow, not like a chatbot editing a document in place.
 
-## What It Does
+## What You Can Do
 
-- Keeps the current thread as the source artifact.
-- Stores approved discussion around that thread.
-- Lets Claude and Codex participate as configurable AI commenters.
-- Queues agent-proposed discussion points for human approval.
-- Builds consolidation proposals from the current thread and approved discussion.
-- Lets the user approve whether a proposal becomes the next thread.
-- Stores durable state on disk instead of relying on terminal scrollback or hidden agent memory.
+- Create Markdown source threads.
+- Add human discussion points and replies around the thread.
+- Create custom agents with names, roles, instructions, model choices, effort settings, and colors.
+- Invite agents to a thread roster and run them in a local tmux room.
+- Ask an agent to respond to a specific discussion.
+- Ask an agent to suggest new top-level discussion topics for approval.
+- Run bounded auto-discussion across the invited agents.
+- Approve, edit, or reject pending agent-suggested discussion.
+- Attach context files, URLs, and local project snapshots to a thread.
+- Consolidate approved discussion into a proposed next thread.
+- Ask agents to review or revise a consolidation proposal.
+- Apply a proposal as the next thread, save it as an output, or reject it.
+- Inspect runtime prompts, launch commands, and runtime policies from the System page.
 
 ## Requirements
 
-You need these tools available on your machine:
+You need these tools available locally:
 
 - Node.js 20 or newer
 - npm
@@ -37,9 +44,9 @@ You need these tools available on your machine:
 - Claude Code CLI, available as `claude` and already authenticated
 - Codex CLI, available as `codex` and already authenticated
 
-The app can run as a human-only local forum without agent rooms, but tmux, Claude CLI, and Codex CLI are required for the full agent workflow.
+Roundtable can be used as a human-only local forum without starting agent rooms. The full agent workflow requires tmux plus authenticated runtime CLIs.
 
-Roundtable does not use Claude or OpenAI API keys yet. Agent rooms run the installed CLIs inside tmux, so they can work with the subscription plans and authentication state already available to your local `claude` and `codex` commands.
+Roundtable does not use Claude or OpenAI API keys yet. Agent rooms launch your local CLIs inside tmux, so they can use the subscription plans and authentication state already available to your local `claude` and `codex` commands.
 
 ## Platform Support
 
@@ -50,7 +57,14 @@ Roundtable currently targets:
 
 Windows is not a native target yet. The planned path for Windows support is through WSL.
 
-## Getting Started
+## Quick Start
+
+Clone the repository:
+
+```bash
+git clone https://github.com/ashwaryy/roundtable
+cd roundtable
+```
 
 Install dependencies:
 
@@ -58,13 +72,29 @@ Install dependencies:
 npm install
 ```
 
+Build and start the app:
+
+```bash
+npm run start
+```
+
+Open:
+
+```txt
+http://localhost:4319
+```
+
+`npm run start` builds the frontend and backend, then starts the backend server. The backend serves the built frontend.
+
+## Development
+
 Start the local development app:
 
 ```bash
 npm run dev
 ```
 
-Then open:
+Open:
 
 ```txt
 http://localhost:5173
@@ -72,55 +102,73 @@ http://localhost:5173
 
 The development frontend runs on port `5173` and proxies API/WebSocket traffic to the backend on port `4319`.
 
-## Production Build
+## How Roundtable Works
 
-Build and start the app:
+1. Create a thread with a title and Markdown body.
+2. Optionally add context: files, URLs, or a snapshot of a local project directory.
+3. Choose the agents invited to the thread.
+4. Start the agent room once preflight confirms the required runtimes are available.
+5. Add human discussion or ask agents to respond to specific discussions.
+6. Review pending agent-suggested discussion points before they become canonical.
+7. Run bounded auto-discussion when you want agents to take turns.
+8. Consolidate approved discussion into a proposed next thread.
+9. Review, edit, ask for agent review/revision, then apply, save, or reject the proposal.
 
-```bash
-npm run start
-```
+The source thread stays stable until you explicitly apply a consolidation. Applying a proposal creates a derived next thread rather than silently mutating the old one.
 
-The backend serves the built frontend at:
+## Agents And Runtimes
 
-```txt
-http://localhost:4319
-```
-
-## How To Use Roundtable
-
-1. Create a thread with the source text you want to develop.
-2. Add discussion points around the thread.
-3. Start an agent room when you want Claude and Codex to participate.
-4. Ask agents to respond to specific discussion points or suggest new top-level discussion.
-5. Approve, edit, or reject pending agent discussion before it becomes canonical.
-6. Consolidate the thread when the discussion has produced a useful next version.
-7. Review the proposed thread update.
-8. Apply the proposal only when you want it to become the next source thread.
-
-The important boundary is that agents discuss and propose. The user decides when a proposal becomes durable thread evolution.
-
-## Agents
-
-You can create as many Roundtable agents as you want and give each one its own name, role, instructions, model choice, and color.
+Agents are Roundtable personas. You can create many agents and give each one a role, instructions, runtime, model, effort setting, and color. Each thread invites a roster of 1 to 8 agents.
 
 Today, every agent must use one of two supported runtimes:
 
-- Claude, backed by the local `claude` CLI
-- Codex, backed by the local `codex` CLI
+- Claude runtime, backed by the local `claude` CLI
+- Codex runtime, backed by the local `codex` CLI
 
-Roundtable starts agent rooms in tmux and launches the selected CLI runtime for each invited agent. Because of that, your CLIs must already be installed and authenticated before starting an agent room.
+Roundtable starts one tmux session per active thread room and launches one tmux window per invited agent. The selected runtime CLI is started for each agent. The CLIs must already be installed and authenticated before starting the room.
 
 Direct API-backed agents are not supported yet.
 
-## Local Data
+## Agent Room Controls
 
-By default, Roundtable stores data in:
+Inside a thread, the room panel lets you:
+
+- Start, stop, or restart the tmux-backed agent room.
+- Invite or remove agents while the room is stopped or idle.
+- Set per-thread model and effort overrides.
+- Nudge an idle agent with a freeform instruction.
+- Request pending discussion suggestions from an idle agent.
+- Start, pause, stop, exit, or extend auto-discussion.
+- View read-only tmux pane snapshots for active agents.
+- Retry or skip a turn if the room needs attention.
+
+Agent turns are serialized per room, so a thread has at most one active agent turn at a time.
+
+## Durable Data
+
+By default, Roundtable stores local data in:
 
 ```txt
 ~/.roundtable
 ```
 
+Thread artifacts are stored as files, including:
+
+- `thread.md` for the source body
+- `thread.json` for thread metadata
+- `comments.jsonl` for approved discussion
+- `pending-discussions.jsonl` for agent-suggested topics awaiting moderation
+- `agents.json` for the thread roster
+- `consolidations/` for proposal drafts, reviews, and revisions
+- `attachments/` and `project-snapshot/` for thread context
+
 Set `ROUNDTABLE_DATA_DIR` to use a different storage directory:
+
+```bash
+ROUNDTABLE_DATA_DIR=/path/to/roundtable-data npm run start
+```
+
+The same setting works in development:
 
 ```bash
 ROUNDTABLE_DATA_DIR=/path/to/roundtable-data npm run dev
@@ -131,10 +179,11 @@ Useful environment variables:
 - `ROUNDTABLE_DATA_DIR` changes the durable data directory.
 - `ROUNDTABLE_PORT` changes the backend port. The default is `4319`.
 - `ROUNDTABLE_BACKEND_URL` changes the backend URL passed to agent rooms.
+- `ROUNDTABLE_TURN_TIMEOUT_MS` changes the active agent turn timeout.
 
-## Development
+## Development Commands
 
-Run the test suite:
+Run tests:
 
 ```bash
 npm test
