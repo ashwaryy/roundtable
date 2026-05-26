@@ -1,4 +1,7 @@
 import http from 'node:http'
+import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 import { WebSocketServer } from 'ws'
 import { createApp } from './server'
 import { createBroadcastHub } from './ws'
@@ -9,6 +12,7 @@ import { createRoomManager } from './rooms/manager'
 const dataDir = resolveDataDir()
 const port = Number(process.env.ROUNDTABLE_PORT ?? 4319)
 const backendUrl = process.env.ROUNDTABLE_BACKEND_URL ?? `http://localhost:${port}`
+const frontendDistDir = fileURLToPath(new URL('../../frontend/dist', import.meta.url))
 
 const server = http.createServer()
 const wss = new WebSocketServer({ server, path: '/ws' })
@@ -22,7 +26,12 @@ const rooms = createRoomManager({
   onCanonicalWrite: storage.acceptIntegrity,
 })
 
-const app = createApp({ storage, rooms, broadcast: hub.broadcast })
+const app = createApp({
+  storage,
+  rooms,
+  broadcast: hub.broadcast,
+  frontendDistDir: fs.existsSync(path.join(frontendDistDir, 'index.html')) ? frontendDistDir : null,
+})
 server.on('request', app)
 
 server.listen(port, () => {

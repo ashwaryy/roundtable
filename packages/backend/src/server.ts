@@ -1,6 +1,7 @@
 import express from 'express'
 import formidable, { type File as FormidableFile } from 'formidable'
 import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import {
   createThreadInputSchema,
   createCommentInputSchema,
@@ -225,8 +226,15 @@ export function createApp(deps: {
   broadcast: (event: RoundtableEvent) => void
   rooms?: RoomManager
   terminalLauncher?: (sessionName: string) => void
+  frontendDistDir?: string | null
 }): express.Express {
-  const { storage, broadcast, rooms, terminalLauncher = openTerminalForTmux } = deps
+  const {
+    storage,
+    broadcast,
+    rooms,
+    terminalLauncher = openTerminalForTmux,
+    frontendDistDir = null,
+  } = deps
   const app = express()
   app.use(express.json())
 
@@ -1354,6 +1362,13 @@ export function createApp(deps: {
       throw err
     }
   })
+
+  if (frontendDistDir) {
+    app.use(express.static(frontendDistDir))
+    app.get(/^\/(?!api(?:\/|$)|ws(?:\/|$)).*/, (_req, res) => {
+      res.sendFile(path.join(frontendDistDir, 'index.html'))
+    })
+  }
 
   app.use((_err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (handleStorageError(_err, res)) return

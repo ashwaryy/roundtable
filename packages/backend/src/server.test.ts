@@ -9,17 +9,20 @@ import type { AgentRoom, BoundedJob, RoomPreflight } from '@roundtable/shared'
 import type { RoomManager } from './rooms/manager'
 
 let dataDir: string
+let frontendDistDir: string
 let broadcast: ReturnType<typeof vi.fn>
 let app: ReturnType<typeof createApp>
 
 beforeEach(() => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-server-'))
+  frontendDistDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-frontend-'))
   broadcast = vi.fn()
   app = createApp({ storage: createStorage(dataDir), broadcast })
 })
 
 afterEach(() => {
   fs.rmSync(dataDir, { recursive: true, force: true })
+  fs.rmSync(frontendDistDir, { recursive: true, force: true })
 })
 
 describe('GET /api/health', () => {
@@ -61,6 +64,25 @@ describe('GET /api/system/info', () => {
     expect(res.body).toEqual({
       version: expect.stringMatching(/^\d+\.\d+\.\d+(-.+)?$/),
     })
+  })
+})
+
+describe('frontend asset serving', () => {
+  it('serves index.html for non-api routes when a frontend build is present', async () => {
+    fs.writeFileSync(path.join(frontendDistDir, 'index.html'), '<!doctype html><title>Roundtable</title>')
+    app = createApp({ storage: createStorage(dataDir), broadcast, frontendDistDir })
+
+    const res = await request(app).get('/system')
+    expect(res.status).toBe(200)
+    expect(res.text).toContain('<title>Roundtable</title>')
+  })
+
+  it('does not rewrite unknown api routes to index.html', async () => {
+    fs.writeFileSync(path.join(frontendDistDir, 'index.html'), '<!doctype html><title>Roundtable</title>')
+    app = createApp({ storage: createStorage(dataDir), broadcast, frontendDistDir })
+
+    const res = await request(app).get('/api/not-found')
+    expect(res.status).toBe(404)
   })
 })
 

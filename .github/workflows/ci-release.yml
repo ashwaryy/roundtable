@@ -3,6 +3,8 @@ name: CI and Release
 on:
   pull_request:
   push:
+    branches:
+      - main
 
 jobs:
   verify:
@@ -27,6 +29,9 @@ jobs:
 
       - name: Run type checks
         run: npm run typecheck
+
+      - name: Build application
+        run: npm run build
 
   release:
     needs: verify
