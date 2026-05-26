@@ -2,13 +2,16 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import type { AgentColorPreset, Agent, AgentRuntime } from '@roundtable/shared'
 import { createAgent, deleteAgent, importAgents, listAgents, updateAgent } from '../api'
+import { TopbarHeader } from '../components/AppHeader'
 import { Avatar, Icon } from '../components/primitives'
 import { ModelSelect } from '../components/ModelSelect'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { useLiveRefresh } from '../useLiveRefresh'
 
 const COLORS: AgentColorPreset[] = ['blue', 'green', 'amber', 'rose', 'violet', 'teal']
 
 export function AgentsPage() {
+  const backendStatus = useLiveRefresh(() => {})
   const [agents, setAgents] = useState<Agent[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formVersion, setFormVersion] = useState(0)
@@ -126,20 +129,18 @@ export function AgentsPage() {
 
   return (
     <>
-      <header className="topbar">
-        <Link to="/" className="brand" aria-label="Roundtable home">
-          <span className="dot" />
-          <span>Roundtable</span>
-        </Link>
-        <div className="spacer" />
-        <div className="meta">
+      <TopbarHeader
+        backendStatus={backendStatus}
+        actions={
+          <>
           <Link className="btn" to="/">
             <Icon name="arrowLeft" className="ic-sm" />
             Threads
           </Link>
           <ThemeToggle />
-        </div>
-      </header>
+          </>
+        }
+      />
       <main className="home-wrap agents-page">
         <header className="home-head agents-head">
           <div>

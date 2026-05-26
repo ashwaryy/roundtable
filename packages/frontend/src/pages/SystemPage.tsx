@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { SystemInfo, SystemPromptRuntime, SystemPromptSection } from '@roundtable/shared'
 import { getSystemInfo, listSystemPrompts } from '../api'
+import { TopbarHeader } from '../components/AppHeader'
 import { Icon } from '../components/primitives'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { useLiveRefresh } from '../useLiveRefresh'
 
 const RUNTIME_LABELS: Record<SystemPromptRuntime | 'all', string> = {
   all: 'All',
@@ -25,6 +27,7 @@ export function SystemPage() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
   const [runtime, setRuntime] = useState<SystemPromptRuntime | 'all'>('all')
   const [error, setError] = useState<string | null>(null)
+  const backendStatus = useLiveRefresh(() => {})
 
   useEffect(() => {
     Promise.all([listSystemPrompts(), getSystemInfo()])
@@ -53,13 +56,10 @@ export function SystemPage() {
 
   return (
     <>
-      <header className="topbar">
-        <Link to="/" className="brand" aria-label="Roundtable home">
-          <span className="dot" />
-          <span>Roundtable</span>
-        </Link>
-        <div className="spacer" />
-        <div className="meta">
+      <TopbarHeader
+        backendStatus={backendStatus}
+        actions={
+          <>
           <Link className="btn" to="/agents">
             <Icon name="settings" className="ic-sm" />
             Agents
@@ -69,8 +69,9 @@ export function SystemPage() {
             Threads
           </Link>
           <ThemeToggle />
-        </div>
-      </header>
+          </>
+        }
+      />
       <main className="home-wrap system-page">
         <header className="home-head system-head">
           <div>

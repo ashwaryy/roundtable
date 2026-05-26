@@ -7,6 +7,7 @@ import type {
 } from '@roundtable/shared'
 import { deleteThread, listThreads } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
+import { TopbarHeader } from '../components/AppHeader'
 import { NewThreadForm } from '../components/NewThreadForm'
 import { Icon, StatusPill } from '../components/primitives'
 import { ThemeToggle } from '../components/ThemeToggle'
@@ -97,8 +98,6 @@ export function ThreadListPage() {
     [refresh],
   )
   const backendStatus = useLiveRefresh(onEvent)
-  const backendStatusLabel = `Backend ${backendStatus}`
-
   const counts = useMemo(() => {
     const base: Record<string, number> = { all: threads.length }
     for (const thread of threads) {
@@ -143,23 +142,16 @@ export function ThreadListPage() {
 
   return (
     <>
-    <header className="topbar">
-      <div className="brand">
-        <span
-          className="dot"
-          data-backend-status={backendStatus}
-          aria-label={backendStatusLabel}
-          title={backendStatusLabel}
-        />
-        <span>Roundtable</span>
-      </div>
-      <div className="spacer" />
-      <div className="meta">
+    <TopbarHeader
+      backendStatus={backendStatus}
+      actions={
+        <>
         <Link className="btn" to="/system"><Icon name="file" className="ic-sm" /> System</Link>
         <Link className="btn" to="/agents"><Icon name="settings" className="ic-sm" /> Agents</Link>
         <ThemeToggle />
-      </div>
-    </header>
+        </>
+      }
+    />
     <main className="home-wrap">
       <header className="home-head">
         <div>

@@ -42,6 +42,7 @@ import {
   skipTurn,
 } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
+import { WorkspaceHeader } from '../components/AppHeader'
 import { CommentForm } from '../components/CommentForm'
 import { CommentTree } from '../components/CommentTree'
 import type { CommentSortOrder } from '../lib/commentTree'
@@ -587,7 +588,6 @@ export function ThreadPage() {
     ],
   )
   const backendStatus = useLiveRefresh(onEvent)
-  const backendStatusLabel = `Backend ${backendStatus}`
   const activeRoomJob = room?.active_job_id
     ? jobs.find((job) => job.id === room.active_job_id) ?? null
     : null
@@ -722,22 +722,13 @@ export function ThreadPage() {
       style={{ '--sidebar-w': railCollapsed ? '52px' : '340px' } as CSSProperties}
     >
       {/* ── Header strip ─────────────────────────────────────── */}
-      <header className="workspace-header" aria-label="thread workspace header">
-        <Link to="/" className="workspace-back" aria-label="All threads" title="All threads">
-          <Icon name="arrowLeft" className="ic" />
-        </Link>
-
-        <Link to="/" className="workspace-brand" aria-label="Roundtable home">
-          <span
-            className="workspace-brand__dot"
-            data-backend-status={backendStatus}
-            aria-label={backendStatusLabel}
-            title={backendStatusLabel}
-          />
-          <span>Roundtable</span>
-        </Link>
-
-        <div className="workspace-header__title">
+      <WorkspaceHeader
+        ariaLabel="thread workspace header"
+        backTo="/"
+        backLabel="All threads"
+        backTitle="All threads"
+        backendStatus={backendStatus}
+        title={
           <div className="workspace-crumbs">
             <Link to="/">threads</Link>
             <span>/</span>
@@ -745,9 +736,9 @@ export function ThreadPage() {
             <span>/</span>
             <strong>{thread.title}</strong>
           </div>
-        </div>
-
-        <div className="workspace-header__badges">
+        }
+        actions={
+          <>
           {room?.auto?.status === 'running' ? (
             <span className="status-pill status-pill--running">
               <span className="button-spinner" style={{ width: 7, height: 7, marginRight: 4 }} aria-hidden="true" />
@@ -757,20 +748,21 @@ export function ThreadPage() {
           <StatusPill status={displayStatus} pendingCount={pendingCount} />
           <AgentStack agents={(room?.roster ?? []).map((agent) => agent.agent_id)} size={18} />
           <ThemeToggle />
-        </div>
-
-        {/* Mobile details trigger */}
-        <button
-          type="button"
-          className="workspace-details-trigger btn-ghost"
-          style={{ fontSize: '0.8125rem' }}
-          onClick={() => setDrawerOpen(true)}
-          aria-expanded={drawerOpen}
-          aria-label="Thread details"
-        >
-          Details
-        </button>
-      </header>
+          </>
+        }
+        extra={
+          <button
+            type="button"
+            className="workspace-details-trigger btn-ghost"
+            style={{ fontSize: '0.8125rem' }}
+            onClick={() => setDrawerOpen(true)}
+            aria-expanded={drawerOpen}
+            aria-label="Thread details"
+          >
+            Details
+          </button>
+        }
+      />
 
       {/* ── Body split ───────────────────────────────────────── */}
       <div className="workspace-body">

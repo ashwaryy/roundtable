@@ -16,6 +16,7 @@ import {
   startNextIteration,
 } from "../api";
 import { useLiveRefresh } from "../useLiveRefresh";
+import { WorkspaceHeader } from "../components/AppHeader";
 import { Icon } from "../components/primitives";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { CONSOLIDATION_STEPS, buildConsolidationUiState } from "../lib/consolidationUi";
@@ -182,21 +183,15 @@ export function ConsolidationReviewPage() {
   const busy = uiState.isRunning;
   const readyForDecision = !locked && !busy && Boolean(body.trim());
   const readyAgents = (room?.roster ?? []).filter((agent) => room?.agents[agent.agent_id]?.ready_at);
-  const backendStatusLabel = `Backend ${backendStatus}`;
-
   return (
     <div className="workspace-root consolidation-review-workspace" style={{ "--sidebar-w": railCollapsed ? "52px" : "340px" } as CSSProperties}>
-      <header className="workspace-header" aria-label="outcome review header">
-        <Link to={`/threads/${thread.id}`} className="workspace-back" aria-label="Back to thread" title="Back to thread">
-          <Icon name="arrowLeft" className="ic" />
-        </Link>
-
-        <Link to="/" className="workspace-brand" aria-label="Roundtable home">
-          <span className="workspace-brand__dot" data-backend-status={backendStatus} aria-label={backendStatusLabel} title={backendStatusLabel} />
-          <span>Roundtable</span>
-        </Link>
-
-        <div className="workspace-header__title">
+      <WorkspaceHeader
+        ariaLabel="outcome review header"
+        backTo={`/threads/${thread.id}`}
+        backLabel="Back to thread"
+        backTitle="Back to thread"
+        backendStatus={backendStatus}
+        title={
           <div className="workspace-crumbs">
             <Link to="/">threads</Link>
             <span>/</span>
@@ -204,13 +199,14 @@ export function ConsolidationReviewPage() {
             <span>/</span>
             <strong>Discussion outcome</strong>
           </div>
-        </div>
-
-        <div className="workspace-header__badges">
-          <span className={`status-pill status-pill--${proposal.status}`}>{uiState.label}</span>
-          <ThemeToggle />
-        </div>
-      </header>
+        }
+        actions={
+          <>
+            <span className={`status-pill status-pill--${proposal.status}`}>{uiState.label}</span>
+            <ThemeToggle />
+          </>
+        }
+      />
 
       <div className="workspace-body">
         <main className="workspace-main consolidation-review-main" aria-label="discussion outcome review">

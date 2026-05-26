@@ -4,8 +4,10 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { SavedOutput, ThreadDetail } from '@roundtable/shared'
 import { getSavedOutput, getThread } from '../api'
+import { WorkspaceHeader } from '../components/AppHeader'
 import { Icon } from '../components/primitives'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { useLiveRefresh } from '../useLiveRefresh'
 
 function formatSavedDate(iso: string): string {
   const date = new Date(iso)
@@ -18,6 +20,7 @@ function formatSavedDate(iso: string): string {
 }
 
 export function SavedOutputPage() {
+  const backendStatus = useLiveRefresh(() => {})
   const { savedId } = useParams<{ savedId: string }>()
   const [saved, setSaved] = useState<SavedOutput | null>(null)
   const [sourceThread, setSourceThread] = useState<ThreadDetail | null>(null)
@@ -46,22 +49,13 @@ export function SavedOutputPage() {
 
   return (
     <div className="saved-output-page">
-      <header className="workspace-header" aria-label="saved output header">
-        <Link
-          to={`/threads/${saved.source_thread_id}`}
-          className="workspace-back"
-          aria-label="Back to source thread"
-          title="Back to source thread"
-        >
-          <Icon name="arrowLeft" className="ic" />
-        </Link>
-
-        <Link to="/" className="workspace-brand" aria-label="Roundtable home">
-          <span className="workspace-brand__dot" />
-          <span>Roundtable</span>
-        </Link>
-
-        <div className="workspace-header__title">
+      <WorkspaceHeader
+        ariaLabel="saved output header"
+        backTo={`/threads/${saved.source_thread_id}`}
+        backLabel="Back to source thread"
+        backTitle="Back to source thread"
+        backendStatus={backendStatus}
+        title={
           <div className="workspace-crumbs">
             <Link to="/">threads</Link>
             <span>/</span>
@@ -71,12 +65,11 @@ export function SavedOutputPage() {
             <span>/</span>
             <strong>saved output</strong>
           </div>
-        </div>
-
-        <div className="workspace-header__badges">
+        }
+        actions={
           <ThemeToggle />
-        </div>
-      </header>
+        }
+      />
 
       <main className="saved-output-main">
         <article className="saved-output-shell">
