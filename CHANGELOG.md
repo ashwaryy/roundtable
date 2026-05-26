@@ -1,3 +1,32 @@
+# [1.2.0](https://github.com/ashwaryy/roundtable/compare/v1.1.0...v1.2.0) (2026-05-26)
+
+
+### Bug Fixes
+
+* cache room summaries for thread list reads ([be6ab08](https://github.com/ashwaryy/roundtable/commit/be6ab0869f8f61cd292a9108f41823980b54aaac))
+* close backend performance pass correctness gaps ([0c0e05b](https://github.com/ashwaryy/roundtable/commit/0c0e05b601bed4123396529f26d48f71c1f3454e))
+* close backend performance pass edge cases ([9ee6ca1](https://github.com/ashwaryy/roundtable/commit/9ee6ca1c1409561bbc58c32b90e9faccf9761858))
+* comment side rail styling ([3bcdbe5](https://github.com/ashwaryy/roundtable/commit/3bcdbe5ebfb50d545321b0b7a45a8266a597c3f9))
+* denormalize thread summaries and migrate backend ids to counters ([3c0c285](https://github.com/ashwaryy/roundtable/commit/3c0c285d6ce487624f654444fd672c43f9a13721))
+* discussion mistakenly worded as thread ([43824d9](https://github.com/ashwaryy/roundtable/commit/43824d9240f750b5939db89e3200f8314a76094f))
+* force counter repair during integrity acknowledgment ([8bf3d5b](https://github.com/ashwaryy/roundtable/commit/8bf3d5b1d7e8c3c250613730258105762a532323))
+* handle Codex trust prompts and lock comment asks in auto mode ([d0f04db](https://github.com/ashwaryy/roundtable/commit/d0f04db8b7a618de82a8c0d4017dd82a192188c7))
+* harden backend performance edge cases ([7354259](https://github.com/ashwaryy/roundtable/commit/7354259c842e61ff4a048a5feb54910c0c0d10df))
+* keep polling for startup trust prompts until agent is ready ([807679f](https://github.com/ashwaryy/roundtable/commit/807679f8a9552c8d2769b591c42ab74c22488c03))
+* remove backend read-path integrity scans ([984ec57](https://github.com/ashwaryy/roundtable/commit/984ec57ef9f453976df73b15ff79d72091fd887b))
+* truncate long paths in context panel snapshot changes list ([e6d53b7](https://github.com/ashwaryy/roundtable/commit/e6d53b7e89eb8983151faf43baa7617b0cc149c9))
+* workerize snapshots and cache backend lookup hot paths ([4391ece](https://github.com/ashwaryy/roundtable/commit/4391ece11d65f9ed7dc8324f597709c1d3cc913e))
+
+
+### Features
+
+* add archive thread action to thread list menu ([aeb879b](https://github.com/ashwaryy/roundtable/commit/aeb879b4dd7c563acf0ae126950adaa53a57ced9))
+* add consolidation review skeleton ([6b83332](https://github.com/ashwaryy/roundtable/commit/6b83332834cace2f99b5dfa6680103ab5cc49ea7))
+* implement tmux viewer to read agent session ([c52f0fc](https://github.com/ashwaryy/roundtable/commit/c52f0fc3751fef0c6a42caaa709e12d5d426894a))
+* improve thread list compose UX and context rail details ([35a52a1](https://github.com/ashwaryy/roundtable/commit/35a52a12a731f70131aefce31cd26cc66cb2bc23))
+* improve thread status verbiage ([ef0e8e7](https://github.com/ashwaryy/roundtable/commit/ef0e8e7c037452674bb5d271b8535f5b174554e4))
+* show agent working status when side rail is collapsed ([864c86d](https://github.com/ashwaryy/roundtable/commit/864c86dc2f4d27c72995a2c827455dff1a56e442))
+
 # [1.1.0](https://github.com/ashwaryy/roundtable/compare/v1.0.0...v1.1.0) (2026-05-26)
 
 
