@@ -31,6 +31,10 @@ import {
   NotFoundError,
 } from './errors'
 import { appendJsonl } from './jsonl'
+import {
+  nextContextItemCounterValue,
+  nextSnapshotReportCounterValue,
+} from './counters'
 
 interface ManifestEntry {
   path: string
@@ -110,13 +114,8 @@ function sanitizeFilename(name: string): string {
   return trimmed || 'attachment'
 }
 
-function nextContextItemId(items: ContextItem[]): string {
-  let max = 0
-  for (const item of items) {
-    const match = /^ctx(\d+)$/.exec(item.id)
-    if (match) max = Math.max(max, Number(match[1]))
-  }
-  return `ctx${String(max + 1).padStart(3, '0')}`
+function nextContextItemId(dataDir: string, threadId: string): string {
+  return `ctx${String(nextContextItemCounterValue(dataDir, threadId)).padStart(3, '0')}`
 }
 
 function isSecretLike(relativePath: string): boolean {
@@ -254,14 +253,7 @@ function writeJsonAtomic(filePath: string, value: unknown): void {
 }
 
 function nextSnapshotReportId(dataDir: string, threadId: string): string {
-  const dir = projectSnapshotReportsDir(dataDir, threadId)
-  if (!fs.existsSync(dir)) return 'snapshot-001'
-  let max = 0
-  for (const file of fs.readdirSync(dir)) {
-    const match = /^snapshot-(\d+)\.json$/.exec(file)
-    if (match) max = Math.max(max, Number(match[1]))
-  }
-  return `snapshot-${String(max + 1).padStart(3, '0')}`
+  return `snapshot-${String(nextSnapshotReportCounterValue(dataDir, threadId)).padStart(3, '0')}`
 }
 
 function createSnapshotReport(
@@ -327,9 +319,8 @@ export function addUrlContextItem(
   threadId: string,
   input: CreateUrlContextInput,
 ): ContextItem {
-  const existing = listContextItems(dataDir, threadId)
   const item: ContextItem = {
-    id: nextContextItemId(existing),
+    id: nextContextItemId(dataDir, threadId),
     thread_id: threadId,
     kind: 'url',
     url: input.url,
@@ -351,8 +342,7 @@ export function addAttachmentFromFile(
   },
 ): FileContextItem {
   ensureWriteDirectories(dataDir, threadId)
-  const existing = listContextItems(dataDir, threadId)
-  const id = nextContextItemId(existing)
+  const id = nextContextItemId(dataDir, threadId)
   const filename = `${id}-${sanitizeFilename(input.originalName)}`
   const destination = path.join(attachmentsDir(dataDir, threadId), filename)
   fs.copyFileSync(input.tempPath, destination)

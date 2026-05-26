@@ -44,8 +44,7 @@ export function addPendingDiscussion(
     throw new NotFoundError(`thread ${threadId} not found`)
   }
 
-  const existing = listPendingDiscussions(dataDir, threadId)
-  const id = nextPendingDiscussionId(existing, listComments(dataDir, threadId))
+  const id = nextPendingDiscussionId(dataDir, threadId)
 
   const discussion: PendingDiscussion = {
     id,
@@ -86,7 +85,7 @@ export function approvePendingDiscussion(
   }
 
   if (alreadyApproved) {
-    const reassignedId = nextPendingDiscussionId(discussions, existing)
+    const reassignedId = nextPendingDiscussionId(dataDir, threadId)
     const reassignedItem: PendingDiscussion = { ...item, id: reassignedId }
     item = reassignedItem
     discussions = discussions.map((discussion) =>

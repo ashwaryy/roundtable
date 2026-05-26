@@ -12,6 +12,11 @@ import type {
   SavedOutput,
 } from '@roundtable/shared'
 import {
+  nextConsolidationCounterValue,
+  nextRevisionCounterValue,
+  nextReviewCounterValue,
+} from './counters'
+import {
   consolidationDir,
   consolidationsDir,
   proposalJsonPath,
@@ -58,35 +63,16 @@ function normalizeProposal(proposal: ConsolidationProposal): ConsolidationPropos
   }
 }
 
-function nextConsolidationId(proposals: ConsolidationProposal[]): string {
-  let max = 0
-  for (const proposal of proposals) {
-    const match = /^consolidation-(\d+)$/.exec(proposal.id)
-    if (match) max = Math.max(max, Number(match[1]))
-  }
-  return `consolidation-${String(max + 1).padStart(3, '0')}`
+function nextConsolidationId(dataDir: string, threadId: string): string {
+  return `consolidation-${String(nextConsolidationCounterValue(dataDir, threadId)).padStart(3, '0')}`
 }
 
-function nextRevisionId(revDir: string): string {
-  if (!fs.existsSync(revDir)) return 'r001'
-
-  let max = 0
-  for (const file of fs.readdirSync(revDir)) {
-    const match = /^r(\d+)\.md$/.exec(file)
-    if (match) max = Math.max(max, Number(match[1]))
-  }
-  return `r${String(max + 1).padStart(3, '0')}`
+function nextRevisionId(dataDir: string, threadId: string, proposalId: string): string {
+  return `r${String(nextRevisionCounterValue(dataDir, threadId, proposalId)).padStart(3, '0')}`
 }
 
-function nextReviewId(reviewDir: string): string {
-  if (!fs.existsSync(reviewDir)) return 'review-001'
-
-  let max = 0
-  for (const file of fs.readdirSync(reviewDir)) {
-    const match = /^review-(\d+)\.md$/.exec(file)
-    if (match) max = Math.max(max, Number(match[1]))
-  }
-  return `review-${String(max + 1).padStart(3, '0')}`
+function nextReviewId(dataDir: string, threadId: string, proposalId: string): string {
+  return `review-${String(nextReviewCounterValue(dataDir, threadId, proposalId)).padStart(3, '0')}`
 }
 
 function ensureProposal(
@@ -118,7 +104,7 @@ export function createProposal(
     throw new NotFoundError(`thread ${threadId} not found`)
   }
 
-  const id = nextConsolidationId(listProposals(dataDir, threadId))
+  const id = nextConsolidationId(dataDir, threadId)
   fs.mkdirSync(revisionsDir(dataDir, threadId, id), { recursive: true })
   fs.mkdirSync(reviewsDir(dataDir, threadId, id), { recursive: true })
   const timestamp = new Date().toISOString()
@@ -240,7 +226,7 @@ export function addProposalRevision(
 
   const revDir = revisionsDir(dataDir, threadId, proposalId)
   fs.mkdirSync(revDir, { recursive: true })
-  const id = nextRevisionId(revDir)
+  const id = nextRevisionId(dataDir, threadId, proposalId)
 
   const revision: ProposalRevision = {
     id,
@@ -319,7 +305,7 @@ export function addProposalReview(
 
   const reviewDir = reviewsDir(dataDir, threadId, proposalId)
   fs.mkdirSync(reviewDir, { recursive: true })
-  const id = nextReviewId(reviewDir)
+  const id = nextReviewId(dataDir, threadId, proposalId)
   const review: ProposalReview = {
     id,
     proposal_id: proposalId,

@@ -1,18 +1,11 @@
 import fs from 'node:fs'
 import type { BoundedJob } from '@roundtable/shared'
 import { jobJsonPath, jobsDir, threadJsonPath } from './paths'
+import { nextJobCounterValue } from './counters'
 import { NotFoundError } from './errors'
 
 export function nextJobId(dataDir: string, threadId: string): string {
-  const dir = jobsDir(dataDir, threadId)
-  if (!fs.existsSync(dir)) return 'job-001'
-
-  let max = 0
-  for (const file of fs.readdirSync(dir)) {
-    const match = /^job-(\d+)\.json$/.exec(file)
-    if (match) max = Math.max(max, Number(match[1]))
-  }
-  return `job-${String(max + 1).padStart(3, '0')}`
+  return `job-${String(nextJobCounterValue(dataDir, threadId)).padStart(3, '0')}`
 }
 
 export function listJobs(dataDir: string, threadId: string): BoundedJob[] {

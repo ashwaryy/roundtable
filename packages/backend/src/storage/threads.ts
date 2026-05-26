@@ -14,16 +14,124 @@ import {
 import { nextThreadId } from './ids'
 import { NotFoundError } from './errors'
 
+export type ThreadSummaryField = 'pending_count' | 'active_proposal_count'
+
+interface ThreadDirtyState {
+  pending_count?: true
+  active_proposal_count?: true
+}
+
+interface ThreadRecord extends Thread {
+  pending_count?: number
+  active_proposal_count?: number
+  _dirty?: ThreadDirtyState
+}
+
 function writeJsonAtomic(filePath: string, value: unknown): void {
   const tmp = `${filePath}.tmp`
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2))
   fs.renameSync(tmp, filePath)
 }
 
-function normalizeThread(thread: Thread): Thread {
+function normalizeThread(thread: ThreadRecord): Thread {
   return {
     ...thread,
     closed_at: thread.closed_at ?? null,
+  }
+}
+
+function normalizeThreadRecord(thread: ThreadRecord): ThreadRecord {
+  return {
+    ...thread,
+    closed_at: thread.closed_at ?? null,
+    pending_count: thread.pending_count ?? 0,
+    active_proposal_count: thread.active_proposal_count ?? 0,
+    _dirty: thread._dirty ?? {},
+  }
+}
+
+function readThreadRecord(dataDir: string, threadId: string): ThreadRecord | null {
+  const jsonPath = threadJsonPath(dataDir, threadId)
+  if (!fs.existsSync(jsonPath)) return null
+  return normalizeThreadRecord(JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as ThreadRecord)
+}
+
+export function getThreadSummary(
+  dataDir: string,
+  threadId: string,
+): {
+  pending_count: number
+  active_proposal_count: number
+  dirty: ThreadDirtyState
+} | null {
+  const thread = readThreadRecord(dataDir, threadId)
+  if (!thread) return null
+  return {
+    pending_count: thread.pending_count ?? 0,
+    active_proposal_count: thread.active_proposal_count ?? 0,
+    dirty: thread._dirty ?? {},
+  }
+}
+
+export function setThreadSummaryDirty(
+  dataDir: string,
+  threadId: string,
+  field: ThreadSummaryField,
+): void {
+  const thread = readThreadRecord(dataDir, threadId)
+  if (!thread) throw new NotFoundError(`thread ${threadId} not found`)
+  writeJsonAtomic(threadJsonPath(dataDir, threadId), {
+    ...thread,
+    _dirty: {
+      ...(thread._dirty ?? {}),
+      [field]: true,
+    },
+  })
+}
+
+export function updateThreadSummary(
+  dataDir: string,
+  threadId: string,
+  patch: Partial<Pick<ThreadRecord, 'pending_count' | 'active_proposal_count'>>,
+  clearDirty: ThreadSummaryField[] = [],
+): void {
+  const thread = readThreadRecord(dataDir, threadId)
+  if (!thread) throw new NotFoundError(`thread ${threadId} not found`)
+  const dirty = { ...(thread._dirty ?? {}) }
+  for (const field of clearDirty) delete dirty[field]
+  writeJsonAtomic(threadJsonPath(dataDir, threadId), {
+    ...thread,
+    ...patch,
+    _dirty: dirty,
+  })
+}
+
+export function repairDirtyThreadSummaries(
+  dataDir: string,
+  readers: {
+    pendingCount: (threadId: string) => number
+    activeProposalCount: (threadId: string) => number
+  },
+): void {
+  const dir = threadsDir(dataDir)
+  if (!fs.existsSync(dir)) return
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const thread = readThreadRecord(dataDir, entry.name)
+    if (!thread) continue
+    const dirty = thread._dirty ?? {}
+    if (!dirty.pending_count && !dirty.active_proposal_count) continue
+    const patch: Partial<Pick<ThreadRecord, 'pending_count' | 'active_proposal_count'>> = {}
+    const clearDirty: ThreadSummaryField[] = []
+    if (dirty.pending_count) {
+      patch.pending_count = readers.pendingCount(entry.name)
+      clearDirty.push('pending_count')
+    }
+    if (dirty.active_proposal_count) {
+      patch.active_proposal_count = readers.activeProposalCount(entry.name)
+      clearDirty.push('active_proposal_count')
+    }
+    updateThreadSummary(dataDir, entry.name, patch, clearDirty)
   }
 }
 
@@ -31,7 +139,7 @@ export function createThread(dataDir: string, input: CreateThreadInput): Thread 
   const id = nextThreadId(dataDir)
   fs.mkdirSync(threadDir(dataDir, id), { recursive: true })
 
-  const thread: Thread = {
+  const thread: ThreadRecord = {
     id,
     title: input.title,
     status: 'open',
@@ -40,6 +148,9 @@ export function createThread(dataDir: string, input: CreateThreadInput): Thread 
     created_at: new Date().toISOString(),
     archived_at: null,
     closed_at: null,
+    pending_count: 0,
+    active_proposal_count: 0,
+    _dirty: {},
   }
 
   writeJsonAtomic(threadJsonPath(dataDir, id), thread)
@@ -67,7 +178,7 @@ export function listThreads(dataDir: string): Thread[] {
     if (!entry.isDirectory()) continue
     const jsonPath = threadJsonPath(dataDir, entry.name)
     if (!fs.existsSync(jsonPath)) continue
-    threads.push(normalizeThread(JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as Thread))
+      threads.push(normalizeThread(JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as ThreadRecord))
   }
 
   threads.sort(
@@ -82,7 +193,7 @@ export function getThread(dataDir: string, threadId: string): ThreadDetail | nul
   const jsonPath = threadJsonPath(dataDir, threadId)
   if (!fs.existsSync(jsonPath)) return null
 
-  const thread = normalizeThread(JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as Thread)
+  const thread = normalizeThread(JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as ThreadRecord)
   const body = fs.readFileSync(threadMdPath(dataDir, threadId), 'utf8')
   return { ...thread, body }
 }
@@ -106,7 +217,7 @@ export function createDerivedThread(
   const id = nextThreadId(dataDir)
   fs.mkdirSync(threadDir(dataDir, id), { recursive: true })
 
-  const thread: Thread = {
+  const thread: ThreadRecord = {
     id,
     title: input.title,
     status: 'open',
@@ -115,6 +226,9 @@ export function createDerivedThread(
     created_at: new Date().toISOString(),
     archived_at: null,
     closed_at: null,
+    pending_count: 0,
+    active_proposal_count: 0,
+    _dirty: {},
   }
 
   writeJsonAtomic(threadJsonPath(dataDir, id), thread)

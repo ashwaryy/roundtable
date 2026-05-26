@@ -59,6 +59,13 @@ describe('jobs storage', () => {
     expect(nextJobId(dataDir, 'thread-1')).toBe('job-002')
   })
 
+  it('does not reuse deleted job ids', () => {
+    const id = nextJobId(dataDir, 'thread-1')
+    writeJob(dataDir, job(id))
+    fs.rmSync(path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'jobs', 'job-001.json'))
+    expect(nextJobId(dataDir, 'thread-1')).toBe('job-002')
+  })
+
   it('writes, reads, and lists jobs in id order', () => {
     writeJob(dataDir, job('job-002'))
     writeJob(dataDir, job('job-001'))

@@ -33,7 +33,6 @@ import {
   reorderThreadAgentsInputSchema,
   type CreateAgentInput,
   type AgentRoom,
-  type ConsolidationStatus,
   type RoundtableEvent,
   type Thread,
   type ThreadDisplayStatus,
@@ -177,14 +176,10 @@ function bearerToken(req: express.Request): string | null {
   return match ? match[1] : null
 }
 
-function isActiveProposalStatus(status: ConsolidationStatus): boolean {
-  return status === 'drafting' || status === 'review'
-}
-
 function computeDisplayStatus(input: {
   thread: Thread
   room: AgentRoom | null
-  proposalStatuses: ConsolidationStatus[]
+  activeProposalCount: number
 }): ThreadDisplayStatus {
   if (input.thread.status === 'closed') return 'closed'
   if (input.thread.status === 'archived') return 'archived'
@@ -200,7 +195,7 @@ function computeDisplayStatus(input: {
     return 'needs_attention'
   }
 
-  if (input.proposalStatuses.some(isActiveProposalStatus)) return 'consolidating'
+  if (input.activeProposalCount > 0) return 'consolidating'
   if (!room || room.status === 'not_started' || room.status === 'stopped') return 'setup'
   return 'discussing'
 }
@@ -358,12 +353,16 @@ export function createApp(deps: {
   app.get('/api/threads', (_req, res) => {
     const items: ThreadListItem[] = storage.listThreads().map((thread) => {
       const room = rooms ? rooms.getRoom(thread.id) : null
-      const proposalStatuses = storage.listProposalStatuses(thread.id)
-      const display_status = computeDisplayStatus({ thread, room, proposalStatuses })
+      const summary = storage.getThreadSummary(thread.id)
+      const display_status = computeDisplayStatus({
+        thread,
+        room,
+        activeProposalCount: summary?.active_proposal_count ?? 0,
+      })
       return {
         ...thread,
         display_status,
-        pending_count: storage.countPendingDiscussions(thread.id),
+        pending_count: summary?.pending_count ?? 0,
         recovery_action_label:
           display_status === 'needs_attention' || display_status === 'error'
             ? recoveryActionLabel(room)

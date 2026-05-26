@@ -5,6 +5,18 @@ export function resolveDataDir(): string {
   return process.env.ROUNDTABLE_DATA_DIR ?? path.join(os.homedir(), '.roundtable')
 }
 
+export function rootRoundtableDir(dataDir: string): string {
+  return path.join(dataDir, '.roundtable')
+}
+
+export function countersDir(dataDir: string): string {
+  return path.join(rootRoundtableDir(dataDir), 'counters')
+}
+
+export function counterFilePath(dataDir: string, namespace: string): string {
+  return path.join(countersDir(dataDir), `${encodeURIComponent(namespace)}.json`)
+}
+
 export function threadsDir(dataDir: string): string {
   return path.join(dataDir, 'threads')
 }

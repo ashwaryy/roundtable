@@ -68,7 +68,8 @@ import { BadRequestError, ConflictError, NotFoundError } from '../storage/errors
 import type { CanonicalTouched } from '../storage/touched'
 import { listThreadAgents } from '../storage/agents'
 import { addAgentComment, listComments } from '../storage/comments'
-import { addPendingDiscussion } from '../storage/pendingDiscussions'
+import { addPendingDiscussion, listPendingDiscussions } from '../storage/pendingDiscussions'
+import { setThreadSummaryDirty, updateThreadSummary } from '../storage/threads'
 import { getJob, nextJobId, writeJob } from '../storage/jobs'
 import {
   addProposalReview,
@@ -77,6 +78,7 @@ import {
   getLatestReviewBody,
   getLatestRevision,
   getProposal,
+  listProposalStatuses,
   updateProposal,
 } from '../storage/proposals'
 
@@ -1824,6 +1826,11 @@ export function createRoomManager(options: {
     removeIfExists(queuedConsolidationPath(dataDir, threadId))
   }
 
+  function activeProposalCount(threadId: string): number {
+    return listProposalStatuses(dataDir, threadId)
+      .filter((status) => status === 'drafting' || status === 'review').length
+  }
+
   function revisionJsonFile(
     threadId: string,
     proposalId: string,
@@ -1960,10 +1967,21 @@ export function createRoomManager(options: {
     for (const agent of [resolved.drafter_agent, resolved.reviewer_agent, resolved.reviser_agent]) {
       inviteFor(room, agent!)
     }
+    setThreadSummaryDirty(dataDir, room.thread_id, 'active_proposal_count')
     const proposal = createProposal(dataDir, room.thread_id, resolved)
-    options.onCanonicalWrite?.(room.thread_id, {
-      rootsAddedOrUpdated: [consolidationDir(dataDir, room.thread_id, proposal.id)],
-    })
+    try {
+      updateThreadSummary(
+        dataDir,
+        room.thread_id,
+        { active_proposal_count: activeProposalCount(room.thread_id) },
+        ['active_proposal_count'],
+      )
+    } finally {
+      options.onCanonicalWrite?.(room.thread_id, {
+        filesAddedOrUpdated: [threadJsonPath(dataDir, room.thread_id)],
+        rootsAddedOrUpdated: [consolidationDir(dataDir, room.thread_id, proposal.id)],
+      })
+    }
     const job = createConsolidationJob({
       dataDir,
       threadId: room.thread_id,
@@ -3079,6 +3097,7 @@ export function createRoomManager(options: {
         if (input.continue_turn) {
           throw new BadRequestError('idle pending discussion cannot continue a turn')
         }
+        setThreadSummaryDirty(dataDir, threadId, 'pending_count')
         const pending = addPendingDiscussion(dataDir, threadId, {
           author: input.agent,
           body: input.body,
@@ -3086,9 +3105,21 @@ export function createRoomManager(options: {
           origin_discussion_id: input.origin_discussion_id ?? null,
           origin_comment_id: input.origin_comment_id ?? null,
         })
-        options.onCanonicalWrite?.(threadId, {
-          filesAddedOrUpdated: [pendingDiscussionsPath(dataDir, threadId)],
-        })
+        try {
+          updateThreadSummary(
+            dataDir,
+            threadId,
+            { pending_count: listPendingDiscussions(dataDir, threadId).length },
+            ['pending_count'],
+          )
+        } finally {
+          options.onCanonicalWrite?.(threadId, {
+            filesAddedOrUpdated: [
+              pendingDiscussionsPath(dataDir, threadId),
+              threadJsonPath(dataDir, threadId),
+            ],
+          })
+        }
         const updated: InternalRoom = {
           ...room,
           idle_suggestion_request: {
@@ -3128,6 +3159,7 @@ export function createRoomManager(options: {
         throw new BadRequestError('active turn has timed out')
       }
 
+      setThreadSummaryDirty(dataDir, threadId, 'pending_count')
       const pending = addPendingDiscussion(dataDir, threadId, {
         author: input.agent,
         body: input.body,
@@ -3136,9 +3168,21 @@ export function createRoomManager(options: {
           input.origin_discussion_id ?? job.turn.discussion_id ?? null,
         origin_comment_id: input.origin_comment_id ?? null,
       })
-      options.onCanonicalWrite?.(threadId, {
-        filesAddedOrUpdated: [pendingDiscussionsPath(dataDir, threadId)],
-      })
+      try {
+        updateThreadSummary(
+          dataDir,
+          threadId,
+          { pending_count: listPendingDiscussions(dataDir, threadId).length },
+          ['pending_count'],
+        )
+      } finally {
+        options.onCanonicalWrite?.(threadId, {
+          filesAddedOrUpdated: [
+            pendingDiscussionsPath(dataDir, threadId),
+            threadJsonPath(dataDir, threadId),
+          ],
+        })
+      }
 
       if (input.continue_turn) {
         const active: BoundedJob = {

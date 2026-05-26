@@ -90,6 +90,17 @@ export function createStorage(
 ) {
   agents.seedBuiltInAgents(dataDir)
 
+  function activeProposalCount(threadId: string): number {
+    return proposals
+      .listProposalStatuses(dataDir, threadId)
+      .filter((status) => status === 'drafting' || status === 'review').length
+  }
+
+  threads.repairDirtyThreadSummaries(dataDir, {
+    pendingCount: (threadId) => pending.countPendingDiscussions(dataDir, threadId),
+    activeProposalCount: (threadId) => activeProposalCount(threadId),
+  })
+
   function applyWrite<T>(
     threadId: string,
     operation: () => { result: T; touched: CanonicalTouched },
@@ -97,6 +108,51 @@ export function createStorage(
     const { result, touched } = operation()
     integrity.acceptApplicationWrite(dataDir, threadId, touched)
     return result
+  }
+
+  function applyWriteWithThreadSummary<T>(
+    threadId: string,
+    fields: Array<threads.ThreadSummaryField>,
+    operation: () => { result: T; touched: CanonicalTouched },
+  ): T {
+    for (const field of fields) {
+      threads.setThreadSummaryDirty(dataDir, threadId, field)
+    }
+
+    let outcome: { result: T; touched: CanonicalTouched }
+    try {
+      outcome = operation()
+    } catch (err) {
+      integrity.acceptApplicationWrite(dataDir, threadId, {
+        filesAddedOrUpdated: [threadJsonPath(dataDir, threadId)],
+      })
+      throw err
+    }
+
+    const touchedWithThreadJson = mergeTouched(outcome.touched, {
+      filesAddedOrUpdated: [threadJsonPath(dataDir, threadId)],
+    })
+
+    try {
+      const patch: Partial<Record<threads.ThreadSummaryField, number>> = {}
+      if (fields.includes('pending_count')) {
+        patch.pending_count = pending.countPendingDiscussions(dataDir, threadId)
+      }
+      if (fields.includes('active_proposal_count')) {
+        patch.active_proposal_count = activeProposalCount(threadId)
+      }
+      threads.updateThreadSummary(
+        dataDir,
+        threadId,
+        patch,
+        fields,
+      )
+      integrity.acceptApplicationWrite(dataDir, threadId, touchedWithThreadJson)
+      return outcome.result
+    } catch (err) {
+      integrity.acceptApplicationWrite(dataDir, threadId, touchedWithThreadJson)
+      throw err
+    }
   }
 
   return {
@@ -161,12 +217,14 @@ export function createStorage(
     listPendingDiscussions: (threadId: string): PendingDiscussion[] =>
       pending.listPendingDiscussions(dataDir, threadId),
     countPendingDiscussions: (threadId: string): number =>
+      threads.getThreadSummary(dataDir, threadId)?.pending_count ??
       pending.countPendingDiscussions(dataDir, threadId),
+    getThreadSummary: (threadId: string) => threads.getThreadSummary(dataDir, threadId),
     addPendingDiscussion: (
       threadId: string,
       input: CreatePendingDiscussionInput,
     ): PendingDiscussion =>
-      applyWrite(threadId, () => {
+      applyWriteWithThreadSummary(threadId, ['pending_count'], () => {
         if (
           input.author !== 'human' &&
           input.author !== 'system' &&
@@ -180,7 +238,7 @@ export function createStorage(
         }
       }),
     approvePendingDiscussion: (threadId: string, pendingId: string): Comment =>
-      applyWrite(threadId, () => ({
+      applyWriteWithThreadSummary(threadId, ['pending_count'], () => ({
         result: pending.approvePendingDiscussion(dataDir, threadId, pendingId),
         touched: {
           filesAddedOrUpdated: [
@@ -199,7 +257,7 @@ export function createStorage(
         touched: { filesAddedOrUpdated: [pendingDiscussionsPath(dataDir, threadId)] },
       })),
     rejectPendingDiscussion: (threadId: string, pendingId: string): void =>
-      applyWrite(threadId, () => {
+      applyWriteWithThreadSummary(threadId, ['pending_count'], () => {
         pending.rejectPendingDiscussion(dataDir, threadId, pendingId)
         return {
           result: undefined,
@@ -210,7 +268,7 @@ export function createStorage(
       threadId: string,
       input: CreateConsolidationInput,
     ): ConsolidationProposal =>
-      applyWrite(threadId, () => {
+      applyWriteWithThreadSummary(threadId, ['active_proposal_count'], () => {
         const proposal = proposals.createProposal(dataDir, threadId, input)
         return {
           result: proposal,
@@ -285,12 +343,12 @@ export function createStorage(
       proposalId: string,
       patch: Partial<ConsolidationProposal>,
     ): ConsolidationProposal =>
-      applyWrite(threadId, () => ({
+      applyWriteWithThreadSummary(threadId, ['active_proposal_count'], () => ({
         result: proposals.updateProposal(dataDir, threadId, proposalId, patch),
         touched: { filesAddedOrUpdated: [proposalJsonPath(dataDir, threadId, proposalId)] },
       })),
     rejectProposal: (threadId: string, proposalId: string): ConsolidationProposal =>
-      applyWrite(threadId, () => ({
+      applyWriteWithThreadSummary(threadId, ['active_proposal_count'], () => ({
         result: proposals.rejectProposal(dataDir, threadId, proposalId),
         touched: { filesAddedOrUpdated: [proposalJsonPath(dataDir, threadId, proposalId)] },
       })),
@@ -307,21 +365,31 @@ export function createStorage(
         body,
       })
       threads.closeThread(dataDir, threadId)
-      integrity.acceptApplicationWrite(
-        dataDir,
-        threadId,
-        mergeTouched(
-          {
-            filesAddedOrUpdated: [
-              threadJsonPath(dataDir, threadId),
-              proposalJsonPath(dataDir, threadId, proposalId),
-            ],
-          },
-          {
-            rootsAddedOrUpdated: [savedConsolidationDir(dataDir, saved.id)],
-          },
-        ),
-      )
+      threads.setThreadSummaryDirty(dataDir, threadId, 'active_proposal_count')
+      try {
+        threads.updateThreadSummary(
+          dataDir,
+          threadId,
+          { active_proposal_count: activeProposalCount(threadId) },
+          ['active_proposal_count'],
+        )
+      } finally {
+        integrity.acceptApplicationWrite(
+          dataDir,
+          threadId,
+          mergeTouched(
+            {
+              filesAddedOrUpdated: [
+                threadJsonPath(dataDir, threadId),
+                proposalJsonPath(dataDir, threadId, proposalId),
+              ],
+            },
+            {
+              rootsAddedOrUpdated: [savedConsolidationDir(dataDir, saved.id)],
+            },
+          ),
+        )
+      }
       return saved
     },
     applyProposalNextIteration: (
@@ -345,13 +413,23 @@ export function createStorage(
       )
       context.copyThreadContext(dataDir, threadId, next.id)
       threads.archiveThread(dataDir, threadId)
+      threads.setThreadSummaryDirty(dataDir, threadId, 'active_proposal_count')
       proposals.markApplied(dataDir, threadId, proposalId, next.id)
+      try {
+        threads.updateThreadSummary(
+          dataDir,
+          threadId,
+          { active_proposal_count: activeProposalCount(threadId) },
+          ['active_proposal_count'],
+        )
+      } finally {
       integrity.acceptApplicationWrite(dataDir, threadId, {
         filesAddedOrUpdated: [
           threadJsonPath(dataDir, threadId),
           proposalJsonPath(dataDir, threadId, proposalId),
         ],
       })
+      }
       integrity.acceptApplicationWrite(dataDir, next.id, {
         rootsAddedOrUpdated: [threadDir(dataDir, next.id)],
       })
