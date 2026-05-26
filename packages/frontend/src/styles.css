@@ -2722,9 +2722,6 @@ textarea:focus {
   background: var(--surface);
 }
 
-.thread-row:last-child {
-  border-bottom: 1px solid var(--border);
-}
 
 .thread-row .num {
   color: var(--text-3);
@@ -4096,6 +4093,21 @@ a:hover {
   font-style: italic;
   font-weight: 600;
 }
+.home-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.home-title .eyebrow {
+  font-size: 11px;
+}
+.home-logo {
+  height: 68px;
+  width: 68px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
 .home-stats {
   display: flex;
   gap: 28px;
@@ -4307,9 +4319,6 @@ a:hover {
 }
 .thread-row:hover {
   background: var(--panel);
-}
-.thread-row:last-child {
-  border-bottom: 1px solid var(--rule);
 }
 .thread-row--skeleton {
   cursor: default;
