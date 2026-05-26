@@ -138,9 +138,10 @@ function addStoredComment(
   })
 
   appendJsonl(commentsPath(dataDir, threadId), comment)
-  replyDiscussionIdsByThread
-    .get(replyCacheKey(dataDir, threadId))
-    ?.set(comment.id, comment.discussion_id)
+  const cacheKey = replyCacheKey(dataDir, threadId)
+  const replyDiscussionIds = replyDiscussionIdsByThread.get(cacheKey) ?? new Map<string, string>()
+  replyDiscussionIds.set(comment.id, comment.discussion_id)
+  replyDiscussionIdsByThread.set(cacheKey, replyDiscussionIds)
   return comment
 }
 

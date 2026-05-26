@@ -58,7 +58,7 @@ describe('addComment', () => {
     expect(nested.parent_id).toBe(root.id)
   })
 
-  it('reuses the in-memory reply cache after the first reply lookup', () => {
+  it('uses the write-seeded reply cache for replies without rereading comments.jsonl', () => {
     const root = addComment(dataDir, 'thread-1', { body: 'root' })
     const filePath = commentsPath(dataDir, 'thread-1')
     const originalReadFileSync = fs.readFileSync
@@ -70,14 +70,14 @@ describe('addComment', () => {
 
     try {
       const reply = addComment(dataDir, 'thread-1', { body: 'reply', reply_to: root.id })
-      expect(commentFileReads).toBe(1)
+      expect(commentFileReads).toBe(0)
 
       const nested = addComment(dataDir, 'thread-1', {
         body: 'nested',
         reply_to: reply.id,
       })
 
-      expect(commentFileReads).toBe(1)
+      expect(commentFileReads).toBe(0)
       expect(nested.discussion_id).toBe(root.id)
     } finally {
       readSpy.mockRestore()
@@ -207,8 +207,6 @@ describe('deleteComment', () => {
 
   it('validates warm discussion roots without rereading comments.jsonl', () => {
     const root = addComment(dataDir, 'thread-1', { body: 'root' })
-    expect(isDiscussionRoot(dataDir, 'thread-1', root.id)).toBe(true)
-
     const filePath = commentsPath(dataDir, 'thread-1')
     const originalReadFileSync = fs.readFileSync
     let commentFileReads = 0
