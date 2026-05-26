@@ -936,7 +936,7 @@ export function ThreadPage() {
               <div className="strip-sep" />
               <div className="vlabel">Room</div>
               {(room?.roster ?? []).map((agent) => (
-                <Avatar key={agent.agent_id} author={agent.agent_id} agent={agent} size={26} />
+                <Avatar key={agent.agent_id} author={agent.agent_id} agent={agent} size={26} title={agent.name} />
               ))}
               <span title={displayStatus} className="strip-state" data-state={displayStatus} />
               {room?.auto?.status === "running" ? (
@@ -945,12 +945,6 @@ export function ThreadPage() {
                 </span>
               ) : null}
               <div className="strip-sep" />
-              <button type="button" className="strip-icon" title="Nudge">
-                <Icon name="send" className="ic-sm" />
-              </button>
-              <button type="button" className="strip-icon" title="Ask">
-                <Icon name="spark" className="ic-sm" />
-              </button>
               <button type="button" className="strip-icon" title="Auto">
                 <Icon name="play" className="ic-sm" />
               </button>

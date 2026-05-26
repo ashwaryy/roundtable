@@ -14,6 +14,16 @@ function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`
 }
 
+function formatRelativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
 function truncateMiddle(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value
   const keep = maxLength - 1
@@ -92,6 +102,7 @@ export function ThreadContextPanel({
         <div className="kv-list">
           <div className="kv-row"><span className="k">working dir</span><span className="v" title={snapshotSourcePath}>{displaySourcePath}</span></div>
           <div className="kv-row"><span className="k">snapshot</span><span className="v">{context.snapshot.mode} · {context.snapshot.file_count} files</span></div>
+          <div className="kv-row"><span className="k">refreshed</span><span className="v" title={context.snapshot.refreshed_at}>{formatRelativeTime(context.snapshot.refreshed_at)}</span></div>
           <div className="kv-row"><span className="k">size</span><span className="v">{formatBytes(context.snapshot.total_bytes)}</span></div>
           <div className="kv-row"><span className="k">thread.md</span><span className="v">{summary ?? 'thread.md'}</span></div>
           <div className="kv-row"><span className="k">reports</span><span className="v">{reports.length}</span></div>

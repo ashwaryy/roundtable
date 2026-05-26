@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Agent, Thread } from '@roundtable/shared'
 import {
@@ -106,6 +106,7 @@ export function NewThreadForm({
   nextNum?: number
 }) {
   const navigate = useNavigate()
+  const isMac = /Mac/i.test(navigator.userAgent)
 
   const [step, setStep] = useState<1 | 2>(1)
   const [composing, setComposing] = useState(false)
@@ -124,6 +125,33 @@ export function NewThreadForm({
   const [error, setError] = useState<string | null>(null)
   const [catalogue, setCatalogue] = useState<Agent[]>([])
   const [agentIds, setAgentIds] = useState<string[]>(['claude', 'codex'])
+
+  const titleRef = useRef<HTMLInputElement>(null)
+  const stepRef = useRef(step)
+  const finalizeRef = useRef(finalize)
+  stepRef.current = step
+  finalizeRef.current = finalize
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+
+      if ((e.key === 'n' || e.key === 'N') && !inInput && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        setComposing(true)
+        titleRef.current?.focus()
+        return
+      }
+
+      if (e.key === 'Alt' && stepRef.current === 2) {
+        e.preventDefault()
+        void finalizeRef.current(true)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   const roomAgents = agentIds
   const ctxCount = (snapStaged ? 1 : 0) + files.length + urls.length
@@ -208,7 +236,8 @@ export function NewThreadForm({
               <kbd className="kbd">N</kbd> to compose
             </>
           ) : (
-            'Optional · ⌥ continue without'
+            <><kbd className="kbd">{isMac ? '⌥' : 'Alt'}</kbd> continue without context</>
+
           )}
         </span>
       </div>
@@ -216,6 +245,7 @@ export function NewThreadForm({
       {step === 1 ? (
         <>
           <input
+            ref={titleRef}
             className="input"
             placeholder="Thread title — a question, a plan, a spec to refine"
             value={title}
@@ -230,7 +260,6 @@ export function NewThreadForm({
                 value={body}
                 rows={4}
                 onChange={(e) => setBody(e.target.value)}
-                autoFocus
               />
               <div className="compose-actions">
                 <span style={{ fontSize: 11.5, color: 'var(--muted)', fontFamily: 'var(--font-ui)' }}>
@@ -258,7 +287,7 @@ export function NewThreadForm({
                 The thread is the source artifact. Discussion happens around it — and only you
                 decide when it changes.
               </span>
-              <button type="button" className="btn primary" onClick={() => setComposing(true)}>
+              <button type="button" className="btn primary" onClick={() => { setComposing(true); titleRef.current?.focus() }}>
                 <Icon name="plus" className="ic-sm" />
                 Compose
               </button>

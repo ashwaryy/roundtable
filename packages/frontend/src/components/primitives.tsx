@@ -144,13 +144,14 @@ export function Icon({ name, className = 'ic' }: { name: IconName; className?: s
 }
 
 // ── Avatar (colored square initial) ───────────────────────────────
-export function Avatar({ author, agent, size = 22, isWorking = false }: { author: string; agent?: Pick<Agent, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>; size?: number; isWorking?: boolean }) {
+export function Avatar({ author, agent, size = 22, isWorking = false, title }: { author: string; agent?: Pick<Agent, 'name' | 'color'> | Pick<ThreadAgentInvite, 'name' | 'color'>; size?: number; isWorking?: boolean; title?: string }) {
   const meta = agentMeta(author, agent)
   return (
     <span
       className={`avatar avatar-${meta.color}${isWorking ? ' is-working' : ''}`}
       style={{ width: size, height: size, fontSize: Math.round(size * 0.5) }}
       aria-hidden="true"
+      title={title}
     >
       {meta.initial}
     </span>
