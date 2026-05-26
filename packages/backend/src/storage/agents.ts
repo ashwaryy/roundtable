@@ -43,6 +43,14 @@ const BUILTINS: Agent[] = [
   },
 ]
 
+interface AgentIndex {
+  agents: Agent[]
+  byId: Map<string, Agent>
+  byLowerName: Map<string, Agent[]>
+}
+
+const agentIndexes = new Map<string, AgentIndex>()
+
 function writeJsonAtomic(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   const tmp = `${filePath}.tmp`
@@ -53,6 +61,7 @@ function writeJsonAtomic(filePath: string, value: unknown): void {
 export function seedBuiltInAgents(dataDir: string): void {
   fs.mkdirSync(agentsDir(dataDir), { recursive: true })
   const timestamp = new Date().toISOString()
+  let wroteBuiltin = false
   for (const builtin of BUILTINS) {
     if (!fs.existsSync(agentJsonPath(dataDir, builtin.id))) {
       writeJsonAtomic(agentJsonPath(dataDir, builtin.id), {
@@ -60,34 +69,66 @@ export function seedBuiltInAgents(dataDir: string): void {
         created_at: timestamp,
         updated_at: timestamp,
       })
+      wroteBuiltin = true
     }
   }
+  if (wroteBuiltin) invalidateAgentIndex(dataDir)
+}
+
+function invalidateAgentIndex(dataDir: string): void {
+  agentIndexes.delete(dataDir)
+}
+
+function buildAgentIndex(dataDir: string): AgentIndex {
+  const agents = fs.readdirSync(agentsDir(dataDir))
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => JSON.parse(fs.readFileSync(path.join(agentsDir(dataDir), name), 'utf8')) as Agent)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.name.localeCompare(b.name))
+
+  const byId = new Map<string, Agent>()
+  const byLowerName = new Map<string, Agent[]>()
+  for (const agent of agents) {
+    byId.set(agent.id, agent)
+    const key = agent.name.toLowerCase()
+    const named = byLowerName.get(key)
+    if (named) named.push(agent)
+    else byLowerName.set(key, [agent])
+  }
+
+  return { agents, byId, byLowerName }
+}
+
+function getAgentIndex(dataDir: string): AgentIndex {
+  seedBuiltInAgents(dataDir)
+  const cached = agentIndexes.get(dataDir)
+  if (cached) return cached
+
+  const built = buildAgentIndex(dataDir)
+  agentIndexes.set(dataDir, built)
+  return built
 }
 
 export function listAgents(dataDir: string, includeArchived = true): Agent[] {
-  seedBuiltInAgents(dataDir)
-  return fs.readdirSync(agentsDir(dataDir))
-    .filter((name) => name.endsWith('.json'))
-    .map((name) => JSON.parse(fs.readFileSync(path.join(agentsDir(dataDir), name), 'utf8')) as Agent)
+  return getAgentIndex(dataDir).agents
     .filter((agent) => includeArchived || !agent.archived)
-    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.name.localeCompare(b.name))
 }
 
 export function getAgent(dataDir: string, agentId: string): Agent | null {
-  seedBuiltInAgents(dataDir)
-  const filePath = agentJsonPath(dataDir, agentId)
-  return fs.existsSync(filePath)
-    ? JSON.parse(fs.readFileSync(filePath, 'utf8')) as Agent
-    : null
+  return getAgentIndex(dataDir).byId.get(agentId) ?? null
+}
+
+function hasNameConflict(index: AgentIndex, lowerName: string, exceptId?: string): boolean {
+  const named = index.byLowerName.get(lowerName)
+  if (!named) return false
+  return named.some((agent) => agent.id !== exceptId)
 }
 
 function uniqueName(dataDir: string, requested: string, exceptId?: string): string {
-  const existing = new Set(
-    listAgents(dataDir).filter((agent) => agent.id !== exceptId).map((agent) => agent.name.toLowerCase()),
-  )
-  if (!existing.has(requested.toLowerCase())) return requested
+  const index = getAgentIndex(dataDir)
+  const requestedLower = requested.toLowerCase()
+  if (!hasNameConflict(index, requestedLower, exceptId)) return requested
   let suffix = 2
-  while (existing.has(`${requested} (${suffix})`.toLowerCase())) suffix += 1
+  while (hasNameConflict(index, `${requested} (${suffix})`.toLowerCase(), exceptId)) suffix += 1
   return `${requested} (${suffix})`
 }
 
@@ -103,9 +144,10 @@ function validateEffort(agent: Pick<Agent, 'runtime' | 'effort'>): void {
 
 function newId(dataDir: string, name: string): string {
   const stem = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'agent'
+  const existingIds = getAgentIndex(dataDir).byId
   let id = `agent-${stem}`
   let suffix = 2
-  while (getAgent(dataDir, id)) {
+  while (existingIds.has(id)) {
     id = `agent-${stem}-${suffix}`
     suffix += 1
   }
@@ -130,6 +172,7 @@ export function createAgent(dataDir: string, input: CreateAgentInput): Agent {
   }
   validateEffort(agent)
   writeJsonAtomic(agentJsonPath(dataDir, agent.id), agent)
+  invalidateAgentIndex(dataDir)
   return agent
 }
 
@@ -144,6 +187,7 @@ export function updateAgent(dataDir: string, agentId: string, patch: UpdateAgent
   }
   validateEffort(updated)
   writeJsonAtomic(agentJsonPath(dataDir, agentId), updated)
+  invalidateAgentIndex(dataDir)
   return updated
 }
 
@@ -164,6 +208,7 @@ export function deleteAgent(dataDir: string, agentId: string): Agent | null {
     return updateAgent(dataDir, agentId, { archived: true })
   }
   fs.unlinkSync(agentJsonPath(dataDir, agentId))
+  invalidateAgentIndex(dataDir)
   return null
 }
 

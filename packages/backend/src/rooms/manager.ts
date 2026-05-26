@@ -2308,7 +2308,6 @@ export function createRoomManager(options: {
 
   function applySummaryProbeResult(
     threadId: string,
-    room: InternalRoom,
     live: boolean,
     checkedAt: string,
   ): void {
@@ -2385,7 +2384,7 @@ export function createRoomManager(options: {
       if (!roomSummaryNeedsProbe(room)) continue
       const checkedAt = now()
       const live = sessionExists(executor, room.tmux_session)
-      applySummaryProbeResult(threadId, room, live, checkedAt)
+      applySummaryProbeResult(threadId, live, checkedAt)
     }
   }
 

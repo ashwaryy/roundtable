@@ -73,6 +73,7 @@ export {
   ConflictError,
   NotFoundError,
   IntegrityStorageError,
+  StorageOperationError,
 } from './errors'
 
 function revisionJsonPath(
@@ -470,42 +471,42 @@ export function createStorage(
           },
         }
       }),
-    preflightProjectSnapshot: (
+    preflightProjectSnapshot: async (
       threadId: string,
       sourcePath: string,
-    ): SnapshotPreflight =>
+    ): Promise<SnapshotPreflight> =>
       context.preflightProjectSnapshot(dataDir, threadId, sourcePath),
-    createProjectSnapshot: (
+    createProjectSnapshot: async (
       threadId: string,
       input: CreateProjectSnapshotInput,
-    ): ProjectSnapshot =>
-      applyWrite(threadId, () => ({
-        result: context.createProjectSnapshot(dataDir, threadId, input),
-        touched: {
-          filesAddedOrUpdated: [
-            projectSnapshotJsonPath(dataDir, threadId),
-            projectSnapshotManifestPath(dataDir, threadId),
-          ],
-          rootsAddedOrUpdated: [
-            projectSnapshotDir(dataDir, threadId),
-            projectSnapshotReportsDir(dataDir, threadId),
-          ],
-        },
-      })),
-    refreshProjectSnapshot: (threadId: string): ProjectSnapshot =>
-      applyWrite(threadId, () => ({
-        result: context.refreshProjectSnapshot(dataDir, threadId),
-        touched: {
-          filesAddedOrUpdated: [
-            projectSnapshotJsonPath(dataDir, threadId),
-            projectSnapshotManifestPath(dataDir, threadId),
-          ],
-          rootsAddedOrUpdated: [
-            projectSnapshotDir(dataDir, threadId),
-            projectSnapshotReportsDir(dataDir, threadId),
-          ],
-        },
-      })),
+    ): Promise<ProjectSnapshot> => {
+      const result = await context.createProjectSnapshot(dataDir, threadId, input)
+      integrity.acceptApplicationWrite(dataDir, threadId, {
+        filesAddedOrUpdated: [
+          projectSnapshotJsonPath(dataDir, threadId),
+          projectSnapshotManifestPath(dataDir, threadId),
+        ],
+        rootsAddedOrUpdated: [
+          projectSnapshotDir(dataDir, threadId),
+          projectSnapshotReportsDir(dataDir, threadId),
+        ],
+      })
+      return result
+    },
+    refreshProjectSnapshot: async (threadId: string): Promise<ProjectSnapshot> => {
+      const result = await context.refreshProjectSnapshot(dataDir, threadId)
+      integrity.acceptApplicationWrite(dataDir, threadId, {
+        filesAddedOrUpdated: [
+          projectSnapshotJsonPath(dataDir, threadId),
+          projectSnapshotManifestPath(dataDir, threadId),
+        ],
+        rootsAddedOrUpdated: [
+          projectSnapshotDir(dataDir, threadId),
+          projectSnapshotReportsDir(dataDir, threadId),
+        ],
+      })
+      return result
+    },
     listSnapshotReports: (threadId: string): SnapshotReport[] =>
       context.listSnapshotReports(dataDir, threadId),
     listSavedOutputs: (threadId: string): SavedConsolidation[] =>

@@ -74,7 +74,7 @@ describe('context items', () => {
 })
 
 describe('project snapshots', () => {
-  it('copies eligible folder files, including untracked files in git repos', () => {
+  it('copies eligible folder files, including untracked files in git repos', async () => {
     const project = makeProject()
     fs.mkdirSync(path.join(project, 'src'))
     fs.writeFileSync(path.join(project, 'src', 'main.ts'), 'export const x = 1\n')
@@ -87,11 +87,11 @@ describe('project snapshots', () => {
       stdio: 'ignore',
     })
 
-    const preflight = preflightProjectSnapshot(dataDir, 'thread-1', project)
+    const preflight = await preflightProjectSnapshot(dataDir, 'thread-1', project)
     expect(preflight.mode).toBe('folder')
     expect(preflight.file_count).toBe(2)
 
-    const snapshot = createProjectSnapshot(dataDir, 'thread-1', {
+    const snapshot = await createProjectSnapshot(dataDir, 'thread-1', {
       source_path: project,
       confirmed: true,
     })
@@ -104,18 +104,18 @@ describe('project snapshots', () => {
     fs.rmSync(project, { recursive: true, force: true })
   })
 
-  it('requires confirmation for folder snapshots', () => {
+  it('requires confirmation for folder snapshots', async () => {
     const project = makeProject()
     fs.writeFileSync(path.join(project, 'notes.md'), '# Notes\n')
 
-    const preflight = preflightProjectSnapshot(dataDir, 'thread-1', project)
+    const preflight = await preflightProjectSnapshot(dataDir, 'thread-1', project)
     expect(preflight.mode).toBe('folder')
     expect(preflight.requires_confirmation).toBe(true)
-    expect(() =>
+    await expect(
       createProjectSnapshot(dataDir, 'thread-1', { source_path: project }),
-    ).toThrow(ConfirmationRequiredError)
+    ).rejects.toThrow(ConfirmationRequiredError)
 
-    const snapshot = createProjectSnapshot(dataDir, 'thread-1', {
+    const snapshot = await createProjectSnapshot(dataDir, 'thread-1', {
       source_path: project,
       confirmed: true,
     })
@@ -126,32 +126,32 @@ describe('project snapshots', () => {
     fs.rmSync(project, { recursive: true, force: true })
   })
 
-  it('records files added on manual refresh', () => {
+  it('records files added on manual refresh', async () => {
     const project = makeProject()
     fs.writeFileSync(path.join(project, 'a.md'), 'a')
-    createProjectSnapshot(dataDir, 'thread-1', {
+    await createProjectSnapshot(dataDir, 'thread-1', {
       source_path: project,
       confirmed: true,
     })
     fs.writeFileSync(path.join(project, 'b.md'), 'b')
 
-    const snapshot = refreshProjectSnapshot(dataDir, 'thread-1')
+    const snapshot = await refreshProjectSnapshot(dataDir, 'thread-1')
     expect(snapshot.added_since_last_refresh).toEqual(['b.md'])
     fs.rmSync(project, { recursive: true, force: true })
   })
 
-  it('reports same-size modified and removed files by content hash', () => {
+  it('reports same-size modified and removed files by content hash', async () => {
     const project = makeProject()
     fs.writeFileSync(path.join(project, 'a.md'), 'one')
     fs.writeFileSync(path.join(project, 'removed.md'), 'gone')
-    createProjectSnapshot(dataDir, 'thread-1', {
+    await createProjectSnapshot(dataDir, 'thread-1', {
       source_path: project,
       confirmed: true,
     })
     fs.writeFileSync(path.join(project, 'a.md'), 'two')
     fs.rmSync(path.join(project, 'removed.md'))
 
-    refreshProjectSnapshot(dataDir, 'thread-1')
+    await refreshProjectSnapshot(dataDir, 'thread-1')
     const reports = listSnapshotReports(dataDir, 'thread-1')
     expect(reports).toHaveLength(2)
     expect(reports[1].modified_paths).toEqual(['a.md'])
@@ -159,10 +159,10 @@ describe('project snapshots', () => {
     fs.rmSync(project, { recursive: true, force: true })
   })
 
-  it('creates a fresh baseline report when copied to the next thread', () => {
+  it('creates a fresh baseline report when copied to the next thread', async () => {
     const project = makeProject()
     fs.writeFileSync(path.join(project, 'a.md'), 'one')
-    createProjectSnapshot(dataDir, 'thread-1', {
+    await createProjectSnapshot(dataDir, 'thread-1', {
       source_path: project,
       confirmed: true,
     })
@@ -181,6 +181,29 @@ describe('project snapshots', () => {
     fs.rmSync(projectSnapshotDir(dataDir, 'thread-1'), { recursive: true, force: true })
     expect(readProjectSnapshot(dataDir, 'thread-1')).toBeNull()
     expect(fs.existsSync(projectSnapshotDir(dataDir, 'thread-1'))).toBe(false)
+  })
+
+  it('times out snapshot workers and cleans staging state', async () => {
+    const project = makeProject()
+    fs.writeFileSync(path.join(project, 'notes.md'), '# Notes\n')
+    process.env.ROUNDTABLE_SNAPSHOT_WORKER_TIMEOUT_MS = '25'
+    process.env.ROUNDTABLE_SNAPSHOT_WORKER_DELAY_MS = '100'
+
+    try {
+      await expect(
+        createProjectSnapshot(dataDir, 'thread-1', {
+          source_path: project,
+          confirmed: true,
+        }),
+      ).rejects.toThrow('snapshot worker timed out')
+
+      const roundtableDir = path.join(threadDir(dataDir, 'thread-1'), '.roundtable')
+      expect(fs.existsSync(roundtableDir)).toBe(false)
+    } finally {
+      delete process.env.ROUNDTABLE_SNAPSHOT_WORKER_TIMEOUT_MS
+      delete process.env.ROUNDTABLE_SNAPSHOT_WORKER_DELAY_MS
+      fs.rmSync(project, { recursive: true, force: true })
+    }
   })
 })
 

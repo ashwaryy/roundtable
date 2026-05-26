@@ -1,8 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createStorage } from './index'
+import { createAgent, deleteAgent, getAgent, listAgents, updateAgent } from './agents'
+import { agentsDir } from './paths'
 
 let dataDir: string
 
@@ -40,5 +42,38 @@ describe('agent catalogue and thread invites', () => {
     storage.updateThreadAgent(thread.id, extra.id, { model: 'custom-model' })
     const roster = storage.reorderThreadAgents(thread.id, { agent_ids: [extra.id, 'claude', 'codex'] })
     expect(roster[0]).toMatchObject({ agent_id: extra.id, order: 0, model: 'custom-model' })
+  })
+
+  it('reuses the cached agent index for repeated lookups and invalidates it on writes', () => {
+    const dirPath = agentsDir(dataDir)
+    const originalReaddirSync = fs.readdirSync
+    let agentDirReads = 0
+    const readdirSpy = vi.spyOn(fs, 'readdirSync').mockImplementation(((file, options) => {
+      if (file === dirPath) agentDirReads += 1
+      return originalReaddirSync.call(fs, file as Parameters<typeof fs.readdirSync>[0], options as Parameters<typeof fs.readdirSync>[1])
+    }) as typeof fs.readdirSync)
+
+    try {
+      expect(listAgents(dataDir).map((agent) => agent.id)).toEqual(['claude', 'codex'])
+      expect(agentDirReads).toBe(1)
+
+      expect(getAgent(dataDir, 'claude')?.name).toBe('Claude')
+      expect(getAgent(dataDir, 'codex')?.name).toBe('Codex')
+      expect(agentDirReads).toBe(1)
+
+      const created = createAgent(dataDir, { name: 'Indexer', runtime: 'codex' })
+      expect(getAgent(dataDir, created.id)?.name).toBe('Indexer')
+      expect(agentDirReads).toBe(2)
+
+      updateAgent(dataDir, created.id, { name: 'Indexer Prime' })
+      expect(getAgent(dataDir, created.id)?.name).toBe('Indexer Prime')
+      expect(agentDirReads).toBe(3)
+
+      expect(deleteAgent(dataDir, created.id)).toBeNull()
+      expect(getAgent(dataDir, created.id)).toBeNull()
+      expect(agentDirReads).toBe(4)
+    } finally {
+      readdirSpy.mockRestore()
+    }
   })
 })

@@ -32,3 +32,10 @@ export class IntegrityStorageError extends Error {
     this.name = 'IntegrityStorageError'
   }
 }
+
+export class StorageOperationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StorageOperationError'
+  }
+}

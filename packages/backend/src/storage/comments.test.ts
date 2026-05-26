@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createThread } from './threads'
 import { listComments, addComment, addAgentComment, deleteComment } from './comments'
 import { NotFoundError } from './errors'
+import { commentsPath } from './paths'
 
 let dataDir: string
 
@@ -55,6 +56,32 @@ describe('addComment', () => {
     })
     expect(nested.discussion_id).toBe(root.id)
     expect(nested.parent_id).toBe(root.id)
+  })
+
+  it('reuses the in-memory reply cache after the first reply lookup', () => {
+    const root = addComment(dataDir, 'thread-1', { body: 'root' })
+    const filePath = commentsPath(dataDir, 'thread-1')
+    const originalReadFileSync = fs.readFileSync
+    let commentFileReads = 0
+    const readSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(((file, options) => {
+      if (file === filePath) commentFileReads += 1
+      return originalReadFileSync.call(fs, file as Parameters<typeof fs.readFileSync>[0], options as Parameters<typeof fs.readFileSync>[1])
+    }) as typeof fs.readFileSync)
+
+    try {
+      const reply = addComment(dataDir, 'thread-1', { body: 'reply', reply_to: root.id })
+      expect(commentFileReads).toBe(1)
+
+      const nested = addComment(dataDir, 'thread-1', {
+        body: 'nested',
+        reply_to: reply.id,
+      })
+
+      expect(commentFileReads).toBe(1)
+      expect(nested.discussion_id).toBe(root.id)
+    } finally {
+      readSpy.mockRestore()
+    }
   })
 
   it('throws NotFoundError for a missing thread', () => {
@@ -133,6 +160,33 @@ describe('deleteComment', () => {
     deleteComment(dataDir, 'thread-1', root.id)
 
     expect(listComments(dataDir, 'thread-1').map((c) => c.id)).toEqual([other.id])
+  })
+
+  it('clears the reply cache on delete so later replies rebuild against disk', () => {
+    const root = addComment(dataDir, 'thread-1', { body: 'root' })
+    const reply = addComment(dataDir, 'thread-1', { body: 'reply', reply_to: root.id })
+    deleteComment(dataDir, 'thread-1', reply.id)
+
+    const filePath = commentsPath(dataDir, 'thread-1')
+    const originalReadFileSync = fs.readFileSync
+    let commentFileReads = 0
+    const readSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(((file, options) => {
+      if (file === filePath) commentFileReads += 1
+      return originalReadFileSync.call(fs, file as Parameters<typeof fs.readFileSync>[0], options as Parameters<typeof fs.readFileSync>[1])
+    }) as typeof fs.readFileSync)
+
+    try {
+      const rebuilt = addAgentComment(dataDir, 'thread-1', {
+        author: 'codex',
+        body: 'rebuilt',
+        reply_to: root.id,
+      })
+
+      expect(commentFileReads).toBe(1)
+      expect(rebuilt.discussion_id).toBe(root.id)
+    } finally {
+      readSpy.mockRestore()
+    }
   })
 
   it('throws NotFoundError for a missing comment', () => {

@@ -1,14 +1,13 @@
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { Worker } from 'node:worker_threads'
 import type {
   ContextItem,
   CreateProjectSnapshotInput,
   CreateUrlContextInput,
   FileContextItem,
   ProjectSnapshot,
-  ProjectSnapshotMode,
   SnapshotReport,
   SnapshotPreflight,
   ThreadContext,
@@ -29,6 +28,7 @@ import {
   BadRequestError,
   ConfirmationRequiredError,
   NotFoundError,
+  StorageOperationError,
 } from './errors'
 import { appendJsonl } from './jsonl'
 import {
@@ -42,32 +42,7 @@ interface ManifestEntry {
   sha256: string
 }
 
-interface CandidateFile {
-  absolutePath: string
-  relativePath: string
-  size_bytes: number
-}
-
-const LARGE_FILE_COUNT = 1000
-const LARGE_TOTAL_BYTES = 50 * 1024 * 1024
-
-const EXCLUDED_DIRS = new Set([
-  '.git',
-  '.hg',
-  '.svn',
-  'node_modules',
-  'dist',
-  'build',
-  'target',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.cache',
-  'coverage',
-  '.venv',
-  'venv',
-  '__pycache__',
-])
+const DEFAULT_SNAPSHOT_WORKER_TIMEOUT_MS = 30_000
 
 function ensureThreadExists(dataDir: string, threadId: string): void {
   if (!fs.existsSync(threadJsonPath(dataDir, threadId))) {
@@ -85,29 +60,6 @@ function toWorkspacePath(...parts: string[]): string {
   return parts.join('/').replaceAll(path.sep, '/')
 }
 
-function expandHome(input: string): string {
-  if (input === '~') return os.homedir()
-  if (input.startsWith(`~${path.sep}`)) return path.join(os.homedir(), input.slice(2))
-  return input
-}
-
-function resolveDirectory(input: string): string {
-  try {
-    const resolved = fs.realpathSync(path.resolve(expandHome(input)))
-    const stat = fs.statSync(resolved)
-    if (!stat.isDirectory()) throw new BadRequestError('source_path must be a directory')
-    return resolved
-  } catch (err) {
-    if (err instanceof BadRequestError) throw err
-    throw new BadRequestError('source_path must be an existing directory')
-  }
-}
-
-function isInside(parent: string, child: string): boolean {
-  const relative = path.relative(parent, child)
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
-}
-
 function sanitizeFilename(name: string): string {
   const base = path.basename(name).replace(/[^A-Za-z0-9._-]+/g, '-')
   const trimmed = base.replace(/^-+|-+$/g, '')
@@ -118,115 +70,152 @@ function nextContextItemId(dataDir: string, threadId: string): string {
   return `ctx${String(nextContextItemCounterValue(dataDir, threadId)).padStart(3, '0')}`
 }
 
-function isSecretLike(relativePath: string): boolean {
-  const name = path.basename(relativePath).toLowerCase()
-  return (
-    name.startsWith('.env') ||
-    name === 'id_rsa' ||
-    name === 'id_dsa' ||
-    name === 'id_ecdsa' ||
-    name === 'id_ed25519' ||
-    /\.(pem|key|crt|cer|p12|pfx)$/.test(name)
+function fileHash(filePath: string): string {
+  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
+}
+
+interface SnapshotWorkerPreflightRequest {
+  kind: 'preflight'
+  sourcePathInput: string
+  workspacePath: string
+}
+
+interface SnapshotWorkerCreateRequest {
+  kind: 'create'
+  sourcePathInput: string
+  workspacePath: string
+  stagingRoot: string
+  previousManifest: ManifestEntry[]
+  reportId: string
+  createdAt: string | null
+  now: string
+}
+
+type SnapshotWorkerRequest =
+  | SnapshotWorkerPreflightRequest
+  | SnapshotWorkerCreateRequest
+
+function snapshotWorkerTimeoutMs(): number {
+  const raw = process.env.ROUNDTABLE_SNAPSHOT_WORKER_TIMEOUT_MS
+  if (!raw) return DEFAULT_SNAPSHOT_WORKER_TIMEOUT_MS
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SNAPSHOT_WORKER_TIMEOUT_MS
+}
+
+function snapshotWorkerPath(): URL {
+  return new URL('./snapshotWorker.js', import.meta.url)
+}
+
+function snapshotStagingRoot(dataDir: string, threadId: string): string {
+  return path.join(
+    threadDir(dataDir, threadId),
+    '.roundtable',
+    `snapshot-staging-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   )
 }
 
-function hasExcludedSegment(relativePath: string): boolean {
-  return relativePath
-    .split(/[\\/]+/)
-    .filter(Boolean)
-    .some((segment) => EXCLUDED_DIRS.has(segment))
+function toStorageOperationError(err: unknown): StorageOperationError {
+  if (err instanceof BadRequestError) {
+    return new StorageOperationError(err.message)
+  }
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'message' in err &&
+    typeof (err as { message?: unknown }).message === 'string'
+  ) {
+    return new StorageOperationError((err as { message: string }).message)
+  }
+  return new StorageOperationError('snapshot worker failed')
 }
 
-function isBinaryFile(filePath: string): boolean {
-  const fd = fs.openSync(filePath, 'r')
+function runSnapshotWorker<T>(request: SnapshotWorkerRequest): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(snapshotWorkerPath(), {
+      workerData: request,
+    })
+    const timeout = setTimeout(() => {
+      settle(() => {
+        void worker.terminate()
+        reject(new StorageOperationError('snapshot worker timed out'))
+      })
+    }, snapshotWorkerTimeoutMs())
+
+    let settled = false
+    const settle = (handler: () => void): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      handler()
+    }
+
+    worker.once('message', (message: unknown) => {
+      settle(() => {
+        const payload = message as
+          | { ok: true; result: T }
+          | { ok: false; error: { name?: string; message?: string } }
+        if (payload.ok) {
+          resolve(payload.result)
+          return
+        }
+        reject(
+          payload.error?.name === 'BadRequestError'
+            ? new BadRequestError(payload.error.message ?? 'snapshot worker failed')
+            : new StorageOperationError(payload.error?.message ?? 'snapshot worker failed'),
+        )
+      })
+    })
+    worker.once('error', (err) => {
+      settle(() => reject(toStorageOperationError(err)))
+    })
+    worker.once('exit', (code) => {
+      if (settled || code === 0) return
+      settle(() => reject(new StorageOperationError(`snapshot worker exited with code ${code}`)))
+    })
+  })
+}
+
+function replaceSnapshotDirectory(snapshotPath: string, stagedSnapshotPath: string): void {
+  const backupPath = `${snapshotPath}.bak-${process.pid}-${Date.now()}`
+  const hadExisting = fs.existsSync(snapshotPath)
+  if (hadExisting) fs.renameSync(snapshotPath, backupPath)
+
   try {
-    const buffer = Buffer.alloc(8192)
-    const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0)
-    if (bytesRead === 0) return false
-    return buffer.subarray(0, bytesRead).includes(0)
-  } finally {
-    fs.closeSync(fd)
+    fs.renameSync(stagedSnapshotPath, snapshotPath)
+    if (hadExisting) fs.rmSync(backupPath, { recursive: true, force: true })
+  } catch (err) {
+    if (fs.existsSync(snapshotPath)) {
+      fs.rmSync(snapshotPath, { recursive: true, force: true })
+    }
+    if (hadExisting && fs.existsSync(backupPath)) {
+      fs.renameSync(backupPath, snapshotPath)
+    }
+    throw err
   }
 }
 
-function isEligibleFile(
-  absolutePath: string,
-  relativePath: string,
-  stat: fs.Stats,
-): boolean {
-  if (hasExcludedSegment(relativePath) || isSecretLike(relativePath)) return false
-  const name = path.basename(relativePath)
-  if (name === '.DS_Store' || name.endsWith('.log')) return false
-  if (!stat.isFile()) return false
-  return !isBinaryFile(absolutePath)
-}
+function commitSnapshotStaging(dataDir: string, threadId: string, stagingRoot: string): void {
+  const stagedSnapshotPath = path.join(stagingRoot, 'project-snapshot')
+  const stagedManifestPath = path.join(stagingRoot, 'project-snapshot-manifest.json')
+  const stagedJsonPath = path.join(stagingRoot, 'project-snapshot.json')
+  const stagedReportsDir = path.join(stagingRoot, 'project-snapshot-reports')
+  const reportsDir = projectSnapshotReportsDir(dataDir, threadId)
 
-function listRecursiveCandidates(sourcePath: string): {
-  candidates: CandidateFile[]
-  excludedCount: number
-} {
-  const candidates: CandidateFile[] = []
-  let excludedCount = 0
-
-  function walk(dir: string): void {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const absolutePath = path.join(dir, entry.name)
-      const relativePath = toWorkspacePath(path.relative(sourcePath, absolutePath))
-      if (entry.isDirectory()) {
-        if (hasExcludedSegment(relativePath)) {
-          excludedCount += 1
-          continue
-        }
-        walk(absolutePath)
-        continue
-      }
-      if (!entry.isFile()) {
-        excludedCount += 1
-        continue
-      }
-      const stat = fs.statSync(absolutePath)
-      if (!isEligibleFile(absolutePath, relativePath, stat)) {
-        excludedCount += 1
-        continue
-      }
-      candidates.push({
-        absolutePath,
-        relativePath,
-        size_bytes: stat.size,
-      })
+  fs.mkdirSync(path.dirname(projectSnapshotJsonPath(dataDir, threadId)), { recursive: true })
+  fs.mkdirSync(reportsDir, { recursive: true })
+  replaceSnapshotDirectory(projectSnapshotDir(dataDir, threadId), stagedSnapshotPath)
+  if (fs.existsSync(stagedManifestPath)) {
+    fs.renameSync(stagedManifestPath, projectSnapshotManifestPath(dataDir, threadId))
+  }
+  if (fs.existsSync(stagedJsonPath)) {
+    fs.renameSync(stagedJsonPath, projectSnapshotJsonPath(dataDir, threadId))
+  }
+  if (fs.existsSync(stagedReportsDir)) {
+    for (const file of fs.readdirSync(stagedReportsDir)) {
+      fs.renameSync(path.join(stagedReportsDir, file), path.join(reportsDir, file))
     }
   }
-
-  walk(sourcePath)
-  return { candidates, excludedCount }
-}
-
-function collectCandidates(sourcePath: string): {
-  mode: ProjectSnapshotMode
-  candidates: CandidateFile[]
-  excludedCount: number
-} {
-  const result = listRecursiveCandidates(sourcePath)
-  return {
-    mode: 'folder',
-    candidates: result.candidates,
-    excludedCount: result.excludedCount,
-  }
-}
-
-function warningsFor(fileCount: number, totalBytes: number): string[] {
-  const warnings: string[] = []
-  if (fileCount > LARGE_FILE_COUNT) {
-    warnings.push(`Snapshot includes ${fileCount} files.`)
-  }
-  if (totalBytes > LARGE_TOTAL_BYTES) {
-    warnings.push(`Snapshot includes ${Math.round(totalBytes / 1024 / 1024)} MB.`)
-  }
-  return warnings
-}
-
-function fileHash(filePath: string): string {
-  return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
+  fs.rmSync(stagingRoot, { recursive: true, force: true })
 }
 
 function readManifest(dataDir: string, threadId: string): ManifestEntry[] {
@@ -362,111 +351,67 @@ export function addAttachmentFromFile(
   return item
 }
 
-export function preflightProjectSnapshot(
+export async function preflightProjectSnapshot(
   dataDir: string,
   threadId: string,
   sourcePathInput: string,
-): SnapshotPreflight {
+): Promise<SnapshotPreflight> {
   ensureThreadExists(dataDir, threadId)
-  const sourcePath = resolveDirectory(sourcePathInput)
-  const workspacePath = fs.realpathSync(threadDir(dataDir, threadId))
-  if (isInside(workspacePath, sourcePath)) {
-    throw new BadRequestError('source_path cannot be inside the thread workspace')
-  }
-
-  const { mode, candidates, excludedCount } = collectCandidates(sourcePath)
-  const totalBytes = candidates.reduce((sum, file) => sum + file.size_bytes, 0)
-  const warnings = warningsFor(candidates.length, totalBytes)
-
-  return {
-    source_path: sourcePath,
-    mode,
-    requires_confirmation: true,
-    file_count: candidates.length,
-    total_bytes: totalBytes,
-    excluded_count: excludedCount,
-    warnings,
-  }
+  return runSnapshotWorker<SnapshotPreflight>({
+    kind: 'preflight',
+    sourcePathInput,
+    workspacePath: fs.realpathSync(threadDir(dataDir, threadId)),
+  })
 }
 
-export function createProjectSnapshot(
+export async function createProjectSnapshot(
   dataDir: string,
   threadId: string,
   input: CreateProjectSnapshotInput,
-): ProjectSnapshot {
+): Promise<ProjectSnapshot> {
   ensureWriteDirectories(dataDir, threadId)
-  const preflight = preflightProjectSnapshot(dataDir, threadId, input.source_path)
+  const preflight = await preflightProjectSnapshot(dataDir, threadId, input.source_path)
   if (preflight.requires_confirmation && !input.confirmed) {
     throw new ConfirmationRequiredError('snapshot requires confirmation')
   }
 
-  const { candidates } = collectCandidates(preflight.source_path)
-  const snapshotPath = projectSnapshotDir(dataDir, threadId)
-  const tmpPath = `${snapshotPath}.tmp-${process.pid}-${Date.now()}`
   const previousManifest = readManifest(dataDir, threadId)
-  const manifest: ManifestEntry[] = []
-
-  fs.rmSync(tmpPath, { recursive: true, force: true })
-  fs.mkdirSync(tmpPath, { recursive: true })
-
-  try {
-    for (const candidate of candidates) {
-      const destination = path.join(tmpPath, candidate.relativePath)
-      fs.mkdirSync(path.dirname(destination), { recursive: true })
-      fs.copyFileSync(candidate.absolutePath, destination)
-      try {
-        fs.chmodSync(destination, 0o444)
-      } catch {
-        // Best-effort read-only snapshot files.
-      }
-      manifest.push({
-        path: candidate.relativePath,
-        size_bytes: candidate.size_bytes,
-        sha256: fileHash(candidate.absolutePath),
-      })
-    }
-
-    fs.rmSync(snapshotPath, { recursive: true, force: true })
-    fs.renameSync(tmpPath, snapshotPath)
-  } catch (err) {
-    fs.rmSync(tmpPath, { recursive: true, force: true })
-    throw err
-  }
-
   const existing = readProjectSnapshot(dataDir, threadId)
   const now = new Date().toISOString()
-  const snapshotBase: Omit<ProjectSnapshot, 'latest_report_id'> = {
-    source_path: preflight.source_path,
-    mode: preflight.mode,
-    created_at: existing?.created_at ?? now,
-    refreshed_at: now,
-    file_count: manifest.length,
-    total_bytes: manifest.reduce((sum, entry) => sum + entry.size_bytes, 0),
-    warnings: preflight.warnings,
-    added_since_last_refresh: [],
+  const stagingRoot = snapshotStagingRoot(dataDir, threadId)
+  try {
+    const result = await runSnapshotWorker<ProjectSnapshot & { staging_root: string }>({
+      kind: 'create',
+      sourcePathInput: preflight.source_path,
+      workspacePath: fs.realpathSync(threadDir(dataDir, threadId)),
+      stagingRoot,
+      previousManifest,
+      reportId: nextSnapshotReportId(dataDir, threadId),
+      createdAt: existing?.created_at ?? null,
+      now,
+    })
+    commitSnapshotStaging(dataDir, threadId, result.staging_root)
+    return {
+      source_path: result.source_path,
+      mode: result.mode,
+      created_at: result.created_at,
+      refreshed_at: result.refreshed_at,
+      file_count: result.file_count,
+      total_bytes: result.total_bytes,
+      warnings: result.warnings,
+      added_since_last_refresh: result.added_since_last_refresh,
+      latest_report_id: result.latest_report_id,
+    }
+  } catch (err) {
+    fs.rmSync(stagingRoot, { recursive: true, force: true })
+    throw err
   }
-  const report = createSnapshotReport(
-    dataDir,
-    threadId,
-    snapshotBase,
-    previousManifest,
-    manifest,
-  )
-  const snapshot: ProjectSnapshot = {
-    ...snapshotBase,
-    added_since_last_refresh: report.added_paths,
-    latest_report_id: report.id,
-  }
-
-  writeJsonAtomic(projectSnapshotManifestPath(dataDir, threadId), manifest)
-  writeJsonAtomic(projectSnapshotJsonPath(dataDir, threadId), snapshot)
-  return snapshot
 }
 
-export function refreshProjectSnapshot(
+export async function refreshProjectSnapshot(
   dataDir: string,
   threadId: string,
-): ProjectSnapshot {
+): Promise<ProjectSnapshot> {
   const snapshot = readProjectSnapshot(dataDir, threadId)
   if (!snapshot) throw new NotFoundError(`snapshot for ${threadId} not found`)
   return createProjectSnapshot(dataDir, threadId, {

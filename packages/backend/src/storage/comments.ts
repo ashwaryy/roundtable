@@ -6,9 +6,10 @@ import type {
   CreateCommentInput,
 } from '@roundtable/shared'
 import { commentsPath, threadJsonPath } from './paths'
-import { nextCommentId } from './ids'
 import { NotFoundError } from './errors'
 import { appendJsonl, atomicRewriteJsonl } from './jsonl'
+
+const replyDiscussionIdsByThread = new Map<string, Map<string, string>>()
 
 export function listComments(dataDir: string, threadId: string): Comment[] {
   const file = commentsPath(dataDir, threadId)
@@ -59,49 +60,35 @@ function nextTopLevelCommentId(dataDir: string, threadId: string): string {
   return nextCommentIdAfter(readLastJsonlRecord<Comment>(commentsPath(dataDir, threadId)))
 }
 
-export function addComment(
-  dataDir: string,
-  threadId: string,
-  input: CreateCommentInput,
-): Comment {
-  if (!fs.existsSync(threadJsonPath(dataDir, threadId))) {
-    throw new NotFoundError(`thread ${threadId} not found`)
-  }
-
-  const comments = input.reply_to != null ? listComments(dataDir, threadId) : null
-  const id = comments ? nextCommentId(comments) : nextTopLevelCommentId(dataDir, threadId)
-
-  let parentId: string | null = null
-  let discussionId = id
-
-  if (input.reply_to != null) {
-    const target = comments?.find((c) => c.id === input.reply_to)
-    if (!target) {
-      throw new NotFoundError(`reply target ${input.reply_to} not found`)
-    }
-    discussionId = target.discussion_id
-    parentId = target.discussion_id
-  }
-
-  const comment = buildComment({
-    id,
-    threadId,
-    discussionId,
-    parentId,
-    author: 'human',
-    type: input.type ?? 'comment',
-    body: input.body,
-  })
-
-  appendJsonl(commentsPath(dataDir, threadId), comment)
-  return comment
+function replyCacheKey(dataDir: string, threadId: string): string {
+  return `${dataDir}:${threadId}`
 }
 
-export function addAgentComment(
+function buildReplyDiscussionIds(dataDir: string, threadId: string): Map<string, string> {
+  return new Map(
+    listComments(dataDir, threadId).map((comment) => [comment.id, comment.discussion_id]),
+  )
+}
+
+function getReplyDiscussionIds(dataDir: string, threadId: string): Map<string, string> {
+  const key = replyCacheKey(dataDir, threadId)
+  const cached = replyDiscussionIdsByThread.get(key)
+  if (cached) return cached
+
+  const built = buildReplyDiscussionIds(dataDir, threadId)
+  replyDiscussionIdsByThread.set(key, built)
+  return built
+}
+
+function clearReplyDiscussionIds(dataDir: string, threadId: string): void {
+  replyDiscussionIdsByThread.delete(replyCacheKey(dataDir, threadId))
+}
+
+function addStoredComment(
   dataDir: string,
   threadId: string,
   input: {
-    author: Exclude<CommentAuthor, 'human' | 'system'>
+    author: CommentAuthor
     body: string
     type?: CommentType
     reply_to?: string | null
@@ -111,19 +98,18 @@ export function addAgentComment(
     throw new NotFoundError(`thread ${threadId} not found`)
   }
 
-  const comments = input.reply_to != null ? listComments(dataDir, threadId) : null
-  const id = comments ? nextCommentId(comments) : nextTopLevelCommentId(dataDir, threadId)
-
+  const id = nextTopLevelCommentId(dataDir, threadId)
   let parentId: string | null = null
   let discussionId = id
 
   if (input.reply_to != null) {
-    const target = comments?.find((c) => c.id === input.reply_to)
-    if (!target) {
+    const replyDiscussionIds = getReplyDiscussionIds(dataDir, threadId)
+    const rootDiscussionId = replyDiscussionIds.get(input.reply_to)
+    if (!rootDiscussionId) {
       throw new NotFoundError(`reply target ${input.reply_to} not found`)
     }
-    discussionId = target.discussion_id
-    parentId = target.discussion_id
+    discussionId = rootDiscussionId
+    parentId = rootDiscussionId
   }
 
   const comment = buildComment({
@@ -137,7 +123,41 @@ export function addAgentComment(
   })
 
   appendJsonl(commentsPath(dataDir, threadId), comment)
+  replyDiscussionIdsByThread
+    .get(replyCacheKey(dataDir, threadId))
+    ?.set(comment.id, comment.discussion_id)
   return comment
+}
+
+export function addComment(
+  dataDir: string,
+  threadId: string,
+  input: CreateCommentInput,
+): Comment {
+  return addStoredComment(dataDir, threadId, {
+    author: 'human',
+    body: input.body,
+    type: input.type,
+    reply_to: input.reply_to,
+  })
+}
+
+export function addAgentComment(
+  dataDir: string,
+  threadId: string,
+  input: {
+    author: Exclude<CommentAuthor, 'human' | 'system'>
+    body: string
+    type?: CommentType
+    reply_to?: string | null
+  },
+): Comment {
+  return addStoredComment(dataDir, threadId, {
+    author: input.author,
+    body: input.body,
+    type: input.type,
+    reply_to: input.reply_to,
+  })
 }
 
 export function deleteComment(
@@ -161,6 +181,7 @@ export function deleteComment(
       : comments.filter((c) => c.id !== target.id)
 
   atomicRewriteJsonl(commentsPath(dataDir, threadId), kept)
+  clearReplyDiscussionIds(dataDir, threadId)
 }
 
 function buildComment(input: {

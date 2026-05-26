@@ -45,6 +45,7 @@ import {
   ConflictError,
   IntegrityStorageError,
   NotFoundError,
+  StorageOperationError,
   type Storage,
 } from './storage'
 import { systemPromptSections, type RoomManager } from './rooms/manager'
@@ -94,6 +95,10 @@ function handleStorageError(err: unknown, res: express.Response): boolean {
   }
   if (err instanceof ConflictError) {
     res.status(409).json({ error: err.message })
+    return true
+  }
+  if (err instanceof StorageOperationError) {
+    res.status(503).json({ error: err.message })
     return true
   }
   if (err instanceof IntegrityStorageError || err instanceof SyntaxError) {
@@ -662,28 +667,28 @@ export function createApp(deps: {
     }
   })
 
-  app.post('/api/threads/:id/project-snapshot/preflight', (req, res) => {
+  app.post('/api/threads/:id/project-snapshot/preflight', async (req, res) => {
     const parsed = snapshotPreflightInputSchema.safeParse(req.body)
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() })
     }
 
     try {
-      res.json(storage.preflightProjectSnapshot(req.params.id, parsed.data.source_path))
+      res.json(await storage.preflightProjectSnapshot(req.params.id, parsed.data.source_path))
     } catch (err) {
       if (handleStorageError(err, res)) return
       throw err
     }
   })
 
-  app.put('/api/threads/:id/project-snapshot', (req, res) => {
+  app.put('/api/threads/:id/project-snapshot', async (req, res) => {
     const parsed = createProjectSnapshotInputSchema.safeParse(req.body)
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() })
     }
 
     try {
-      const snapshot = storage.createProjectSnapshot(req.params.id, parsed.data)
+      const snapshot = await storage.createProjectSnapshot(req.params.id, parsed.data)
       broadcast({ type: 'thread_context_updated', thread_id: req.params.id })
       res.status(201).json(snapshot)
     } catch (err) {
@@ -692,9 +697,9 @@ export function createApp(deps: {
     }
   })
 
-  app.post('/api/threads/:id/project-snapshot/refresh', (req, res) => {
+  app.post('/api/threads/:id/project-snapshot/refresh', async (req, res) => {
     try {
-      const snapshot = storage.refreshProjectSnapshot(req.params.id)
+      const snapshot = await storage.refreshProjectSnapshot(req.params.id)
       broadcast({ type: 'thread_context_updated', thread_id: req.params.id })
       res.json(snapshot)
     } catch (err) {

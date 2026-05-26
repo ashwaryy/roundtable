@@ -5,7 +5,6 @@ import {
   consolidationsDir,
   contextItemsPath,
   counterFilePath,
-  jobJsonPath,
   jobsDir,
   pendingDiscussionsPath,
   projectSnapshotReportsDir,

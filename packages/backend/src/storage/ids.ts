@@ -1,3 +1,4 @@
+import type { Comment as RoundtableComment } from '@roundtable/shared'
 import {
   nextPendingDiscussionCounterValue,
   nextThreadCounterValue,
@@ -7,7 +8,7 @@ export function nextThreadId(dataDir: string): string {
   return `thread-${nextThreadCounterValue(dataDir)}`
 }
 
-export function nextCommentId(comments: Comment[]): string {
+export function nextCommentId(comments: RoundtableComment[]): string {
   let max = 0
   for (const c of comments) {
     const match = /^c(\d+)$/.exec(c.id)
