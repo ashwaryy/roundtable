@@ -974,6 +974,16 @@ export function createApp(deps: {
     }
   })
 
+  app.get('/api/threads/:id/room/agents/:agentId/tmux-view', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    try {
+      res.json(rooms.getTmuxPaneSnapshot(req.params.id, req.params.agentId))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
   app.post('/api/threads/:id/room/start', (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
     const parsed = startRoomInputSchema.safeParse(req.body ?? {})

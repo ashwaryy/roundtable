@@ -1,9 +1,18 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import type { AgentName, Agent, AgentRoom, RoomPreflight, ThreadStatus } from '@roundtable/shared'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
+import type {
+  AgentName,
+  Agent,
+  AgentRoom,
+  RoomPreflight,
+  ThreadStatus,
+  TmuxPaneSnapshot,
+} from '@roundtable/shared'
 import {
   cancelIdleSuggestion,
   exitAutoDiscussion,
   extendAutoDiscussion,
+  getTmuxPaneSnapshot,
   nudgeRoom,
   requestIdleSuggestion,
   openRoomTerminal,
@@ -24,6 +33,8 @@ import {
 } from '../api'
 import { Avatar, Icon } from './primitives'
 import { ModelSelect } from './ModelSelect'
+
+const TMUX_VIEW_POLL_MS = 2000
 
 export function RoomRosterPlaceholder() {
   return (
@@ -54,6 +65,176 @@ export function RoomRosterPlaceholder() {
       </div>
     </>
   )
+}
+
+function TmuxViewerDialog({
+  open,
+  agents,
+  selectedAgent,
+  snapshot,
+  loading,
+  stale,
+  error,
+  onClose,
+  onSelectAgent,
+}: {
+  open: boolean
+  agents: Array<{ agent_id: string; name: string }>
+  selectedAgent: string | null
+  snapshot: TmuxPaneSnapshot | null
+  loading: boolean
+  stale: boolean
+  error: string | null
+  onClose: () => void
+  onSelectAgent: (agentId: string) => void
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const stickToBottomRef = useRef(true)
+  const selected = agents.find((agent) => agent.agent_id === selectedAgent) ?? null
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose, open])
+
+  useEffect(() => {
+    if (!open) return
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previous
+    }
+  }, [open])
+
+  useEffect(() => {
+    const scroller = scrollRef.current
+    if (!scroller || !stickToBottomRef.current) return
+    scroller.scrollTop = scroller.scrollHeight
+  }, [snapshot?.captured_at, selectedAgent])
+
+  if (!open || typeof document === 'undefined') return null
+
+  return createPortal((
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-panel tmux-viewer-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Agent tmux viewer"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-head">
+          <div>
+            <h2 className="h-2">Agent Output</h2>
+            <p className="tmux-viewer-sub">
+              {selected ? selected.name : 'No active agent view'} · read-only tmux snapshot
+            </p>
+          </div>
+          <button className="btn icon" type="button" aria-label="Close tmux viewer" onClick={onClose}>
+            <Icon name="close" className="ic-sm" />
+          </button>
+        </div>
+
+        {agents.length > 0 ? (
+          <div className="tmux-viewer-tabs" role="tablist" aria-label="Viewable agents">
+            {agents.map((agent) => (
+              <button
+                key={agent.agent_id}
+                type="button"
+                className={`tmux-viewer-tab${selectedAgent === agent.agent_id ? ' is-active' : ''}`}
+                onClick={() => onSelectAgent(agent.agent_id)}
+              >
+                {agent.name}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {loading && !snapshot ? (
+          <div className="tmux-viewer-meta tmux-viewer-meta--loading" aria-hidden="true">
+            <span className="sk tmux-viewer-meta-skeleton tmux-viewer-meta-skeleton--status" />
+            <span className="sk tmux-viewer-meta-skeleton tmux-viewer-meta-skeleton--time" />
+          </div>
+        ) : (
+          <div className="tmux-viewer-meta">
+            <span>{stale ? 'Updates paused' : 'Live'}</span>
+            <span className="mono">
+              {snapshot?.captured_at ? new Date(snapshot.captured_at).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              }) : 'No snapshot'}
+            </span>
+          </div>
+        )}
+
+        {error ? (
+          <p className="tmux-viewer-alert" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        {loading && !snapshot ? (
+          <div className="tmux-viewer-note tmux-viewer-note--loading" aria-hidden="true">
+            <span className="sk tmux-viewer-note-skeleton tmux-viewer-note-skeleton--full" />
+            <span className="sk tmux-viewer-note-skeleton tmux-viewer-note-skeleton--mid" />
+          </div>
+        ) : snapshot?.truncated ? (
+          <p className="tmux-viewer-note">
+            Showing the most recent 200 lines of pane history.
+          </p>
+        ) : null}
+
+        <div
+          ref={scrollRef}
+          className="tmux-viewer-frame"
+          onScroll={(event) => {
+            const node = event.currentTarget
+            stickToBottomRef.current =
+              node.scrollHeight - node.scrollTop - node.clientHeight < 24
+          }}
+        >
+          {loading && !snapshot ? (
+            <div className="tmux-viewer-skeleton" aria-hidden="true">
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--wide" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--mid" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--full" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--short" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--full" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--mid" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--wide" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--full" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--short" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--mid" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--full" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--wide" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--mid" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--short" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--full" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--mid" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--wide" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--full" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--short" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--mid" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--full" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--wide" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--mid" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--short" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--full" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--wide" />
+              <span className="sk tmux-viewer-skeleton__line tmux-viewer-skeleton__line--mid" />
+            </div>
+          ) : (
+            <pre className="tmux-viewer-pre">{snapshot?.text || 'No tmux output available.'}</pre>
+          )}
+        </div>
+      </div>
+    </div>
+  ), document.body)
 }
 
 function sessionLabel(room: AgentRoom | null, summary?: string): string {
@@ -118,9 +299,17 @@ export function RoomPanel({
   const [allowDirectRoots, setAllowDirectRoots] = useState(false)
   const [startingRoom, setStartingRoom] = useState(false)
   const [openingTerminal, setOpeningTerminal] = useState(false)
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [viewerAgent, setViewerAgent] = useState<string | null>(null)
+  const [viewerSnapshot, setViewerSnapshot] = useState<TmuxPaneSnapshot | null>(null)
+  const [viewerLoading, setViewerLoading] = useState(false)
+  const [viewerStale, setViewerStale] = useState(false)
+  const [viewerError, setViewerError] = useState<string | null>(null)
+  const viewerSnapshotRef = useRef<TmuxPaneSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const isThreadOpen = threadStatus === 'open'
   const roster = room?.roster ?? []
+  const viewableAgents = roster.filter((agent) => room?.agents[agent.agent_id]?.pane_viewable)
 
   useEffect(() => {
     listAgents().then((items) => setCatalogue(items.filter((item) => !item.archived)))
@@ -135,6 +324,84 @@ export function RoomPanel({
       setSuggestAgent((value) => roster.some((agent) => agent.agent_id === value) ? value : first)
     }
   }, [room?.roster])
+
+  useEffect(() => {
+    if (!viewerOpen) return
+    if (viewableAgents.length === 0) {
+      setViewerAgent(null)
+      setViewerSnapshot(null)
+      setViewerLoading(false)
+      setViewerStale(false)
+      setViewerError('No tmux windows are currently viewable.')
+      return
+    }
+    if (!viewerAgent || !viewableAgents.some((agent) => agent.agent_id === viewerAgent)) {
+      setViewerAgent(viewableAgents[0]?.agent_id ?? null)
+    }
+  }, [viewerAgent, viewerOpen, viewableAgents])
+
+  useEffect(() => {
+    viewerSnapshotRef.current = viewerSnapshot
+  }, [viewerSnapshot])
+
+  useEffect(() => {
+    if (!viewerOpen || !viewerAgent) return
+    let cancelled = false
+    let pollTimer: number | null = null
+
+    const loadSnapshot = async (showLoading: boolean) => {
+      if (showLoading) setViewerLoading(true)
+      try {
+        const next = await getTmuxPaneSnapshot(threadId, viewerAgent)
+        if (cancelled) return
+        setViewerSnapshot(next)
+        setViewerError(null)
+        setViewerStale(false)
+      } catch (err) {
+        if (cancelled) return
+        const message = err instanceof Error ? err.message : String(err)
+        setViewerError(message)
+        if (showLoading || !viewerSnapshotRef.current) {
+          setViewerSnapshot(null)
+        } else {
+          setViewerStale(true)
+        }
+      } finally {
+        if (!cancelled) setViewerLoading(false)
+      }
+    }
+
+    setViewerSnapshot(null)
+    setViewerError(null)
+    setViewerStale(false)
+    void loadSnapshot(true)
+
+    pollTimer = window.setInterval(() => {
+      void loadSnapshot(false)
+    }, TMUX_VIEW_POLL_MS)
+
+    return () => {
+      cancelled = true
+      if (pollTimer !== null) window.clearInterval(pollTimer)
+    }
+  }, [threadId, viewerAgent, viewerOpen])
+
+  function openViewer(agentId: string) {
+    setViewerOpen(true)
+    setViewerAgent(agentId)
+    setViewerSnapshot(null)
+    setViewerError(null)
+    setViewerStale(false)
+  }
+
+  function closeViewer() {
+    setViewerOpen(false)
+    setViewerAgent(null)
+    setViewerSnapshot(null)
+    setViewerError(null)
+    setViewerStale(false)
+    setViewerLoading(false)
+  }
 
   async function handleStart(event: FormEvent) {
     event.preventDefault()
@@ -447,6 +714,17 @@ export function RoomPanel({
                   <select className="agent-model" aria-label={`${agentId} effort`} value={efforts[agentId] ?? ''} onChange={(event) => setEfforts((value) => ({ ...value, [agentId]: event.target.value }))} onBlur={() => void saveModel(agentId)} disabled={!isThreadOpen}>
                     <option value="">Effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>{agent.runtime === 'codex' ? <option value="xhigh">XHigh</option> : null}
                   </select>
+                  {room?.agents[agentId]?.pane_viewable ? (
+                    <button
+                      type="button"
+                      className="agent-viewer-toggle"
+                      title={`View ${agent.name} tmux output`}
+                      aria-label={`View ${agent.name} tmux output`}
+                      onClick={() => openViewer(agentId)}
+                    >
+                      <Icon name="eye" className="ic-sm" />
+                    </button>
+                  ) : null}
                   {roster.length > 1 && (room?.status === 'idle' || room?.status === 'not_started' || room?.status === 'stopped') ? (
                     <button
                       type="button"
@@ -680,6 +958,18 @@ export function RoomPanel({
           ) : null}
         </div>
       </section>
+
+      <TmuxViewerDialog
+        open={viewerOpen}
+        agents={viewableAgents.map((agent) => ({ agent_id: agent.agent_id, name: agent.name }))}
+        selectedAgent={viewerAgent}
+        snapshot={viewerSnapshot}
+        loading={viewerLoading}
+        stale={viewerStale}
+        error={viewerError}
+        onClose={closeViewer}
+        onSelectAgent={setViewerAgent}
+      />
     </>
   )
 }

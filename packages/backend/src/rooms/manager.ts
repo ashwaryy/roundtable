@@ -30,6 +30,7 @@ import type {
   StartConsolidationInput,
   StartRoomInput,
   SystemPromptSection,
+  TmuxPaneSnapshot,
   ThreadStatus,
   ThreadAgentInvite,
   AgentRuntime,
@@ -107,6 +108,7 @@ export class SystemCommandExecutor implements CommandExecutor {
 export interface RoomManager {
   preflight(threadId?: string): RoomPreflight
   getRoom(threadId: string): AgentRoom
+  getTmuxPaneSnapshot(threadId: string, agent: AgentName): TmuxPaneSnapshot
   startRoom(threadId: string, input: StartRoomInput): AgentRoom
   syncRoster(threadId: string): AgentRoom
   restartRoom(threadId: string): AgentRoom
@@ -205,6 +207,7 @@ export interface AgentReviewSubmission extends AgentTurnResult {
 
 const TOOL_NAMES = ['tmux', 'claude', 'codex'] as const
 const DEFAULT_TURN_TIMEOUT_MS = 10 * 60 * 1000
+const TMUX_VIEW_LINE_LIMIT = 200
 
 function now(): string {
   return new Date().toISOString()
@@ -216,6 +219,19 @@ function tmuxSessionName(threadId: string): string {
 
 function attachCommand(threadId: string): string {
   return `tmux attach -t ${tmuxSessionName(threadId)}`
+}
+
+function agentStates(
+  roster: ThreadAgentInvite[],
+  existing: Partial<AgentRoom['agents']> = {},
+): AgentRoom['agents'] {
+  return Object.fromEntries(roster.map((agent) => [
+    agent.agent_id,
+    {
+      ready_at: existing[agent.agent_id]?.ready_at ?? null,
+      pane_viewable: existing[agent.agent_id]?.pane_viewable ?? false,
+    },
+  ]))
 }
 
 function stripToken(room: InternalRoom): AgentRoom {
@@ -260,7 +276,7 @@ function defaultRoom(dataDir: string, threadId: string): InternalRoom {
     claude_model: null,
     codex_model: null,
     roster,
-    agents: Object.fromEntries(roster.map((agent) => [agent.agent_id, { ready_at: null }])),
+    agents: agentStates(roster),
     created_at: timestamp,
     updated_at: timestamp,
     started_at: null,
@@ -284,10 +300,7 @@ function readRoom(dataDir: string, threadId: string): InternalRoom {
     ...defaultRoom(dataDir, threadId),
     ...parsed,
     roster,
-    agents: Object.fromEntries(roster.map((agent) => [
-      agent.agent_id,
-      parsed.agents?.[agent.agent_id] ?? { ready_at: null },
-    ])),
+    agents: agentStates(roster, parsed.agents ?? {}),
     auto: parsed.auto ?? null,
     input_prompt: parsed.input_prompt ?? null,
     idle_suggestion_request: parsed.idle_suggestion_request ?? null,
@@ -388,6 +401,10 @@ function windowForAgent(agent: AgentName): string {
   return `agent-${agent.replace(/[^a-zA-Z0-9_-]/g, '-')}`
 }
 
+function paneTarget(room: Pick<AgentRoom, 'tmux_session'>, agent: AgentName): string {
+  return `${room.tmux_session}:${windowForAgent(agent)}`
+}
+
 function nextAgent(room: InternalRoom, agent: AgentName): AgentName {
   const roster = room.roster.map((invite) => invite.agent_id)
   const index = roster.indexOf(agent)
@@ -397,6 +414,12 @@ function nextAgent(room: InternalRoom, agent: AgentName): AgentName {
 function inviteFor(room: InternalRoom, agent: AgentName): ThreadAgentInvite {
   const invite = room.roster.find((entry) => entry.agent_id === agent)
   if (!invite) throw new BadRequestError(`agent ${agent} is not in the room roster`)
+  return invite
+}
+
+function inviteForSnapshot(room: InternalRoom, agent: AgentName): ThreadAgentInvite {
+  const invite = room.roster.find((entry) => entry.agent_id === agent)
+  if (!invite) throw new NotFoundError(`agent ${agent} not found`)
   return invite
 }
 
@@ -1058,6 +1081,52 @@ function sessionExists(executor: CommandExecutor, sessionName: string): boolean 
   }
 }
 
+function paneExists(
+  executor: CommandExecutor,
+  room: Pick<AgentRoom, 'tmux_session'>,
+  agent: AgentName,
+): boolean {
+  try {
+    executor.execFile('tmux', ['list-panes', '-t', paneTarget(room, agent), '-F', '#{pane_id}'])
+    return true
+  } catch {
+    return false
+  }
+}
+
+function capturePane(
+  executor: CommandExecutor,
+  room: Pick<AgentRoom, 'tmux_session'>,
+  agent: AgentName,
+  startLine: number,
+): string {
+  return executor.execFile('tmux', [
+    'capture-pane',
+    '-t',
+    paneTarget(room, agent),
+    '-p',
+    '-S',
+    String(startLine),
+  ])
+}
+
+function withPaneViewable(
+  executor: CommandExecutor,
+  room: InternalRoom,
+  live = sessionExists(executor, room.tmux_session),
+): InternalRoom {
+  return {
+    ...room,
+    agents: Object.fromEntries(Object.entries(room.agents).map(([agentId, state]) => [
+      agentId,
+      {
+        ...state,
+        pane_viewable: live && paneExists(executor, room, agentId),
+      },
+    ])),
+  }
+}
+
 function sendStartupPromptKeys(
   executor: CommandExecutor,
   room: InternalRoom,
@@ -1077,14 +1146,7 @@ function startupPromptAcceptanceKeys(
   room: InternalRoom,
   agent: AgentName,
 ): string[] | null {
-  const output = executor.execFile('tmux', [
-    'capture-pane',
-    '-t',
-    `${room.tmux_session}:${windowForAgent(agent)}`,
-    '-p',
-    '-S',
-    '-80',
-  ])
+  const output = capturePane(executor, room, agent, -80)
   if (/Hooks need review[\s\S]*Trust all and continue/i.test(output)) {
     if (/Press enter to confirm or esc to go back/i.test(output)) {
       return ['Down', 'C-m']
@@ -1557,14 +1619,7 @@ export function createRoomManager(options: {
     }
 
     for (const { agent_id: agent } of room.roster) {
-      const output = executor.execFile('tmux', [
-        'capture-pane',
-        '-t',
-        `${room.tmux_session}:${windowForAgent(agent)}`,
-        '-p',
-        '-S',
-        '-80',
-      ])
+      const output = capturePane(executor, room, agent, -80)
       const excerpt = detectInputPrompt(output)
       if (excerpt) {
         const existing = room.input_prompt
@@ -2081,7 +2136,7 @@ export function createRoomManager(options: {
     const status = threadStatus(dataDir, threadId)
     if ((status === 'closed' || status === 'archived') && live) {
       executor.execFile('tmux', ['kill-session', '-t', room.tmux_session])
-      const stopped = {
+      const stopped = withPaneViewable(executor, {
         ...room,
         status: 'stopped' as const,
         session_state: 'stopped' as const,
@@ -2089,26 +2144,26 @@ export function createRoomManager(options: {
         updated_at: now(),
         active_job_id: null,
         auto: null,
-      }
+      }, false)
       writeRoom(dataDir, stopped)
       cleanupStoppedRoomFiles(dataDir, threadId)
       return stopped
     }
     if (!roomFileExists && live) {
-      const untracked: InternalRoom = {
+      const untracked: InternalRoom = withPaneViewable(executor, {
         ...room,
         status: 'needs_attention',
         session_state: 'untracked',
         last_error: 'An untracked tmux session exists; stop it before restarting the room.',
         updated_at: now(),
-      }
+      }, true)
       writeRoom(dataDir, untracked)
       return untracked
     }
     if (!roomFileExists) return room
     if (live && room.session_state === 'untracked') return room
     if (live) {
-      const recovered: InternalRoom = {
+      const recovered = withPaneViewable(executor, {
         ...room,
         session_state:
           startup
@@ -2117,7 +2172,7 @@ export function createRoomManager(options: {
             ? room.session_state
             : 'recovered',
         updated_at: now(),
-      }
+      }, true)
       const active = recovered.active_job_id
         ? getJob(dataDir, threadId, recovered.active_job_id)
         : null
@@ -2142,7 +2197,7 @@ export function createRoomManager(options: {
         logs: [...active.logs, 'Room session missing after backend restart.'],
       })
     }
-    const missing: InternalRoom = {
+    const missing: InternalRoom = withPaneViewable(executor, {
       ...room,
       status: room.active_job_id ? 'needs_attention' : 'error',
       session_state: 'missing',
@@ -2150,7 +2205,7 @@ export function createRoomManager(options: {
       last_error: room.active_job_id
         ? 'Room session is missing; restart the room, then retry or skip the interrupted turn.'
         : 'Room session is missing; restart the room to continue.',
-    }
+    }, false)
     writeRoom(dataDir, missing)
     return missing
   }
@@ -2187,6 +2242,32 @@ export function createRoomManager(options: {
         return stripToken(reconciled)
       }
       return stripToken(refreshInputPrompt(expireActiveTurn(threadId)))
+    },
+
+    getTmuxPaneSnapshot(threadId: string, agent: AgentName): TmuxPaneSnapshot {
+      ensureThread(dataDir, threadId)
+      const room = reconcileRoom(threadId)
+      inviteForSnapshot(room, agent)
+      if (room.session_state !== 'connected' && room.session_state !== 'recovered') {
+        throw new ConflictError('room tmux session is not running')
+      }
+      if (!room.agents[agent]?.pane_viewable) {
+        throw new ConflictError(`agent ${agent} tmux window is not viewable`)
+      }
+
+      const capturedAt = now()
+      const raw = capturePane(executor, room, agent, -(TMUX_VIEW_LINE_LIMIT + 1))
+      const lines = raw.replace(/\r/g, '').split('\n')
+      const truncated = lines.length > TMUX_VIEW_LINE_LIMIT
+      const text = (truncated ? lines.slice(-TMUX_VIEW_LINE_LIMIT) : lines).join('\n')
+
+      return {
+        thread_id: threadId,
+        agent_id: agent,
+        captured_at: capturedAt,
+        text,
+        truncated,
+      }
     },
 
     startRoom(threadId: string, input: StartRoomInput): AgentRoom {
@@ -2234,7 +2315,7 @@ export function createRoomManager(options: {
         claude_model: normalizeModel(input.claude_model),
         codex_model: normalizeModel(input.codex_model),
         roster,
-        agents: Object.fromEntries(roster.map((invite) => [invite.agent_id, { ready_at: null }])),
+        agents: agentStates(roster),
         updated_at: timestamp,
         started_at: existing.started_at ?? timestamp,
         stopped_at: null,
@@ -2297,8 +2378,9 @@ export function createRoomManager(options: {
         return markError(dataDir, room, message)
       }
 
-      writeRoom(dataDir, room)
-      return stripToken(room)
+      const connected = withPaneViewable(executor, room, true)
+      writeRoom(dataDir, connected)
+      return stripToken(connected)
     },
 
     syncRoster(threadId: string): AgentRoom {
@@ -2312,7 +2394,7 @@ export function createRoomManager(options: {
         const updated = {
           ...room,
           roster,
-          agents: Object.fromEntries(roster.map((invite) => [invite.agent_id, { ready_at: null }])),
+          agents: agentStates(roster),
           updated_at: now(),
         }
         writeRoom(dataDir, updated)
@@ -2335,10 +2417,12 @@ export function createRoomManager(options: {
       const updated: InternalRoom = {
         ...room,
         roster,
-        agents: Object.fromEntries(roster.map((invite) => [
+        agents: agentStates(roster, Object.fromEntries(roster.map((invite) => [
           invite.agent_id,
-          restartIds.has(invite.agent_id) ? { ready_at: null } : room.agents[invite.agent_id] ?? { ready_at: null },
-        ])),
+          restartIds.has(invite.agent_id)
+            ? { ready_at: null, pane_viewable: false }
+            : room.agents[invite.agent_id] ?? { ready_at: null, pane_viewable: false },
+        ]))),
         status: restartIds.size > 0 ? 'starting' : 'idle',
         idle_suggestion_request: null,
         updated_at: now(),
@@ -2360,8 +2444,9 @@ export function createRoomManager(options: {
           path.join(roundtableInternalDir(dataDir, threadId), `launch-${invite.agent_id}.sh`), 'C-m',
         ])
       }
-      writeRoom(dataDir, updated)
-      return stripToken(updated)
+      const synced = withPaneViewable(executor, updated, true)
+      writeRoom(dataDir, synced)
+      return stripToken(synced)
     },
 
     restartRoom(threadId: string): AgentRoom {
@@ -2411,7 +2496,7 @@ export function createRoomManager(options: {
         }
       }
       const timestamp = now()
-      const updated: InternalRoom = {
+      const updated = withPaneViewable(executor, {
         ...room,
         status: 'stopped',
         updated_at: timestamp,
@@ -2420,7 +2505,7 @@ export function createRoomManager(options: {
         auto: null,
         idle_suggestion_request: null,
         session_state: 'stopped',
-      }
+      }, false)
       if (room.active_job_id) clearTurnTimer(room.active_job_id)
       removeIfExists(currentTurnPath(dataDir, threadId))
       writeRoom(dataDir, updated)
@@ -2569,6 +2654,7 @@ export function createRoomManager(options: {
           ...room.agents,
           [agent]: {
             ready_at: room.agents[agent].ready_at ?? now(),
+            pane_viewable: room.agents[agent].pane_viewable,
           },
         },
         updated_at: now(),

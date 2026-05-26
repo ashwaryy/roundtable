@@ -576,7 +576,7 @@ Skip
 Show tmux attach command
 ```
 
-The UI does not embed terminal panes in v1. It shows the command needed to attach to the relevant tmux session for debugging.
+The UI does not embed interactive terminal panes in v1. It shows the command needed to attach to the relevant tmux session for debugging and may offer a read-only browser snapshot of an agent tmux pane for lightweight monitoring.
 
 ## 9. Browser UI
 

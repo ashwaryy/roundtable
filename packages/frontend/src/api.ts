@@ -43,6 +43,7 @@ import type {
   UpdateThreadAgentInviteInput,
   SystemPromptSection,
   SystemInfo,
+  TmuxPaneSnapshot,
 } from '@roundtable/shared'
 
 export interface AgentTurnResult {
@@ -379,6 +380,13 @@ export function getRoomPreflight(threadId: string): Promise<RoomPreflight> {
 
 export function getRoom(threadId: string): Promise<AgentRoom> {
   return readJson<AgentRoom>(`/api/threads/${threadId}/room`)
+}
+
+export function getTmuxPaneSnapshot(
+  threadId: string,
+  agentId: string,
+): Promise<TmuxPaneSnapshot> {
+  return readJson<TmuxPaneSnapshot>(`/api/threads/${threadId}/room/agents/${agentId}/tmux-view`)
 }
 
 export function startRoom(

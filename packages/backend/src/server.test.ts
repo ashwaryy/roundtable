@@ -573,8 +573,8 @@ function testRoom(status: AgentRoom['status'] = 'starting'): AgentRoom {
     claude_model: null,
     codex_model: null,
     agents: {
-      claude: { ready_at: null },
-      codex: { ready_at: null },
+      claude: { ready_at: null, pane_viewable: status !== 'not_started' },
+      codex: { ready_at: null, pane_viewable: status !== 'not_started' },
     },
     roster: [
       { agent_id: 'claude', name: 'Claude', runtime: 'claude', role_description: '', instructions: '', model: null, effort: null, color: 'amber', logo_url: null, order: 0 },
@@ -666,6 +666,13 @@ describe('room routes', () => {
     rooms = {
       preflight: vi.fn(() => testPreflight()),
       getRoom: vi.fn(() => testRoom('not_started')),
+      getTmuxPaneSnapshot: vi.fn(() => ({
+        thread_id: 'thread-1',
+        agent_id: 'claude',
+        captured_at: '2026-05-23T00:00:00.000Z',
+        text: 'working...',
+        truncated: false,
+      })),
       startRoom: vi.fn(() => testRoom('starting')),
       syncRoster: vi.fn(() => testRoom('idle')),
       restartRoom: vi.fn(() => testRoom('starting')),
@@ -862,6 +869,20 @@ describe('room routes', () => {
       type: 'room_updated',
       thread_id: 'thread-1',
     })
+  })
+
+  it('returns a read-only tmux pane snapshot for an invited agent', async () => {
+    const res = await request(app).get('/api/threads/thread-1/room/agents/claude/tmux-view')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({
+      thread_id: 'thread-1',
+      agent_id: 'claude',
+      captured_at: '2026-05-23T00:00:00.000Z',
+      text: 'working...',
+      truncated: false,
+    })
+    expect(rooms.getTmuxPaneSnapshot).toHaveBeenCalledWith('thread-1', 'claude')
   })
 
   it('stops a room', async () => {

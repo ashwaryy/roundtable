@@ -25,6 +25,7 @@ class FakeExecutor implements CommandExecutor {
   missing = new Set<string>()
   sessions = new Set<string>()
   paneCaptures = new Map<string, string>()
+  panes = new Set<string>()
 
   execFile(file: string, args: string[]): string {
     this.commands.push({ file, args })
@@ -46,18 +47,50 @@ class FakeExecutor implements CommandExecutor {
 
     if (file === 'tmux' && args[0] === 'new-session') {
       const session = args[args.indexOf('-s') + 1]
+      const window = args[args.indexOf('-n') + 1]
       this.sessions.add(session)
+      this.panes.add(`${session}:${window}`)
       return ''
     }
 
     if (file === 'tmux' && args[0] === 'kill-session') {
       const session = args[args.indexOf('-t') + 1]
       this.sessions.delete(session)
+      for (const pane of [...this.panes]) {
+        if (pane.startsWith(`${session}:`)) this.panes.delete(pane)
+      }
+      return ''
+    }
+
+    if (file === 'tmux' && args[0] === 'new-window') {
+      const session = args[args.indexOf('-t') + 1]
+      const window = args[args.indexOf('-n') + 1]
+      this.panes.add(`${session}:${window}`)
+      return ''
+    }
+
+    if (file === 'tmux' && args[0] === 'kill-window') {
+      const target = args[args.indexOf('-t') + 1]
+      this.panes.delete(target)
+      this.paneCaptures.delete(target)
+      return ''
+    }
+
+    if (file === 'tmux' && args[0] === 'list-panes') {
+      const target = args[args.indexOf('-t') + 1]
+      if (!this.panes.has(target)) throw new Error('missing pane')
+      return '%1\n'
+    }
+
+    if (file === 'tmux' && args[0] === 'send-keys') {
+      const target = args[args.indexOf('-t') + 1]
+      if (!this.panes.has(target)) throw new Error('missing pane')
       return ''
     }
 
     if (file === 'tmux' && args[0] === 'capture-pane') {
       const target = args[args.indexOf('-t') + 1]
+      if (!this.panes.has(target)) throw new Error('missing pane')
       return this.paneCaptures.get(target) ?? ''
     }
 
@@ -401,6 +434,8 @@ describe('createRoomManager', () => {
     expect(room.claude_model).toBe('sonnet')
     expect(room.codex_model).toBe('gpt-5')
     expect(room.attach_command).toBe('tmux attach -t roundtable-thread-1')
+    expect(room.agents.claude.pane_viewable).toBe(true)
+    expect(room.agents.codex.pane_viewable).toBe(true)
     expect(fs.existsSync(roundtableHelperPath(dataDir, 'thread-1'))).toBe(true)
     expect(
       fs.readFileSync(roundtableHelperPath(dataDir, 'thread-1'), 'utf8'),
@@ -497,6 +532,22 @@ describe('createRoomManager', () => {
         command.args[3] === 'C-m',
     )
     expect(startupEnterCommands).toEqual([])
+  })
+
+  it('returns a bounded read-only tmux pane snapshot for a viewable agent', () => {
+    const { manager } = startReadyRoom()
+    executor.paneCaptures.set(
+      'roundtable-thread-1:agent-claude',
+      Array.from({ length: 205 }, (_, index) => `line ${index + 1}`).join('\n'),
+    )
+
+    const snapshot = manager.getTmuxPaneSnapshot('thread-1', 'claude')
+
+    expect(snapshot.thread_id).toBe('thread-1')
+    expect(snapshot.agent_id).toBe('claude')
+    expect(snapshot.truncated).toBe(true)
+    expect(snapshot.text).toContain('line 205')
+    expect(snapshot.text).not.toContain('line 1\n')
   })
 
   it('trusts generated Codex hooks when their review prompt appears at startup', async () => {

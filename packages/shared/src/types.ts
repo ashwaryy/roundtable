@@ -362,6 +362,7 @@ export type RoomSessionState =
 
 export interface RoomAgentState {
   ready_at: string | null
+  pane_viewable: boolean
 }
 
 export type AutoDiscussionStatus =
@@ -418,6 +419,14 @@ export interface AgentRoom {
   input_prompt: AgentInputPrompt | null
   idle_suggestion_request: IdleSuggestionRequest | null
   session_state: RoomSessionState
+}
+
+export interface TmuxPaneSnapshot {
+  thread_id: string
+  agent_id: AgentId
+  captured_at: string
+  text: string
+  truncated: boolean
 }
 
 export type IntegrityIssueKind = 'added' | 'modified' | 'deleted' | 'invalid'
