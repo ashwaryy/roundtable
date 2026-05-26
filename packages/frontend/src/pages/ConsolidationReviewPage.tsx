@@ -17,6 +17,7 @@ import {
 } from "../api";
 import { useLiveRefresh } from "../useLiveRefresh";
 import { WorkspaceHeader } from "../components/AppHeader";
+import { ConsolidationReviewSkeleton } from "../components/ConsolidationReviewSkeleton";
 import { Icon } from "../components/primitives";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { CONSOLIDATION_STEPS, buildConsolidationUiState } from "../lib/consolidationUi";
@@ -170,7 +171,7 @@ export function ConsolidationReviewPage() {
     }
   }
 
-  if (!thread || !detail) return <p>Loading...</p>;
+  if (!thread || !detail) return <ConsolidationReviewSkeleton />;
 
   const proposal = detail.proposal;
   const uiState = buildConsolidationUiState({

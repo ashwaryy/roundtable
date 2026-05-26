@@ -1790,6 +1790,41 @@ article + ul article {
   border-radius: 50%;
   margin: 4px 0;
 }
+.consolidation-review-skeleton__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.consolidation-review-skeleton__step {
+  height: 28px;
+  border-radius: 999px;
+}
+.consolidation-review-skeleton__body {
+  display: grid;
+  gap: 10px;
+}
+.consolidation-review-skeleton__body .sk {
+  height: 15px;
+}
+.consolidation-review-skeleton__rail-title {
+  width: 94px;
+  height: 14px;
+}
+.consolidation-review-skeleton__rail-body {
+  display: grid;
+  gap: 8px;
+}
+.consolidation-review-skeleton__input {
+  width: 100%;
+  height: 34px;
+  border-radius: 8px;
+}
+.consolidation-review-skeleton__button {
+  width: 118px;
+  height: 30px;
+  border-radius: 6px;
+}
 
 /* ── Empty stream ────────────────────────────────────────────── */
 .empty-stream {
