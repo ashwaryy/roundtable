@@ -666,6 +666,7 @@ describe('room routes', () => {
     rooms = {
       preflight: vi.fn(() => testPreflight()),
       getRoom: vi.fn(() => testRoom('not_started')),
+      getRoomSummary: vi.fn(() => testRoom('not_started')),
       getTmuxPaneSnapshot: vi.fn(() => ({
         thread_id: 'thread-1',
         agent_id: 'claude',

@@ -1653,4 +1653,26 @@ describe('createRoomManager', () => {
     expect(terminal.status).toBe('stopped')
     expect(executor.sessions.has('roundtable-thread-1')).toBe(false)
   })
+
+  it('uses persisted room summaries before probing tmux in the background', async () => {
+    const { manager } = startReadyRoom()
+    manager.askAgent('thread-1', { agent: 'claude' })
+    executor.commands = []
+
+    const restored = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    })
+
+    expect(executor.commands.some((command) => command.args[0] === 'has-session')).toBe(false)
+
+    const summary = restored.getRoomSummary('thread-1')
+    expect(summary.status).toBe('running')
+    expect(executor.commands.some((command) => command.args[0] === 'has-session')).toBe(false)
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(executor.commands.some((command) => command.args[0] === 'has-session')).toBe(true)
+  })
 })

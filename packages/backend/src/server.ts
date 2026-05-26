@@ -352,7 +352,7 @@ export function createApp(deps: {
 
   app.get('/api/threads', (_req, res) => {
     const items: ThreadListItem[] = storage.listThreads().map((thread) => {
-      const room = rooms ? rooms.getRoom(thread.id) : null
+      const room = rooms ? rooms.getRoomSummary(thread.id) : null
       const summary = storage.getThreadSummary(thread.id)
       const display_status = computeDisplayStatus({
         thread,

@@ -84,7 +84,11 @@ import {
 
 interface InternalRoom extends AgentRoom {
   token: string
+  session_active: boolean | null
+  session_checked_at: string | null
 }
+
+const roomCacheObservers = new Map<string, (room: InternalRoom) => void>()
 
 export interface CommandExecutor {
   execFile(
@@ -121,6 +125,7 @@ export class SystemCommandExecutor implements CommandExecutor {
 export interface RoomManager {
   preflight(threadId?: string): RoomPreflight
   getRoom(threadId: string): AgentRoom
+  getRoomSummary(threadId: string): AgentRoom
   getTmuxPaneSnapshot(threadId: string, agent: AgentName): TmuxPaneSnapshot
   startRoom(threadId: string, input: StartRoomInput): AgentRoom
   syncRoster(threadId: string): AgentRoom
@@ -222,6 +227,7 @@ const TOOL_NAMES = ['tmux', 'claude', 'codex'] as const
 const DEFAULT_TURN_TIMEOUT_MS = 10 * 60 * 1000
 const TMUX_VIEW_LINE_LIMIT = 200
 const DEFAULT_EXEC_TIMEOUT_MS = 5_000
+const ROOM_SUMMARY_PROBE_TTL_MS = 1_500
 
 function now(): string {
   return new Date().toISOString()
@@ -301,6 +307,8 @@ function defaultRoom(dataDir: string, threadId: string): InternalRoom {
     input_prompt: null,
     idle_suggestion_request: null,
     session_state: 'not_started',
+    session_active: null,
+    session_checked_at: null,
     token: '',
   }
 }
@@ -318,6 +326,8 @@ function readRoom(dataDir: string, threadId: string): InternalRoom {
     auto: parsed.auto ?? null,
     input_prompt: parsed.input_prompt ?? null,
     idle_suggestion_request: parsed.idle_suggestion_request ?? null,
+    session_active: parsed.session_active ?? null,
+    session_checked_at: parsed.session_checked_at ?? null,
   }
 }
 
@@ -328,6 +338,7 @@ function writeRoom(dataDir: string, room: InternalRoom): void {
   const tmp = `${filePath}.tmp`
   fs.writeFileSync(tmp, JSON.stringify(room, null, 2))
   fs.renameSync(tmp, filePath)
+  roomCacheObservers.get(dataDir)?.(room)
 }
 
 function randomToken(): string {
@@ -1601,6 +1612,9 @@ export function createRoomManager(options: {
   const { dataDir, backendUrl } = options
   const executor = options.executor ?? new SystemCommandExecutor()
   const timers = new Map<string, NodeJS.Timeout>()
+  const roomSummaryCache = new Map<string, InternalRoom>()
+  const queuedSummaryProbes = new Set<string>()
+  let summaryProbeScheduled = false
   const startupTrustPromptPollIntervalMs =
     Math.max(1, options.startupTrustPromptPollIntervalMs ?? 250)
   const startupTrustPromptTimeoutMs = Math.max(
@@ -1616,6 +1630,27 @@ export function createRoomManager(options: {
 
   function broadcast(event: RoundtableEvent): void {
     options.onUpdate?.(event)
+  }
+
+  function cacheRoom(room: InternalRoom): InternalRoom {
+    roomSummaryCache.set(room.thread_id, room)
+    return room
+  }
+
+  roomCacheObservers.set(dataDir, cacheRoom)
+
+  function cachedRoom(threadId: string): InternalRoom {
+    const cached = roomSummaryCache.get(threadId)
+    if (cached) return cached
+    return cacheRoom(readRoom(dataDir, threadId))
+  }
+
+  function markChecked(room: InternalRoom, live: boolean, checkedAt = now()): InternalRoom {
+    return {
+      ...room,
+      session_active: live,
+      session_checked_at: checkedAt,
+    }
   }
 
   function refreshInputPrompt(room: InternalRoom): InternalRoom {
@@ -2202,8 +2237,10 @@ export function createRoomManager(options: {
     if (live) {
       const recovered = withPaneViewable(executor, {
         ...room,
+        session_active: true,
+        session_checked_at: now(),
         session_state:
-          startup
+          startup || room.session_checked_at === null
             ? 'recovered'
             : room.session_state === 'connected' || room.session_state === 'recovered'
             ? room.session_state
@@ -2247,13 +2284,127 @@ export function createRoomManager(options: {
     return missing
   }
 
-  function reconcilePersistedRooms(): void {
+  function seedRoomSummaryCache(): void {
     const dir = threadsDir(dataDir)
     if (!fs.existsSync(dir)) return
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isDirectory() || !fs.existsSync(threadJsonPath(dataDir, entry.name))) continue
-      reconcileRoom(entry.name, true)
+      cacheRoom(readRoom(dataDir, entry.name))
     }
+  }
+
+  function roomSummaryNeedsProbe(room: InternalRoom): boolean {
+    if (
+      room.status === 'not_started' ||
+      room.status === 'stopped' ||
+      room.session_state === 'stopped' ||
+      room.session_state === 'untracked'
+    ) {
+      return false
+    }
+    if (!room.session_checked_at) return true
+    return Date.now() - Date.parse(room.session_checked_at) >= ROOM_SUMMARY_PROBE_TTL_MS
+  }
+
+  function applySummaryProbeResult(
+    threadId: string,
+    room: InternalRoom,
+    live: boolean,
+    checkedAt: string,
+  ): void {
+    const current = readRoom(dataDir, threadId)
+    if (current.session_checked_at && Date.parse(current.session_checked_at) > Date.parse(checkedAt)) {
+      cacheRoom(current)
+      return
+    }
+
+    if (live) {
+      writeRoom(
+        dataDir,
+        markChecked(
+          {
+            ...current,
+            session_state:
+              current.session_state === 'missing' ? 'recovered' : current.session_state,
+          },
+          true,
+          checkedAt,
+        ),
+      )
+      return
+    }
+
+    if (
+      current.status === 'not_started' ||
+      current.status === 'stopped' ||
+      current.session_state === 'stopped'
+    ) {
+      writeRoom(dataDir, markChecked(current, false, checkedAt))
+      return
+    }
+
+    const active = current.active_job_id ? getJob(dataDir, threadId, current.active_job_id) : null
+    if (active?.status === 'running') {
+      writeJob(dataDir, {
+        ...active,
+        status: 'failed',
+        completed_at: now(),
+        failure_reason: 'tmux session disappeared while the turn was running',
+        logs: [...active.logs, 'Room session missing during background session probe.'],
+      })
+    }
+
+    writeRoom(
+      dataDir,
+      markChecked(
+        {
+          ...current,
+          status: current.active_job_id ? 'needs_attention' : 'error',
+          session_state: 'missing',
+          last_error: current.active_job_id
+            ? 'Room session is missing; restart the room, then retry or skip the interrupted turn.'
+            : 'Room session is missing; restart the room to continue.',
+        },
+        false,
+        checkedAt,
+      ),
+    )
+  }
+
+  function flushSummaryProbes(): void {
+    summaryProbeScheduled = false
+    const threadIds = [...queuedSummaryProbes]
+    queuedSummaryProbes.clear()
+    threadIds.sort((left, right) => {
+      const leftAt = Date.parse(cachedRoom(left).session_checked_at ?? '1970-01-01T00:00:00.000Z')
+      const rightAt = Date.parse(cachedRoom(right).session_checked_at ?? '1970-01-01T00:00:00.000Z')
+      return leftAt - rightAt
+    })
+    for (const threadId of threadIds) {
+      const room = cachedRoom(threadId)
+      if (!roomSummaryNeedsProbe(room)) continue
+      const checkedAt = now()
+      const live = sessionExists(executor, room.tmux_session)
+      applySummaryProbeResult(threadId, room, live, checkedAt)
+    }
+  }
+
+  function queueSummaryProbe(threadId: string): void {
+    queuedSummaryProbes.add(threadId)
+    if (summaryProbeScheduled) return
+    summaryProbeScheduled = true
+    setTimeout(flushSummaryProbes, 0)
+  }
+
+  function getRoomSummary(threadId: string): AgentRoom {
+    ensureThread(dataDir, threadId)
+    const room = cachedRoom(threadId)
+    if (roomSummaryNeedsProbe(room)) queueSummaryProbe(threadId)
+    return stripToken(room)
+  }
+
+  function reconcilePersistedRooms(): void {
+    seedRoomSummaryCache()
   }
 
   const manager: RoomManager = {
@@ -2279,6 +2430,10 @@ export function createRoomManager(options: {
         return stripToken(reconciled)
       }
       return stripToken(refreshInputPrompt(expireActiveTurn(threadId)))
+    },
+
+    getRoomSummary(threadId: string): AgentRoom {
+      return getRoomSummary(threadId)
     },
 
     getTmuxPaneSnapshot(threadId: string, agent: AgentName): TmuxPaneSnapshot {
