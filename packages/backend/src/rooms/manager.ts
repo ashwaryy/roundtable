@@ -1649,6 +1649,7 @@ export function createRoomManager(options: {
   function scheduleStartupTrustPromptAcceptance(room: InternalRoom): void {
     const startedAt = Date.now()
     const accepted = new Set<AgentName>()
+    const pendingPromptKeys = new Map<AgentName, string>()
 
     const poll = (): void => {
       try {
@@ -1665,11 +1666,20 @@ export function createRoomManager(options: {
             !accepted.has(agent) && !current.agents[agent].ready_at
               ? startupPromptAcceptanceKeys(executor, current, agent)
               : null
-          if (
-            promptKeys
-          ) {
+          if (!promptKeys) {
+            // No prompt this poll: reset so a later prompt must settle again.
+            pendingPromptKeys.delete(agent)
+            continue
+          }
+          // Require the same prompt on two consecutive polls before sending, so
+          // keys never land before the prompt's input handler has attached.
+          const signature = promptKeys.join(' ')
+          if (pendingPromptKeys.get(agent) === signature) {
             sendStartupPromptKeys(executor, current, agent, promptKeys)
             accepted.add(agent)
+            pendingPromptKeys.delete(agent)
+          } else {
+            pendingPromptKeys.set(agent, signature)
           }
         }
 
