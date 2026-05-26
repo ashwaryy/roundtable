@@ -1754,7 +1754,6 @@ export function createRoomManager(options: {
 
   function scheduleStartupTrustPromptAcceptance(room: InternalRoom): void {
     const startedAt = Date.now()
-    const accepted = new Set<AgentName>()
     const pendingPromptKeys = new Map<AgentName, string>()
 
     const poll = (): void => {
@@ -1768,10 +1767,9 @@ export function createRoomManager(options: {
         }
 
         for (const { agent_id: agent } of current.roster) {
-          const promptKeys =
-            !accepted.has(agent) && !current.agents[agent].ready_at
-              ? startupPromptAcceptanceKeys(executor, current, agent)
-              : null
+          const promptKeys = !current.agents[agent].ready_at
+            ? startupPromptAcceptanceKeys(executor, current, agent)
+            : null
           if (!promptKeys) {
             // No prompt this poll: reset so a later prompt must settle again.
             pendingPromptKeys.delete(agent)
@@ -1782,18 +1780,17 @@ export function createRoomManager(options: {
           const signature = promptKeys.join(' ')
           if (pendingPromptKeys.get(agent) === signature) {
             sendStartupPromptKeys(executor, current, agent, promptKeys)
-            accepted.add(agent)
             pendingPromptKeys.delete(agent)
           } else {
             pendingPromptKeys.set(agent, signature)
           }
         }
 
-        const allAgentsReadyOrAccepted = current.roster.every(
-          ({ agent_id: agent }) => current.agents[agent].ready_at || accepted.has(agent),
+        const allAgentsReady = current.roster.every(
+          ({ agent_id: agent }) => current.agents[agent].ready_at,
         )
         if (
-          allAgentsReadyOrAccepted ||
+          allAgentsReady ||
           Date.now() - startedAt >= startupTrustPromptTimeoutMs
         ) {
           return
