@@ -90,7 +90,7 @@ function consolidationSectionLabel(status: ThreadDetail["status"]): string {
 function statusLabel(status: ThreadDisplayStatus): string {
   switch (status) {
     case "setup":
-      return "Setup";
+      return "Idle";
     case "discussing":
       return "Discussing";
     case "consolidating":

@@ -192,7 +192,7 @@ const PILL_CLASS: Record<ThreadDisplayStatus, string> = {
 }
 
 const PILL_LABEL: Record<ThreadDisplayStatus, string> = {
-  setup: 'Setup',
+  setup: 'Idle',
   discussing: 'Discussing',
   consolidating: 'Consolidating',
   needs_attention: 'Needs attention',

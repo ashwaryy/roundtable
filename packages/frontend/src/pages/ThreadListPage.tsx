@@ -99,26 +99,27 @@ export function ThreadListPage() {
   )
   const backendStatus = useLiveRefresh(onEvent)
   const counts = useMemo(() => {
-    const base: Record<string, number> = { all: threads.length }
+    const base: Record<string, number> = {}
     for (const thread of threads) {
       base[thread.display_status] = (base[thread.display_status] ?? 0) + 1
     }
+    base.all = threads.filter((t) => t.display_status !== 'closed' && t.display_status !== 'archived').length
     return base
   }, [threads])
 
   const visibleThreads =
     filter === 'all'
-      ? threads
+      ? threads.filter((t) => t.display_status !== 'closed' && t.display_status !== 'archived')
       : threads.filter((thread) => thread.display_status === filter)
   const totalPending = threads.reduce((n, thread) => n + thread.pending_count, 0)
   const activeCount = (counts.discussing ?? 0) + (counts.consolidating ?? 0)
   const attentionCount = (counts.needs_attention ?? 0) + (counts.error ?? 0)
 
   const filters: Array<{ id: ThreadDisplayStatus | 'all'; label: string }> = [
-    { id: 'all', label: 'All' },
+    { id: 'all', label: 'All open' },
     { id: 'discussing', label: 'Discussing' },
     { id: 'consolidating', label: 'Consolidating' },
-    { id: 'setup', label: 'Setup' },
+    { id: 'setup', label: 'Idle' },
     { id: 'needs_attention', label: 'Needs attention' },
     { id: 'error', label: 'Error' },
     { id: 'closed', label: 'Closed' },
