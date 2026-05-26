@@ -2412,6 +2412,8 @@ export function createRoomManager(options: {
       summaryProbeScheduled = false
       return
     }
+    // Keep probes sequential to avoid subprocess fan-out while the async tmux
+    // check itself stays off the event loop.
     void (async () => {
       const room = cachedRoom(threadId)
       if (roomSummaryNeedsProbe(room)) {

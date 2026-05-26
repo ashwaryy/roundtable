@@ -81,7 +81,18 @@ function getReplyDiscussionIds(dataDir: string, threadId: string): Map<string, s
 }
 
 export function isDiscussionRoot(dataDir: string, threadId: string, discussionId: string): boolean {
-  return getReplyDiscussionIds(dataDir, threadId).get(discussionId) === discussionId
+  const replyDiscussionIds = getReplyDiscussionIds(dataDir, threadId)
+  if (replyDiscussionIds.get(discussionId) === discussionId) return true
+  if (replyDiscussionIds.has(discussionId)) return false
+
+  // Steady-state validation is cache-only. A miss can happen on cold start or
+  // after another writer appends directly, so fall back to disk and seed the root.
+  const root = listComments(dataDir, threadId).find(
+    (comment) => comment.id === discussionId && comment.parent_id === null,
+  )
+  if (!root) return false
+  replyDiscussionIds.set(root.id, root.discussion_id)
+  return true
 }
 
 function clearReplyDiscussionIds(dataDir: string, threadId: string): void {

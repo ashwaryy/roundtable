@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createThread } from './threads'
-import { listComments, addComment, addAgentComment, deleteComment } from './comments'
+import { listComments, addComment, addAgentComment, deleteComment, isDiscussionRoot } from './comments'
 import { NotFoundError } from './errors'
 import { commentsPath } from './paths'
 
@@ -184,6 +184,42 @@ describe('deleteComment', () => {
 
       expect(commentFileReads).toBe(1)
       expect(rebuilt.discussion_id).toBe(root.id)
+    } finally {
+      readSpy.mockRestore()
+    }
+  })
+
+  it('recognizes zero-reply roots and falls back to disk on cache misses', () => {
+    const root = addComment(dataDir, 'thread-1', { body: 'root' })
+    expect(isDiscussionRoot(dataDir, 'thread-1', root.id)).toBe(true)
+
+    const externalRoot = {
+      ...root,
+      id: 'c999',
+      discussion_id: 'c999',
+      body: 'external root',
+      created_at: new Date().toISOString(),
+    }
+    fs.appendFileSync(commentsPath(dataDir, 'thread-1'), `${JSON.stringify(externalRoot)}\n`)
+
+    expect(isDiscussionRoot(dataDir, 'thread-1', externalRoot.id)).toBe(true)
+  })
+
+  it('validates warm discussion roots without rereading comments.jsonl', () => {
+    const root = addComment(dataDir, 'thread-1', { body: 'root' })
+    expect(isDiscussionRoot(dataDir, 'thread-1', root.id)).toBe(true)
+
+    const filePath = commentsPath(dataDir, 'thread-1')
+    const originalReadFileSync = fs.readFileSync
+    let commentFileReads = 0
+    const readSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(((file, options) => {
+      if (file === filePath) commentFileReads += 1
+      return originalReadFileSync.call(fs, file as Parameters<typeof fs.readFileSync>[0], options as Parameters<typeof fs.readFileSync>[1])
+    }) as typeof fs.readFileSync)
+
+    try {
+      expect(isDiscussionRoot(dataDir, 'thread-1', root.id)).toBe(true)
+      expect(commentFileReads).toBe(0)
     } finally {
       readSpy.mockRestore()
     }

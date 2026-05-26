@@ -102,10 +102,14 @@ export function createStorage(
       .filter((status) => status === 'drafting' || status === 'review').length
   }
 
-  threads.repairDirtyThreadSummaries(dataDir, {
+  for (const threadId of threads.repairDirtyThreadSummaries(dataDir, {
     pendingCount: (threadId) => pending.countPendingDiscussions(dataDir, threadId),
     activeProposalCount: (threadId) => activeProposalCount(threadId),
-  })
+  })) {
+    integrity.acceptApplicationWrite(dataDir, threadId, {
+      filesAddedOrUpdated: [threadJsonPath(dataDir, threadId)],
+    })
+  }
 
   function applyWrite<T>(
     threadId: string,

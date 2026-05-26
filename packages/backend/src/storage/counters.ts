@@ -376,21 +376,23 @@ export function validateAllMonotonicCounters(
     )
 
     for (const proposalId of proposalIds(dataDir, threadId)) {
-      validateCounterNamespace(
+      const revisionResult = ensureCounterAhead(
         dataDir,
         revisionCounterNamespace(threadId, proposalId),
-        [revisionsDir(dataDir, threadId, proposalId)],
-        () => scanRevisionMax(dataDir, threadId, proposalId),
-        logResult,
+        scanRevisionMax(dataDir, threadId, proposalId),
       )
+      if (revisionResult.repaired) {
+        logResult(revisionCounterNamespace(threadId, proposalId), revisionResult.oldValue, revisionResult.newValue)
+      }
 
-      validateCounterNamespace(
+      const reviewResult = ensureCounterAhead(
         dataDir,
         reviewCounterNamespace(threadId, proposalId),
-        [reviewsDir(dataDir, threadId, proposalId)],
-        () => scanReviewMax(dataDir, threadId, proposalId),
-        logResult,
+        scanReviewMax(dataDir, threadId, proposalId),
       )
+      if (reviewResult.repaired) {
+        logResult(reviewCounterNamespace(threadId, proposalId), reviewResult.oldValue, reviewResult.newValue)
+      }
     }
   }
 }

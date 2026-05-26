@@ -112,9 +112,10 @@ export function repairDirtyThreadSummaries(
     pendingCount: (threadId: string) => number
     activeProposalCount: (threadId: string) => number
   },
-): void {
+): string[] {
+  const repaired: string[] = []
   const dir = threadsDir(dataDir)
-  if (!fs.existsSync(dir)) return
+  if (!fs.existsSync(dir)) return repaired
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const thread = readThreadRecord(dataDir, entry.name)
@@ -132,7 +133,9 @@ export function repairDirtyThreadSummaries(
       clearDirty.push('active_proposal_count')
     }
     updateThreadSummary(dataDir, entry.name, patch, clearDirty)
+    repaired.push(entry.name)
   }
+  return repaired
 }
 
 export function createThread(dataDir: string, input: CreateThreadInput): Thread {
