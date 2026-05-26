@@ -38,6 +38,9 @@ import type {
 import {
   preToolUseHookPath,
   claudeLocalSettingsPath,
+  commentsPath,
+  consolidationDir,
+  proposalJsonPath,
   codexProjectConfigPath,
   codexRulesPath,
   currentTurnPath,
@@ -45,6 +48,10 @@ import {
   queuedConsolidationPath,
   roomJsonPath,
   roomPromptPath,
+  reviewJsonPath,
+  reviewPath,
+  revisionsDir,
+  revisionPath,
   roundtableBinDir,
   roundtableHelperPath,
   roundtableInternalDir,
@@ -55,8 +62,10 @@ import {
   threadMdPath,
   contextItemsPath,
   projectSnapshotJsonPath,
+  pendingDiscussionsPath,
 } from '../storage/paths'
 import { BadRequestError, ConflictError, NotFoundError } from '../storage/errors'
+import type { CanonicalTouched } from '../storage/touched'
 import { listThreadAgents } from '../storage/agents'
 import { addAgentComment, listComments } from '../storage/comments'
 import { addPendingDiscussion } from '../storage/pendingDiscussions'
@@ -68,7 +77,6 @@ import {
   getLatestReviewBody,
   getLatestRevision,
   getProposal,
-  listRevisions,
   updateProposal,
 } from '../storage/proposals'
 
@@ -83,6 +91,7 @@ export interface CommandExecutor {
     options?: {
       cwd?: string
       env?: NodeJS.ProcessEnv
+      timeoutMs?: number
     },
   ): string
 }
@@ -94,6 +103,7 @@ export class SystemCommandExecutor implements CommandExecutor {
     options: {
       cwd?: string
       env?: NodeJS.ProcessEnv
+      timeoutMs?: number
     } = {},
   ): string {
     return execFileSync(file, args, {
@@ -101,6 +111,7 @@ export class SystemCommandExecutor implements CommandExecutor {
       env: options.env,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: options.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS,
     })
   }
 }
@@ -208,6 +219,7 @@ export interface AgentReviewSubmission extends AgentTurnResult {
 const TOOL_NAMES = ['tmux', 'claude', 'codex'] as const
 const DEFAULT_TURN_TIMEOUT_MS = 10 * 60 * 1000
 const TMUX_VIEW_LINE_LIMIT = 200
+const DEFAULT_EXEC_TIMEOUT_MS = 5_000
 
 function now(): string {
   return new Date().toISOString()
@@ -1582,8 +1594,7 @@ export function createRoomManager(options: {
   onUpdate?: (event: RoundtableEvent) => void
   startupTrustPromptPollIntervalMs?: number
   startupTrustPromptTimeoutMs?: number
-  beforeCanonicalWrite?: (threadId: string) => void
-  onCanonicalWrite?: (threadId: string) => void
+  onCanonicalWrite?: (threadId: string, touched: CanonicalTouched) => void
 }): RoomManager {
   const { dataDir, backendUrl } = options
   const executor = options.executor ?? new SystemCommandExecutor()
@@ -1813,9 +1824,16 @@ export function createRoomManager(options: {
     removeIfExists(queuedConsolidationPath(dataDir, threadId))
   }
 
+  function revisionJsonFile(
+    threadId: string,
+    proposalId: string,
+    revisionId: string,
+  ): string {
+    return path.join(revisionsDir(dataDir, threadId, proposalId), `${revisionId}.json`)
+  }
+
   function latestRevisionId(threadId: string, proposalId: string): string | null {
-    const revisions = listRevisions(dataDir, threadId, proposalId)
-    return revisions[revisions.length - 1]?.id ?? null
+    return getProposal(dataDir, threadId, proposalId)?.latest_revision_id ?? null
   }
 
   function writeConsolidationContext(
@@ -1942,9 +1960,10 @@ export function createRoomManager(options: {
     for (const agent of [resolved.drafter_agent, resolved.reviewer_agent, resolved.reviser_agent]) {
       inviteFor(room, agent!)
     }
-    options.beforeCanonicalWrite?.(room.thread_id)
     const proposal = createProposal(dataDir, room.thread_id, resolved)
-    options.onCanonicalWrite?.(room.thread_id)
+    options.onCanonicalWrite?.(room.thread_id, {
+      rootsAddedOrUpdated: [consolidationDir(dataDir, room.thread_id, proposal.id)],
+    })
     const job = createConsolidationJob({
       dataDir,
       threadId: room.thread_id,
@@ -2763,12 +2782,13 @@ export function createRoomManager(options: {
       if (input.reviewer_agent) inviteFor(room, input.reviewer_agent)
       const revisionId = latestRevisionId(threadId, proposalId)
       if (!revisionId) throw new BadRequestError('proposal has no revision to review')
-      options.beforeCanonicalWrite?.(threadId)
       const updated = updateProposal(dataDir, threadId, proposalId, {
         reviewer_agent: input.reviewer_agent ?? proposal.reviewer_agent,
       })
       inviteFor(room, updated.reviewer_agent)
-      options.onCanonicalWrite?.(threadId)
+      options.onCanonicalWrite?.(threadId, {
+        filesAddedOrUpdated: [proposalJsonPath(dataDir, threadId, proposalId)],
+      })
       const job = createConsolidationJob({
         dataDir,
         threadId,
@@ -2795,13 +2815,14 @@ export function createRoomManager(options: {
       if (input.reviser_agent) inviteFor(room, input.reviser_agent)
       const revisionId = latestRevisionId(threadId, proposalId)
       if (!revisionId) throw new BadRequestError('proposal has no revision to revise')
-      options.beforeCanonicalWrite?.(threadId)
       const updated = updateProposal(dataDir, threadId, proposalId, {
         reviewer_agent: input.reviewer_agent ?? proposal.reviewer_agent,
         reviser_agent: input.reviser_agent ?? proposal.reviser_agent,
       })
       inviteFor(room, updated.reviser_agent)
-      options.onCanonicalWrite?.(threadId)
+      options.onCanonicalWrite?.(threadId, {
+        filesAddedOrUpdated: [proposalJsonPath(dataDir, threadId, proposalId)],
+      })
       const job = createConsolidationJob({
         dataDir,
         threadId,
@@ -3013,14 +3034,15 @@ export function createRoomManager(options: {
       const replyTo =
         input.discussion_id ??
         (job.turn.scope === 'discussion' ? job.turn.discussion_id : null)
-      options.beforeCanonicalWrite?.(threadId)
       const comment = addAgentComment(dataDir, threadId, {
         author: input.agent,
         body: input.body,
         type: input.type,
         reply_to: replyTo,
       })
-      options.onCanonicalWrite?.(threadId)
+      options.onCanonicalWrite?.(threadId, {
+        filesAddedOrUpdated: [commentsPath(dataDir, threadId)],
+      })
 
       const completed: BoundedJob = {
         ...job,
@@ -3057,7 +3079,6 @@ export function createRoomManager(options: {
         if (input.continue_turn) {
           throw new BadRequestError('idle pending discussion cannot continue a turn')
         }
-        options.beforeCanonicalWrite?.(threadId)
         const pending = addPendingDiscussion(dataDir, threadId, {
           author: input.agent,
           body: input.body,
@@ -3065,7 +3086,9 @@ export function createRoomManager(options: {
           origin_discussion_id: input.origin_discussion_id ?? null,
           origin_comment_id: input.origin_comment_id ?? null,
         })
-        options.onCanonicalWrite?.(threadId)
+        options.onCanonicalWrite?.(threadId, {
+          filesAddedOrUpdated: [pendingDiscussionsPath(dataDir, threadId)],
+        })
         const updated: InternalRoom = {
           ...room,
           idle_suggestion_request: {
@@ -3105,7 +3128,6 @@ export function createRoomManager(options: {
         throw new BadRequestError('active turn has timed out')
       }
 
-      options.beforeCanonicalWrite?.(threadId)
       const pending = addPendingDiscussion(dataDir, threadId, {
         author: input.agent,
         body: input.body,
@@ -3114,7 +3136,9 @@ export function createRoomManager(options: {
           input.origin_discussion_id ?? job.turn.discussion_id ?? null,
         origin_comment_id: input.origin_comment_id ?? null,
       })
-      options.onCanonicalWrite?.(threadId)
+      options.onCanonicalWrite?.(threadId, {
+        filesAddedOrUpdated: [pendingDiscussionsPath(dataDir, threadId)],
+      })
 
       if (input.continue_turn) {
         const active: BoundedJob = {
@@ -3179,7 +3203,6 @@ export function createRoomManager(options: {
         throw new BadRequestError('active turn has timed out')
       }
 
-      options.beforeCanonicalWrite?.(threadId)
       const revision = addProposalRevision(
         dataDir,
         threadId,
@@ -3187,7 +3210,13 @@ export function createRoomManager(options: {
         input.body,
         input.agent,
       )
-      options.onCanonicalWrite?.(threadId)
+      options.onCanonicalWrite?.(threadId, {
+        filesAddedOrUpdated: [
+          revisionPath(dataDir, threadId, job.turn.proposal_id, revision.id),
+          revisionJsonFile(threadId, job.turn.proposal_id, revision.id),
+          proposalJsonPath(dataDir, threadId, job.turn.proposal_id),
+        ],
+      })
       const completed: BoundedJob = {
         ...job,
         status: 'completed',
@@ -3231,7 +3260,9 @@ export function createRoomManager(options: {
       }
 
       proposal = updateProposal(dataDir, threadId, proposal.id, { status: 'review' })
-      options.onCanonicalWrite?.(threadId)
+      options.onCanonicalWrite?.(threadId, {
+        filesAddedOrUpdated: [proposalJsonPath(dataDir, threadId, proposal.id)],
+      })
       const updated = finishCompletedTurn(room, completed)
       broadcast({
         type: 'consolidation_updated',
@@ -3276,7 +3307,6 @@ export function createRoomManager(options: {
         throw new BadRequestError('active turn has timed out')
       }
 
-      options.beforeCanonicalWrite?.(threadId)
       const review = addProposalReview(
         dataDir,
         threadId,
@@ -3285,7 +3315,13 @@ export function createRoomManager(options: {
         input.agent,
         job.turn.revision_id,
       )
-      options.onCanonicalWrite?.(threadId)
+      options.onCanonicalWrite?.(threadId, {
+        filesAddedOrUpdated: [
+          reviewPath(dataDir, threadId, job.turn.proposal_id, review.id),
+          reviewJsonPath(dataDir, threadId, job.turn.proposal_id, review.id),
+          proposalJsonPath(dataDir, threadId, job.turn.proposal_id),
+        ],
+      })
       const completed: BoundedJob = {
         ...job,
         status: 'completed',
@@ -3301,7 +3337,9 @@ export function createRoomManager(options: {
       if (!job.turn.auto_revision_after_review) {
         const updated = finishCompletedTurn(room, completed)
         const current = updateProposal(dataDir, threadId, proposal.id, { status: 'review' })
-        options.onCanonicalWrite?.(threadId)
+        options.onCanonicalWrite?.(threadId, {
+          filesAddedOrUpdated: [proposalJsonPath(dataDir, threadId, proposal.id)],
+        })
         broadcast({
           type: 'consolidation_updated',
           thread_id: threadId,

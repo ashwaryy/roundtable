@@ -20,6 +20,7 @@ import {
   threadMdPath,
 } from './paths'
 import { NotFoundError } from './errors'
+import type { CanonicalTouched } from './touched'
 
 interface IntegrityState {
   version: 1
@@ -245,6 +246,60 @@ function currentFingerprints(dataDir: string, threadId: string): Fingerprints {
   return fingerprints
 }
 
+function removeBaselinePath(
+  root: string,
+  baseline: Record<string, BaselineEntry>,
+  absolutePath: string,
+): void {
+  delete baseline[toLabel(root, absolutePath)]
+}
+
+function removeBaselineRoot(
+  root: string,
+  baseline: Record<string, BaselineEntry>,
+  absolutePath: string,
+): void {
+  const label = toLabel(root, absolutePath)
+  for (const filePath of Object.keys(baseline)) {
+    if (filePath === label || filePath.startsWith(`${label}/`)) {
+      delete baseline[filePath]
+    }
+  }
+}
+
+function addTouchedEntries(
+  root: string,
+  baseline: Record<string, BaselineEntry>,
+  invalid: IntegrityIssue[],
+  previous: Record<string, BaselineEntry>,
+  touched: CanonicalTouched,
+): void {
+  for (const filePath of touched.filesAddedOrUpdated ?? []) {
+    if (!fs.existsSync(filePath)) continue
+    const stat = fs.statSync(filePath)
+    if (!stat.isFile()) continue
+    const label = toLabel(root, filePath)
+    const existing = previous[label]
+    baseline[label] =
+      existing &&
+      existing.mtime_ms === stat.mtimeMs &&
+      existing.size_bytes === stat.size
+        ? existing
+        : {
+            hash: hash(filePath),
+            mtime_ms: stat.mtimeMs,
+            size_bytes: stat.size,
+          }
+    if (label.endsWith('.json') || label.endsWith('.jsonl')) {
+      scanJson(filePath, label, invalid)
+    }
+  }
+
+  for (const dir of touched.rootsAddedOrUpdated ?? []) {
+    addTree(root, dir, baseline, invalid)
+  }
+}
+
 function readState(dataDir: string, threadId: string): IntegrityState | null {
   const filePath = integrityPath(dataDir, threadId)
   if (!fs.existsSync(filePath)) return null
@@ -426,9 +481,51 @@ export function inspectIntegrity(
   return report
 }
 
-export function acceptApplicationWrite(dataDir: string, threadId: string): IntegrityReport {
-  const scan = scanCanonical(dataDir, threadId)
+export function acceptApplicationWrite(
+  dataDir: string,
+  threadId: string,
+  touched?: CanonicalTouched,
+): IntegrityReport {
   const existing = readState(dataDir, threadId)
+  if (!existing || !touched) {
+    const scan = scanCanonical(dataDir, threadId)
+    const report: IntegrityReport = existing?.report ?? {
+      thread_id: threadId,
+      checked_at: new Date().toISOString(),
+      acknowledged_at: null,
+      issues: [],
+    }
+    writeState(dataDir, threadId, {
+      version: 1,
+      baseline: scan.baseline,
+      report: { ...report, checked_at: new Date().toISOString() },
+    })
+    return report
+  }
+
+  const previousBaseline = normalizeBaseline(existing.baseline)
+  if (!previousBaseline) {
+    const scan = scanCanonical(dataDir, threadId)
+    writeState(dataDir, threadId, {
+      version: 1,
+      baseline: scan.baseline,
+      report: { ...existing.report, checked_at: new Date().toISOString() },
+    })
+    return existing.report
+  }
+
+  const root = path.dirname(threadJsonPath(dataDir, threadId))
+  const baseline = { ...previousBaseline }
+  const invalid: IntegrityIssue[] = []
+
+  for (const filePath of touched.filesDeleted ?? []) {
+    removeBaselinePath(root, baseline, filePath)
+  }
+  for (const dir of touched.rootsDeleted ?? []) {
+    removeBaselineRoot(root, baseline, dir)
+  }
+  addTouchedEntries(root, baseline, invalid, previousBaseline, touched)
+
   const report: IntegrityReport = existing?.report ?? {
     thread_id: threadId,
     checked_at: new Date().toISOString(),
@@ -437,8 +534,12 @@ export function acceptApplicationWrite(dataDir: string, threadId: string): Integ
   }
   writeState(dataDir, threadId, {
     version: 1,
-    baseline: scan.baseline,
-    report: { ...report, checked_at: new Date().toISOString() },
+    baseline,
+    report: {
+      ...report,
+      checked_at: new Date().toISOString(),
+      issues: invalid.length > 0 ? distinct([...report.issues, ...invalid]) : report.issues,
+    },
   })
   return report
 }

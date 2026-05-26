@@ -9,13 +9,15 @@ import {
   addUrlContextItem,
   createProjectSnapshot,
   getThreadContext,
+  listContextItems,
   listWorkspaceAddedFiles,
   preflightProjectSnapshot,
+  readProjectSnapshot,
   refreshProjectSnapshot,
   listSnapshotReports,
   copyThreadContext,
 } from './context'
-import { attachmentsDir, projectSnapshotDir, threadDir } from './paths'
+import { attachmentsDir, contextItemsPath, projectSnapshotDir, threadDir } from './paths'
 import { ConfirmationRequiredError } from './errors'
 
 let dataDir: string
@@ -62,6 +64,12 @@ describe('context items', () => {
       'hello',
     )
     fs.rmSync(source, { force: true })
+  })
+
+  it('does not recreate missing canonical context files during reads', () => {
+    fs.rmSync(contextItemsPath(dataDir, 'thread-1'))
+    expect(() => listContextItems(dataDir, 'thread-1')).toThrow()
+    expect(fs.existsSync(contextItemsPath(dataDir, 'thread-1'))).toBe(false)
   })
 })
 
@@ -167,6 +175,12 @@ describe('project snapshots', () => {
     expect(copied).toHaveLength(1)
     expect(copied[0].added_paths).toEqual(['a.md'])
     fs.rmSync(project, { recursive: true, force: true })
+  })
+
+  it('does not recreate missing optional snapshot artifacts during reads', () => {
+    fs.rmSync(projectSnapshotDir(dataDir, 'thread-1'), { recursive: true, force: true })
+    expect(readProjectSnapshot(dataDir, 'thread-1')).toBeNull()
+    expect(fs.existsSync(projectSnapshotDir(dataDir, 'thread-1'))).toBe(false)
   })
 })
 

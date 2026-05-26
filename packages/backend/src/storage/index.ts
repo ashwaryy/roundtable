@@ -1,3 +1,4 @@
+import path from 'node:path'
 import type {
   Thread,
   ThreadDetail,
@@ -43,6 +44,28 @@ import * as jobs from './jobs'
 import * as integrity from './integrity'
 import * as agents from './agents'
 import { BadRequestError, NotFoundError } from './errors'
+import {
+  attachmentsDir,
+  commentsPath,
+  consolidationDir,
+  contextItemsPath,
+  pendingDiscussionsPath,
+  projectSnapshotDir,
+  projectSnapshotJsonPath,
+  projectSnapshotManifestPath,
+  projectSnapshotReportsDir,
+  proposalJsonPath,
+  reviewJsonPath,
+  reviewPath,
+  revisionsDir,
+  revisionPath,
+  savedConsolidationDir,
+  threadAgentsPath,
+  threadDir,
+  threadJsonPath,
+} from './paths'
+import type { CanonicalTouched } from './touched'
+import { mergeTouched } from './touched'
 
 export {
   BadRequestError,
@@ -52,27 +75,27 @@ export {
   IntegrityStorageError,
 } from './errors'
 
+function revisionJsonPath(
+  dataDir: string,
+  threadId: string,
+  proposalId: string,
+  revisionId: string,
+): string {
+  return path.join(revisionsDir(dataDir, threadId, proposalId), `${revisionId}.json`)
+}
+
 export function createStorage(
   dataDir: string,
   onIntegrityUpdate?: (event: RoundtableEvent) => void,
 ) {
   agents.seedBuiltInAgents(dataDir)
-  function inspect(threadId: string): void {
-    try {
-      const previousIssues = integrity.currentIntegrityIssueCount(dataDir, threadId)
-      const report = integrity.inspectIntegrity(dataDir, threadId)
-      if (report.issues.length > previousIssues) {
-        onIntegrityUpdate?.({ type: 'integrity_updated', thread_id: threadId })
-      }
-    } catch (err) {
-      if (!(err instanceof NotFoundError)) throw err
-    }
-  }
 
-  function mutate<T>(threadId: string, operation: () => T): T {
-    inspect(threadId)
-    const result = operation()
-    integrity.acceptApplicationWrite(dataDir, threadId)
+  function applyWrite<T>(
+    threadId: string,
+    operation: () => { result: T; touched: CanonicalTouched },
+  ): T {
+    const { result, touched } = operation()
+    integrity.acceptApplicationWrite(dataDir, threadId, touched)
     return result
   }
 
@@ -80,7 +103,9 @@ export function createStorage(
     createThread: (input: CreateThreadInput): Thread => {
       const thread = threads.createThread(dataDir, input)
       agents.initializeThreadAgents(dataDir, thread.id, input.agent_ids)
-      integrity.acceptApplicationWrite(dataDir, thread.id)
+      integrity.acceptApplicationWrite(dataDir, thread.id, {
+        rootsAddedOrUpdated: [threadDir(dataDir, thread.id)],
+      })
       return thread
     },
     createDerivedThread: (
@@ -101,41 +126,47 @@ export function createStorage(
       if (input.copyContext) {
         context.copyThreadContext(dataDir, input.parentThreadId, thread.id)
       }
-      integrity.acceptApplicationWrite(dataDir, thread.id)
+      integrity.acceptApplicationWrite(dataDir, thread.id, {
+        rootsAddedOrUpdated: [threadDir(dataDir, thread.id)],
+      })
       return thread
     },
     archiveThread: (threadId: string): Thread =>
-      mutate(threadId, () => threads.archiveThread(dataDir, threadId)),
+      applyWrite(threadId, () => ({
+        result: threads.archiveThread(dataDir, threadId),
+        touched: { filesAddedOrUpdated: [threadJsonPath(dataDir, threadId)] },
+      })),
     closeThread: (threadId: string): Thread =>
-      mutate(threadId, () => threads.closeThread(dataDir, threadId)),
-    deleteThread: (threadId: string): void => {
-      inspect(threadId)
-      threads.deleteThread(dataDir, threadId)
-    },
+      applyWrite(threadId, () => ({
+        result: threads.closeThread(dataDir, threadId),
+        touched: { filesAddedOrUpdated: [threadJsonPath(dataDir, threadId)] },
+      })),
+    deleteThread: (threadId: string): void => threads.deleteThread(dataDir, threadId),
     listThreads: (): Thread[] => threads.listThreads(dataDir),
-    getThread: (id: string): ThreadDetail | null => {
-      inspect(id)
-      return threads.getThread(dataDir, id)
-    },
-    listComments: (threadId: string): Comment[] => {
-      inspect(threadId)
-      return comments.listComments(dataDir, threadId)
-    },
+    getThread: (id: string): ThreadDetail | null => threads.getThread(dataDir, id),
+    listComments: (threadId: string): Comment[] => comments.listComments(dataDir, threadId),
     addComment: (threadId: string, input: CreateCommentInput): Comment =>
-      mutate(threadId, () => comments.addComment(dataDir, threadId, input)),
+      applyWrite(threadId, () => ({
+        result: comments.addComment(dataDir, threadId, input),
+        touched: { filesAddedOrUpdated: [commentsPath(dataDir, threadId)] },
+      })),
     deleteComment: (threadId: string, commentId: string): void =>
-      mutate(threadId, () => comments.deleteComment(dataDir, threadId, commentId)),
-    listPendingDiscussions: (threadId: string): PendingDiscussion[] => {
-      inspect(threadId)
-      return pending.listPendingDiscussions(dataDir, threadId)
-    },
+      applyWrite(threadId, () => {
+        comments.deleteComment(dataDir, threadId, commentId)
+        return {
+          result: undefined,
+          touched: { filesAddedOrUpdated: [commentsPath(dataDir, threadId)] },
+        }
+      }),
+    listPendingDiscussions: (threadId: string): PendingDiscussion[] =>
+      pending.listPendingDiscussions(dataDir, threadId),
     countPendingDiscussions: (threadId: string): number =>
       pending.countPendingDiscussions(dataDir, threadId),
     addPendingDiscussion: (
       threadId: string,
       input: CreatePendingDiscussionInput,
     ): PendingDiscussion =>
-      mutate(threadId, () => {
+      applyWrite(threadId, () => {
         if (
           input.author !== 'human' &&
           input.author !== 'system' &&
@@ -143,35 +174,59 @@ export function createStorage(
         ) {
           throw new BadRequestError(`agent ${input.author} is not invited to this thread`)
         }
-        return pending.addPendingDiscussion(dataDir, threadId, input)
+        return {
+          result: pending.addPendingDiscussion(dataDir, threadId, input),
+          touched: { filesAddedOrUpdated: [pendingDiscussionsPath(dataDir, threadId)] },
+        }
       }),
     approvePendingDiscussion: (threadId: string, pendingId: string): Comment =>
-      mutate(threadId, () => pending.approvePendingDiscussion(dataDir, threadId, pendingId)),
+      applyWrite(threadId, () => ({
+        result: pending.approvePendingDiscussion(dataDir, threadId, pendingId),
+        touched: {
+          filesAddedOrUpdated: [
+            commentsPath(dataDir, threadId),
+            pendingDiscussionsPath(dataDir, threadId),
+          ],
+        },
+      })),
     editPendingDiscussion: (
       threadId: string,
       pendingId: string,
       input: EditPendingDiscussionInput,
-    ): PendingDiscussion => mutate(threadId, () =>
-      pending.editPendingDiscussion(dataDir, threadId, pendingId, input)),
+    ): PendingDiscussion =>
+      applyWrite(threadId, () => ({
+        result: pending.editPendingDiscussion(dataDir, threadId, pendingId, input),
+        touched: { filesAddedOrUpdated: [pendingDiscussionsPath(dataDir, threadId)] },
+      })),
     rejectPendingDiscussion: (threadId: string, pendingId: string): void =>
-      mutate(threadId, () => pending.rejectPendingDiscussion(dataDir, threadId, pendingId)),
+      applyWrite(threadId, () => {
+        pending.rejectPendingDiscussion(dataDir, threadId, pendingId)
+        return {
+          result: undefined,
+          touched: { filesAddedOrUpdated: [pendingDiscussionsPath(dataDir, threadId)] },
+        }
+      }),
     createProposal: (
       threadId: string,
       input: CreateConsolidationInput,
     ): ConsolidationProposal =>
-      mutate(threadId, () => proposals.createProposal(dataDir, threadId, input)),
+      applyWrite(threadId, () => {
+        const proposal = proposals.createProposal(dataDir, threadId, input)
+        return {
+          result: proposal,
+          touched: {
+            rootsAddedOrUpdated: [consolidationDir(dataDir, threadId, proposal.id)],
+          },
+        }
+      }),
     getProposal: (
       threadId: string,
       proposalId: string,
-    ): ConsolidationProposal | null => {
-      inspect(threadId)
-      return proposals.getProposal(dataDir, threadId, proposalId)
-    },
+    ): ConsolidationProposal | null => proposals.getProposal(dataDir, threadId, proposalId),
     getConsolidationDetail: (
       threadId: string,
       proposalId: string,
     ): ConsolidationDetail | null => {
-      inspect(threadId)
       const proposal = proposals.getProposal(dataDir, threadId, proposalId)
       if (!proposal) return null
       return {
@@ -182,10 +237,8 @@ export function createStorage(
         latest_review_body: proposals.getLatestReviewBody(dataDir, threadId, proposalId),
       }
     },
-    listProposals: (threadId: string): ConsolidationProposal[] => {
-      inspect(threadId)
-      return proposals.listProposals(dataDir, threadId)
-    },
+    listProposals: (threadId: string): ConsolidationProposal[] =>
+      proposals.listProposals(dataDir, threadId),
     listProposalStatuses: (threadId: string) =>
       proposals.listProposalStatuses(dataDir, threadId),
     addProposalRevision: (
@@ -193,29 +246,58 @@ export function createStorage(
       proposalId: string,
       body: string,
       author: CommentAuthor,
-    ): ProposalRevision => mutate(threadId, () =>
-      proposals.addProposalRevision(dataDir, threadId, proposalId, body, author)),
+    ): ProposalRevision =>
+      applyWrite(threadId, () => {
+        const revision = proposals.addProposalRevision(dataDir, threadId, proposalId, body, author)
+        return {
+          result: revision,
+          touched: {
+            filesAddedOrUpdated: [
+              revisionPath(dataDir, threadId, proposalId, revision.id),
+              revisionJsonPath(dataDir, threadId, proposalId, revision.id),
+              proposalJsonPath(dataDir, threadId, proposalId),
+            ],
+          },
+        }
+      }),
     addProposalReview: (
       threadId: string,
       proposalId: string,
       body: string,
       author: Parameters<typeof proposals.addProposalReview>[4],
       revisionId: string | null,
-    ): ProposalReview => mutate(threadId, () =>
-      proposals.addProposalReview(dataDir, threadId, proposalId, body, author, revisionId)),
+    ): ProposalReview =>
+      applyWrite(threadId, () => {
+        const review = proposals.addProposalReview(dataDir, threadId, proposalId, body, author, revisionId)
+        return {
+          result: review,
+          touched: {
+            filesAddedOrUpdated: [
+              reviewPath(dataDir, threadId, proposalId, review.id),
+              reviewJsonPath(dataDir, threadId, proposalId, review.id),
+              proposalJsonPath(dataDir, threadId, proposalId),
+            ],
+          },
+        }
+      }),
     updateProposal: (
       threadId: string,
       proposalId: string,
       patch: Partial<ConsolidationProposal>,
-    ): ConsolidationProposal => mutate(threadId, () =>
-      proposals.updateProposal(dataDir, threadId, proposalId, patch)),
+    ): ConsolidationProposal =>
+      applyWrite(threadId, () => ({
+        result: proposals.updateProposal(dataDir, threadId, proposalId, patch),
+        touched: { filesAddedOrUpdated: [proposalJsonPath(dataDir, threadId, proposalId)] },
+      })),
     rejectProposal: (threadId: string, proposalId: string): ConsolidationProposal =>
-      mutate(threadId, () => proposals.rejectProposal(dataDir, threadId, proposalId)),
+      applyWrite(threadId, () => ({
+        result: proposals.rejectProposal(dataDir, threadId, proposalId),
+        touched: { filesAddedOrUpdated: [proposalJsonPath(dataDir, threadId, proposalId)] },
+      })),
     saveProposalOutput: (
       threadId: string,
       proposalId: string,
     ): SavedConsolidation => {
-      inspect(threadId)
       const thread = threads.getThread(dataDir, threadId)
       if (!thread) throw new NotFoundError(`thread ${threadId} not found`)
       const body = proposals.getLatestRevision(dataDir, threadId, proposalId)
@@ -225,14 +307,27 @@ export function createStorage(
         body,
       })
       threads.closeThread(dataDir, threadId)
-      integrity.acceptApplicationWrite(dataDir, threadId)
+      integrity.acceptApplicationWrite(
+        dataDir,
+        threadId,
+        mergeTouched(
+          {
+            filesAddedOrUpdated: [
+              threadJsonPath(dataDir, threadId),
+              proposalJsonPath(dataDir, threadId, proposalId),
+            ],
+          },
+          {
+            rootsAddedOrUpdated: [savedConsolidationDir(dataDir, saved.id)],
+          },
+        ),
+      )
       return saved
     },
     applyProposalNextIteration: (
       threadId: string,
       proposalId: string,
     ): Thread => {
-      inspect(threadId)
       const thread = threads.getThread(dataDir, threadId)
       if (!thread) throw new NotFoundError(`thread ${threadId} not found`)
       const body = proposals.getLatestRevision(dataDir, threadId, proposalId)
@@ -251,23 +346,31 @@ export function createStorage(
       context.copyThreadContext(dataDir, threadId, next.id)
       threads.archiveThread(dataDir, threadId)
       proposals.markApplied(dataDir, threadId, proposalId, next.id)
-      integrity.acceptApplicationWrite(dataDir, threadId)
-      integrity.acceptApplicationWrite(dataDir, next.id)
+      integrity.acceptApplicationWrite(dataDir, threadId, {
+        filesAddedOrUpdated: [
+          threadJsonPath(dataDir, threadId),
+          proposalJsonPath(dataDir, threadId, proposalId),
+        ],
+      })
+      integrity.acceptApplicationWrite(dataDir, next.id, {
+        rootsAddedOrUpdated: [threadDir(dataDir, next.id)],
+      })
       return next
     },
     getLatestRevision: (threadId: string, proposalId: string): string | null =>
       proposals.getLatestRevision(dataDir, threadId, proposalId),
     listRevisions: (threadId: string, proposalId: string): ProposalRevision[] =>
       proposals.listRevisions(dataDir, threadId, proposalId),
-    getThreadContext: (threadId: string): ThreadContext => {
-      inspect(threadId)
-      return context.getThreadContext(dataDir, threadId)
-    },
+    getThreadContext: (threadId: string): ThreadContext =>
+      context.getThreadContext(dataDir, threadId),
     addUrlContextItem: (
       threadId: string,
       input: CreateUrlContextInput,
     ): ContextItem =>
-      mutate(threadId, () => context.addUrlContextItem(dataDir, threadId, input)),
+      applyWrite(threadId, () => ({
+        result: context.addUrlContextItem(dataDir, threadId, input),
+        touched: { filesAddedOrUpdated: [contextItemsPath(dataDir, threadId)] },
+      })),
     addAttachmentFromFile: (
       threadId: string,
       input: {
@@ -277,7 +380,18 @@ export function createStorage(
         sizeBytes: number
       },
     ): FileContextItem =>
-      mutate(threadId, () => context.addAttachmentFromFile(dataDir, threadId, input)),
+      applyWrite(threadId, () => {
+        const item = context.addAttachmentFromFile(dataDir, threadId, input)
+        return {
+          result: item,
+          touched: {
+            filesAddedOrUpdated: [
+              contextItemsPath(dataDir, threadId),
+              path.join(attachmentsDir(dataDir, threadId), item.filename),
+            ],
+          },
+        }
+      }),
     preflightProjectSnapshot: (
       threadId: string,
       sourcePath: string,
@@ -287,17 +401,37 @@ export function createStorage(
       threadId: string,
       input: CreateProjectSnapshotInput,
     ): ProjectSnapshot =>
-      mutate(threadId, () => context.createProjectSnapshot(dataDir, threadId, input)),
+      applyWrite(threadId, () => ({
+        result: context.createProjectSnapshot(dataDir, threadId, input),
+        touched: {
+          filesAddedOrUpdated: [
+            projectSnapshotJsonPath(dataDir, threadId),
+            projectSnapshotManifestPath(dataDir, threadId),
+          ],
+          rootsAddedOrUpdated: [
+            projectSnapshotDir(dataDir, threadId),
+            projectSnapshotReportsDir(dataDir, threadId),
+          ],
+        },
+      })),
     refreshProjectSnapshot: (threadId: string): ProjectSnapshot =>
-      mutate(threadId, () => context.refreshProjectSnapshot(dataDir, threadId)),
-    listSnapshotReports: (threadId: string): SnapshotReport[] => {
-      inspect(threadId)
-      return context.listSnapshotReports(dataDir, threadId)
-    },
-    listSavedOutputs: (threadId: string): SavedConsolidation[] => {
-      inspect(threadId)
-      return proposals.listSavedOutputs(dataDir, threadId)
-    },
+      applyWrite(threadId, () => ({
+        result: context.refreshProjectSnapshot(dataDir, threadId),
+        touched: {
+          filesAddedOrUpdated: [
+            projectSnapshotJsonPath(dataDir, threadId),
+            projectSnapshotManifestPath(dataDir, threadId),
+          ],
+          rootsAddedOrUpdated: [
+            projectSnapshotDir(dataDir, threadId),
+            projectSnapshotReportsDir(dataDir, threadId),
+          ],
+        },
+      })),
+    listSnapshotReports: (threadId: string): SnapshotReport[] =>
+      context.listSnapshotReports(dataDir, threadId),
+    listSavedOutputs: (threadId: string): SavedConsolidation[] =>
+      proposals.listSavedOutputs(dataDir, threadId),
     getSavedOutput: (savedId: string): SavedOutput | null =>
       proposals.getSavedOutput(dataDir, savedId),
     getIntegrity: (threadId: string): IntegrityReport => {
@@ -310,8 +444,8 @@ export function createStorage(
     },
     acknowledgeIntegrity: (threadId: string): IntegrityReport =>
       integrity.acknowledgeIntegrity(dataDir, threadId),
-    acceptIntegrity: (threadId: string): IntegrityReport =>
-      integrity.acceptApplicationWrite(dataDir, threadId),
+    acceptIntegrity: (threadId: string, touched?: CanonicalTouched): IntegrityReport =>
+      integrity.acceptApplicationWrite(dataDir, threadId, touched),
     listJobs: (threadId: string): BoundedJob[] => jobs.listJobs(dataDir, threadId),
     getJob: (threadId: string, jobId: string): BoundedJob | null =>
       jobs.getJob(dataDir, threadId, jobId),
@@ -320,7 +454,11 @@ export function createStorage(
     addAgentComment: (
       threadId: string,
       input: Parameters<typeof comments.addAgentComment>[2],
-    ): Comment => comments.addAgentComment(dataDir, threadId, input),
+    ): Comment =>
+      applyWrite(threadId, () => ({
+        result: comments.addAgentComment(dataDir, threadId, input),
+        touched: { filesAddedOrUpdated: [commentsPath(dataDir, threadId)] },
+      })),
     listAgents: (): Agent[] => agents.listAgents(dataDir),
     createAgent: (input: CreateAgentInput): Agent =>
       agents.createAgent(dataDir, input),
@@ -328,25 +466,35 @@ export function createStorage(
       agents.updateAgent(dataDir, agentId, patch),
     deleteAgent: (agentId: string): Agent | null =>
       agents.deleteAgent(dataDir, agentId),
-    listThreadAgents: (threadId: string): ThreadAgentInvite[] => {
-      inspect(threadId)
-      return agents.listThreadAgents(dataDir, threadId)
-    },
+    listThreadAgents: (threadId: string): ThreadAgentInvite[] =>
+      agents.listThreadAgents(dataDir, threadId),
     inviteAgent: (threadId: string, input: InviteAgentInput): ThreadAgentInvite[] =>
-      mutate(threadId, () => agents.inviteAgent(dataDir, threadId, input)),
+      applyWrite(threadId, () => ({
+        result: agents.inviteAgent(dataDir, threadId, input),
+        touched: { filesAddedOrUpdated: [threadAgentsPath(dataDir, threadId)] },
+      })),
     updateThreadAgent: (
       threadId: string,
       agentId: string,
       patch: UpdateThreadAgentInviteInput,
     ): ThreadAgentInvite[] =>
-      mutate(threadId, () => agents.updateThreadAgent(dataDir, threadId, agentId, patch)),
+      applyWrite(threadId, () => ({
+        result: agents.updateThreadAgent(dataDir, threadId, agentId, patch),
+        touched: { filesAddedOrUpdated: [threadAgentsPath(dataDir, threadId)] },
+      })),
     removeThreadAgent: (threadId: string, agentId: string): ThreadAgentInvite[] =>
-      mutate(threadId, () => agents.removeThreadAgent(dataDir, threadId, agentId)),
+      applyWrite(threadId, () => ({
+        result: agents.removeThreadAgent(dataDir, threadId, agentId),
+        touched: { filesAddedOrUpdated: [threadAgentsPath(dataDir, threadId)] },
+      })),
     reorderThreadAgents: (
       threadId: string,
       input: ReorderThreadAgentsInput,
     ): ThreadAgentInvite[] =>
-      mutate(threadId, () => agents.reorderThreadAgents(dataDir, threadId, input)),
+      applyWrite(threadId, () => ({
+        result: agents.reorderThreadAgents(dataDir, threadId, input),
+        touched: { filesAddedOrUpdated: [threadAgentsPath(dataDir, threadId)] },
+      })),
   }
 }
 

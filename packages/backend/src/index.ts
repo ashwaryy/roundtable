@@ -22,7 +22,6 @@ const rooms = createRoomManager({
   dataDir,
   backendUrl,
   onUpdate: hub.broadcast,
-  beforeCanonicalWrite: storage.getIntegrity,
   onCanonicalWrite: storage.acceptIntegrity,
 })
 

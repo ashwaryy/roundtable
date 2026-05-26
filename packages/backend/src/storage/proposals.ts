@@ -52,6 +52,8 @@ function normalizeProposal(proposal: ConsolidationProposal): ConsolidationPropos
     reviewer_agent: proposal.reviewer_agent ?? DEFAULT_REVIEWER,
     reviser_agent: proposal.reviser_agent ?? DEFAULT_REVISER,
     updated_at: proposal.updated_at ?? proposal.created_at,
+    latest_revision_id: proposal.latest_revision_id ?? null,
+    latest_review_id: proposal.latest_review_id ?? null,
     saved_artifact_id: proposal.saved_artifact_id ?? null,
   }
 }
@@ -132,6 +134,8 @@ export function createProposal(
     reviser_agent: input.reviser_agent ?? DEFAULT_REVISER,
     created_at: timestamp,
     updated_at: timestamp,
+    latest_revision_id: null,
+    latest_review_id: null,
     applied_thread_id: null,
     saved_artifact_id: null,
   }
@@ -248,7 +252,7 @@ export function addProposalRevision(
 
   writeTextAtomic(revisionPath(dataDir, threadId, proposalId, id), body)
   writeJsonAtomic(path.join(revDir, `${id}.json`), revision)
-  updateProposal(dataDir, threadId, proposalId, {})
+  updateProposal(dataDir, threadId, proposalId, { latest_revision_id: id })
   return revision
 }
 
@@ -286,6 +290,11 @@ export function getLatestRevision(
   threadId: string,
   proposalId: string,
 ): string | null {
+  const proposal = getProposal(dataDir, threadId, proposalId)
+  if (proposal?.latest_revision_id) {
+    const body = getRevisionBody(dataDir, threadId, proposalId, proposal.latest_revision_id)
+    if (body !== null) return body
+  }
   const revisions = listRevisions(dataDir, threadId, proposalId)
   const latest = revisions[revisions.length - 1]
   return latest ? getRevisionBody(dataDir, threadId, proposalId, latest.id) : null
@@ -322,7 +331,7 @@ export function addProposalReview(
 
   writeTextAtomic(reviewPath(dataDir, threadId, proposalId, id), body)
   writeJsonAtomic(reviewJsonPath(dataDir, threadId, proposalId, id), review)
-  updateProposal(dataDir, threadId, proposalId, {})
+  updateProposal(dataDir, threadId, proposalId, { latest_review_id: id })
   return review
 }
 
@@ -360,6 +369,11 @@ export function getLatestReviewBody(
   threadId: string,
   proposalId: string,
 ): string | null {
+  const proposal = getProposal(dataDir, threadId, proposalId)
+  if (proposal?.latest_review_id) {
+    const body = getReviewBody(dataDir, threadId, proposalId, proposal.latest_review_id)
+    if (body !== null) return body
+  }
   const reviews = listReviews(dataDir, threadId, proposalId)
   const latest = reviews[reviews.length - 1]
   return latest ? getReviewBody(dataDir, threadId, proposalId, latest.id) : null

@@ -197,7 +197,7 @@ export function initializeThreadAgents(dataDir: string, threadId: string, agentI
 
 export function listThreadAgents(dataDir: string, threadId: string): ThreadAgentInvite[] {
   const filePath = threadAgentsPath(dataDir, threadId)
-  if (!fs.existsSync(filePath)) return initializeThreadAgents(dataDir, threadId)
+  if (!fs.existsSync(filePath)) throw new NotFoundError(`thread agent roster for ${threadId} not found`)
   return (JSON.parse(fs.readFileSync(filePath, 'utf8')) as ThreadAgentInvite[])
     .sort((a, b) => a.order - b.order)
 }

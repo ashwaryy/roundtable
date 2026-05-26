@@ -11,6 +11,7 @@ import {
   getLatestRevision,
   listRevisions,
 } from './proposals'
+import { proposalJsonPath } from './paths'
 import { NotFoundError } from './errors'
 
 let dataDir: string
@@ -31,6 +32,8 @@ describe('createProposal', () => {
     expect(proposal.thread_id).toBe('thread-1')
     expect(proposal.status).toBe('drafting')
     expect(proposal.summary).toBeNull()
+    expect(proposal.latest_revision_id).toBeNull()
+    expect(proposal.latest_review_id).toBeNull()
     expect(proposal.applied_thread_id).toBeNull()
     expect(typeof proposal.created_at).toBe('string')
   })
@@ -95,6 +98,7 @@ describe('addProposalRevision / getLatestRevision / listRevisions', () => {
     expect(revision.thread_id).toBe('thread-1')
     expect(revision.author).toBe('human')
     expect(typeof revision.created_at).toBe('string')
+    expect(getProposal(dataDir, 'thread-1', proposal.id)?.latest_revision_id).toBe('r001')
   })
 
   it('assigns incrementing revision ids', () => {
@@ -134,6 +138,21 @@ describe('addProposalRevision / getLatestRevision / listRevisions', () => {
     addProposalRevision(dataDir, 'thread-1', proposal.id, 'first draft', 'human')
     addProposalRevision(dataDir, 'thread-1', proposal.id, 'second draft', 'claude')
     expect(getLatestRevision(dataDir, 'thread-1', proposal.id)).toBe('second draft')
+  })
+
+  it('falls back for legacy proposals without latest revision pointers', () => {
+    const proposal = createProposal(dataDir, 'thread-1', {})
+    addProposalRevision(dataDir, 'thread-1', proposal.id, 'first draft', 'human')
+    const stored = JSON.parse(fs.readFileSync(proposalJsonPath(dataDir, 'thread-1', proposal.id), 'utf8')) as {
+      latest_revision_id?: string | null
+    }
+    delete stored.latest_revision_id
+    fs.writeFileSync(
+      proposalJsonPath(dataDir, 'thread-1', proposal.id),
+      JSON.stringify(stored, null, 2),
+    )
+
+    expect(getLatestRevision(dataDir, 'thread-1', proposal.id)).toBe('first draft')
   })
 
   it('listRevisions returns metadata in creation order', () => {

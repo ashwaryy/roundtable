@@ -65,14 +65,16 @@ const EXCLUDED_DIRS = new Set([
   '__pycache__',
 ])
 
-function ensureThread(dataDir: string, threadId: string): void {
+function ensureThreadExists(dataDir: string, threadId: string): void {
   if (!fs.existsSync(threadJsonPath(dataDir, threadId))) {
     throw new NotFoundError(`thread ${threadId} not found`)
   }
+}
+
+function ensureWriteDirectories(dataDir: string, threadId: string): void {
+  ensureThreadExists(dataDir, threadId)
   fs.mkdirSync(attachmentsDir(dataDir, threadId), { recursive: true })
   fs.mkdirSync(projectSnapshotDir(dataDir, threadId), { recursive: true })
-  const contextPath = contextItemsPath(dataDir, threadId)
-  if (!fs.existsSync(contextPath)) fs.writeFileSync(contextPath, '')
 }
 
 function toWorkspacePath(...parts: string[]): string {
@@ -297,7 +299,7 @@ function createSnapshotReport(
 }
 
 export function listSnapshotReports(dataDir: string, threadId: string): SnapshotReport[] {
-  ensureThread(dataDir, threadId)
+  ensureThreadExists(dataDir, threadId)
   const dir = projectSnapshotReportsDir(dataDir, threadId)
   if (!fs.existsSync(dir)) return []
   return fs
@@ -311,7 +313,7 @@ export function listSnapshotReports(dataDir: string, threadId: string): Snapshot
 }
 
 export function listContextItems(dataDir: string, threadId: string): ContextItem[] {
-  ensureThread(dataDir, threadId)
+  ensureThreadExists(dataDir, threadId)
   const file = contextItemsPath(dataDir, threadId)
   return fs
     .readFileSync(file, 'utf8')
@@ -348,6 +350,7 @@ export function addAttachmentFromFile(
     sizeBytes: number
   },
 ): FileContextItem {
+  ensureWriteDirectories(dataDir, threadId)
   const existing = listContextItems(dataDir, threadId)
   const id = nextContextItemId(existing)
   const filename = `${id}-${sanitizeFilename(input.originalName)}`
@@ -374,7 +377,7 @@ export function preflightProjectSnapshot(
   threadId: string,
   sourcePathInput: string,
 ): SnapshotPreflight {
-  ensureThread(dataDir, threadId)
+  ensureThreadExists(dataDir, threadId)
   const sourcePath = resolveDirectory(sourcePathInput)
   const workspacePath = fs.realpathSync(threadDir(dataDir, threadId))
   if (isInside(workspacePath, sourcePath)) {
@@ -401,6 +404,7 @@ export function createProjectSnapshot(
   threadId: string,
   input: CreateProjectSnapshotInput,
 ): ProjectSnapshot {
+  ensureWriteDirectories(dataDir, threadId)
   const preflight = preflightProjectSnapshot(dataDir, threadId, input.source_path)
   if (preflight.requires_confirmation && !input.confirmed) {
     throw new ConfirmationRequiredError('snapshot requires confirmation')
@@ -485,7 +489,7 @@ export function readProjectSnapshot(
   dataDir: string,
   threadId: string,
 ): ProjectSnapshot | null {
-  ensureThread(dataDir, threadId)
+  ensureThreadExists(dataDir, threadId)
   const file = projectSnapshotJsonPath(dataDir, threadId)
   if (!fs.existsSync(file)) return null
   const snapshot = JSON.parse(fs.readFileSync(file, 'utf8')) as ProjectSnapshot
@@ -523,7 +527,7 @@ export function listWorkspaceAddedFiles(
   dataDir: string,
   threadId: string,
 ): WorkspaceAddedFile[] {
-  ensureThread(dataDir, threadId)
+  ensureThreadExists(dataDir, threadId)
   const root = threadDir(dataDir, threadId)
   const known = listKnownWorkspacePaths(dataDir, threadId, listContextItems(dataDir, threadId))
   const files: WorkspaceAddedFile[] = []
@@ -569,8 +573,8 @@ export function copyThreadContext(
   sourceThreadId: string,
   targetThreadId: string,
 ): void {
-  ensureThread(dataDir, sourceThreadId)
-  ensureThread(dataDir, targetThreadId)
+  ensureThreadExists(dataDir, sourceThreadId)
+  ensureWriteDirectories(dataDir, targetThreadId)
 
   const sourceItems = listContextItems(dataDir, sourceThreadId)
   const targetItems = sourceItems.map((item) => ({

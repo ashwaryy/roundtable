@@ -1,6 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process'
 import path from 'node:path'
 
+const DEFAULT_EXEC_TIMEOUT_MS = 5_000
+
 function launchDetached(file: string, args: string[]): void {
   const child = spawn(file, args, {
     detached: true,
@@ -10,7 +12,10 @@ function launchDetached(file: string, args: string[]): void {
 }
 
 function executableExists(file: string): boolean {
-  const result = spawnSync('which', [file], { encoding: 'utf8' })
+  const result = spawnSync('which', [file], {
+    encoding: 'utf8',
+    timeout: DEFAULT_EXEC_TIMEOUT_MS,
+  })
   return result.status === 0
 }
 

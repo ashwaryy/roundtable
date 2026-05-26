@@ -181,6 +181,8 @@ export interface ConsolidationProposal {
   reviser_agent: AgentName
   created_at: string
   updated_at: string
+  latest_revision_id: string | null
+  latest_review_id: string | null
   applied_thread_id: string | null
   saved_artifact_id: string | null
 }

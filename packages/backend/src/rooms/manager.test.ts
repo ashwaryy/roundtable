@@ -105,6 +105,7 @@ beforeEach(() => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-room-'))
   executor = new FakeExecutor()
   createThread(dataDir, { title: 'Room', body: '# Room' })
+  initializeThreadAgents(dataDir, 'thread-1')
 })
 
 afterEach(() => {
@@ -166,6 +167,7 @@ describe('createRoomManager', () => {
     expect(executor.sessions.has('roundtable-thread-1')).toBe(false)
 
     createThread(dataDir, { title: 'Closed', body: '# Closed' })
+    initializeThreadAgents(dataDir, 'thread-2')
     closeThread(dataDir, 'thread-2')
     expect(() => manager.startRoom('thread-2', {})).toThrow(BadRequestError)
     expect(executor.sessions.has('roundtable-thread-2')).toBe(false)
