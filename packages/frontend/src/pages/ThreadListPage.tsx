@@ -5,7 +5,7 @@ import type {
   ThreadDisplayStatus,
   ThreadListItem,
 } from '@roundtable/shared'
-import { deleteThread, listThreads } from '../api'
+import { archiveThread, deleteThread, listThreads } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { TopbarHeader } from '../components/AppHeader'
 import { NewThreadForm } from '../components/NewThreadForm'
@@ -71,6 +71,14 @@ export function ThreadListPage() {
   const [filter, setFilter] = useState<ThreadDisplayStatus | 'all'>('all')
   const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null)
   const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null)
+  const [archivingThreadId, setArchivingThreadId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!openMenuThreadId) return
+    function onPointerDown() { setOpenMenuThreadId(null) }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [openMenuThreadId])
 
   const refresh = useCallback(() => {
     listThreads()
@@ -125,6 +133,19 @@ export function ThreadListPage() {
     { id: 'closed', label: 'Closed' },
     { id: 'archived', label: 'Archived' },
   ]
+
+  async function onArchiveThread(thread: ThreadListItem) {
+    setArchivingThreadId(thread.id)
+    setOpenMenuThreadId(null)
+    try {
+      await archiveThread(thread.id)
+      refresh()
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to archive thread')
+    } finally {
+      setArchivingThreadId(null)
+    }
+  }
 
   async function onDeleteThread(thread: ThreadListItem) {
     const confirmed = window.confirm(`Delete "${thread.title}"? This removes its local thread files.`)
@@ -236,6 +257,7 @@ export function ThreadListPage() {
               const num = threads.length - threads.indexOf(thread)
               const menuOpen = openMenuThreadId === thread.id
               const isDeleting = deletingThreadId === thread.id
+              const isArchiving = archivingThreadId === thread.id
               const open = () => navigate(`/threads/${thread.id}`)
               return (
                 <div
@@ -294,7 +316,7 @@ export function ThreadListPage() {
                         className="thread-actions__trigger"
                         aria-label={`Actions for ${thread.title}`}
                         aria-expanded={menuOpen}
-                        disabled={isDeleting}
+                        disabled={isDeleting || isArchiving}
                         onClick={(e) => {
                           e.stopPropagation()
                           setOpenMenuThreadId(menuOpen ? null : thread.id)
@@ -307,7 +329,21 @@ export function ThreadListPage() {
                           className="thread-actions__menu"
                           role="menu"
                           onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
                         >
+                          {thread.display_status !== 'archived' ? (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="thread-actions__item"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void onArchiveThread(thread)
+                              }}
+                            >
+                              Archive thread
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             role="menuitem"

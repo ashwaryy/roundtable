@@ -227,6 +227,13 @@ export function deleteThread(id: string): Promise<void> {
   })
 }
 
+export function archiveThread(id: string): Promise<Thread> {
+  return fetch(`/api/threads/${id}/archive`, { method: 'PATCH' }).then((res) => {
+    if (!res.ok) throw new Error(`request failed: ${res.status}`)
+    return res.json() as Promise<Thread>
+  })
+}
+
 export function listComments(id: string): Promise<Comment[]> {
   return readJson<Comment[]>(`/api/threads/${id}/comments`)
 }

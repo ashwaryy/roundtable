@@ -471,6 +471,20 @@ export function createApp(deps: {
     }
   })
 
+  app.patch('/api/threads/:id/archive', (req, res) => {
+    if (!storage.getThread(req.params.id)) {
+      return res.status(404).json({ error: 'thread not found' })
+    }
+    try {
+      const thread = storage.archiveThread(req.params.id)
+      broadcast({ type: 'room_updated', thread_id: req.params.id })
+      res.json(thread)
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
   app.get('/api/threads/:id/comments', (req, res) => {
     if (!storage.getThread(req.params.id)) {
       return res.status(404).json({ error: 'thread not found' })

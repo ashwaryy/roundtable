@@ -204,6 +204,25 @@ describe('DELETE /api/threads/:id', () => {
   })
 })
 
+describe('PATCH /api/threads/:id/archive', () => {
+  it('archives a thread and broadcasts room_updated', async () => {
+    await request(app).post('/api/threads').send({ title: 'A', body: '# H' })
+
+    const res = await request(app).patch('/api/threads/thread-1/archive')
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe('archived')
+    expect(broadcast).toHaveBeenCalledWith({
+      type: 'room_updated',
+      thread_id: 'thread-1',
+    })
+  })
+
+  it('returns 404 for a missing thread', async () => {
+    const res = await request(app).patch('/api/threads/thread-999/archive')
+    expect(res.status).toBe(404)
+  })
+})
+
 describe('comments routes', () => {
   beforeEach(async () => {
     await request(app).post('/api/threads').send({ title: 'A', body: 'a' })
