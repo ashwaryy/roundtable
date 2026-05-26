@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { SystemPromptRuntime, SystemPromptSection } from '@roundtable/shared'
-import { listSystemPrompts } from '../api'
+import type { SystemInfo, SystemPromptRuntime, SystemPromptSection } from '@roundtable/shared'
+import { getSystemInfo, listSystemPrompts } from '../api'
 import { Icon } from '../components/primitives'
 import { ThemeToggle } from '../components/ThemeToggle'
 
@@ -22,12 +22,16 @@ function languageFor(section: SystemPromptSection): string {
 
 export function SystemPage() {
   const [sections, setSections] = useState<SystemPromptSection[]>([])
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
   const [runtime, setRuntime] = useState<SystemPromptRuntime | 'all'>('all')
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    listSystemPrompts()
-      .then(setSections)
+    Promise.all([listSystemPrompts(), getSystemInfo()])
+      .then(([nextSections, nextInfo]) => {
+        setSections(nextSections)
+        setSystemInfo(nextInfo)
+      })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }, [])
 
@@ -75,6 +79,7 @@ export function SystemPage() {
             <p className="system-description">
               Live Roundtable prompt, launch, and runtime policy templates, with where each one is used.
             </p>
+            <p className="system-description">Release version {systemInfo?.version ?? '...'}</p>
           </div>
         </header>
         <div className="system-tabs" role="tablist" aria-label="System prompt runtime filter">

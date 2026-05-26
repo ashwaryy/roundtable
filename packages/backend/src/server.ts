@@ -1,5 +1,6 @@
 import express from 'express'
 import formidable, { type File as FormidableFile } from 'formidable'
+import { readFileSync } from 'node:fs'
 import {
   createThreadInputSchema,
   createCommentInputSchema,
@@ -36,6 +37,7 @@ import {
   type Thread,
   type ThreadDisplayStatus,
   type ThreadListItem,
+  type SystemInfo,
 } from '@roundtable/shared'
 import {
   BadRequestError,
@@ -47,6 +49,10 @@ import {
 } from './storage'
 import { systemPromptSections, type RoomManager } from './rooms/manager'
 import { openTerminalForTmux } from './terminal'
+
+const SYSTEM_INFO = JSON.parse(
+  readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
+) as SystemInfo
 
 const THREAD_ID_RE = /^thread-\d+$/
 const COMMENT_ID_RE = /^c\d+$/
@@ -272,6 +278,10 @@ export function createApp(deps: {
 
   app.get('/api/system/prompts', (_req, res) => {
     res.json(systemPromptSections())
+  })
+
+  app.get('/api/system/info', (_req, res) => {
+    res.json({ version: SYSTEM_INFO.version })
   })
 
   app.get('/api/agents', (_req, res) => {

@@ -54,6 +54,16 @@ describe('GET /api/system/prompts', () => {
   })
 })
 
+describe('GET /api/system/info', () => {
+  it('returns the current app version', async () => {
+    const res = await request(app).get('/api/system/info')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({
+      version: expect.stringMatching(/^\d+\.\d+\.\d+(-.+)?$/),
+    })
+  })
+})
+
 describe('agent catalogue and roster routes', () => {
   it('supports import JSON with generated ids and unique names', async () => {
     const first = await request(app).post('/api/agents/import-json').send({

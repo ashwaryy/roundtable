@@ -48,3 +48,26 @@ Roundtable works with a few core artifacts:
 Claude Code and Codex CLI are intended to participate as AI commenters in the thread. Their roles should be configurable by the user or workflow.
 
 Agents should contribute through comments, critiques, questions, and proposals. They should not directly apply changes to the source thread. User approval is the boundary between discussion and durable thread evolution.
+
+## Conventional Commits
+
+Roundtable uses `semantic-release` in GitHub Actions. Commit messages on `main` must follow conventional commit format so release versions are calculated correctly.
+
+- Use `fix: ...` for bug fixes. This triggers a patch release.
+- Use `feat: ...` for user-visible features or behavior additions. This triggers a minor release.
+- Use `feat!: ...` or `fix!: ...` for breaking changes, or include a `BREAKING CHANGE:` footer in the commit body. This triggers a major release.
+- Use other types like `chore:`, `docs:`, `refactor:`, or `test:` for work that should not change the release version unless it is also breaking.
+
+Examples:
+
+```txt
+fix: prevent duplicate pending discussion approvals
+feat: show release version on the system page
+feat!: replace thread status filter semantics
+```
+
+When a change is breaking, explain the migration impact in the commit body:
+
+```txt
+BREAKING CHANGE: thread status filters now use display_status values only
+```

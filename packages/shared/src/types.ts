@@ -463,6 +463,10 @@ export interface SystemPromptSection {
   content: string
 }
 
+export interface SystemInfo {
+  version: string
+}
+
 export interface StartRoomInput {
   /** Legacy built-in override fields; roster APIs are preferred. */
   claude_model?: string | null
