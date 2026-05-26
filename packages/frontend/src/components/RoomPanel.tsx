@@ -20,6 +20,7 @@ import {
   listAgents,
   removeThreadAgent,
   updateThreadAgent,
+  type AgentTurnResult,
 } from '../api'
 import { Avatar, Icon } from './primitives'
 import { ModelSelect } from './ModelSelect'
@@ -89,6 +90,7 @@ export function RoomPanel({
   hideRecoveryControls = false,
   summary,
   onUpdate,
+  onRoomResult,
 }: {
   threadId: string
   threadStatus: ThreadStatus
@@ -97,6 +99,7 @@ export function RoomPanel({
   hideRecoveryControls?: boolean
   summary?: string
   onUpdate: () => void
+  onRoomResult: (result: AgentRoom | AgentTurnResult) => void
 }) {
   const [models, setModels] = useState<Record<string, string>>({})
   const [efforts, setEfforts] = useState<Record<string, string>>({})
@@ -150,8 +153,7 @@ export function RoomPanel({
   async function handleStop() {
     setError(null)
     try {
-      await stopRoom(threadId)
-      onUpdate()
+      onRoomResult(await stopRoom(threadId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -174,8 +176,7 @@ export function RoomPanel({
   async function handleRestart() {
     setError(null)
     try {
-      await restartRoom(threadId)
-      onUpdate()
+      onRoomResult(await restartRoom(threadId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -185,12 +186,12 @@ export function RoomPanel({
     event.preventDefault()
     setError(null)
     try {
-      await nudgeRoom(threadId, {
+      const result = await nudgeRoom(threadId, {
         agent: nudgeAgent,
         body: nudgeBody || null,
       })
       setNudgeBody('')
-      onUpdate()
+      onRoomResult(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -200,12 +201,12 @@ export function RoomPanel({
     event.preventDefault()
     setError(null)
     try {
-      await requestIdleSuggestion(threadId, {
+      const result = await requestIdleSuggestion(threadId, {
         agent: suggestAgent,
         body: suggestBody || null,
       })
       setSuggestBody('')
-      onUpdate()
+      onRoomResult(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -214,8 +215,7 @@ export function RoomPanel({
   async function handleCancelSuggestion() {
     setError(null)
     try {
-      await cancelIdleSuggestion(threadId)
-      onUpdate()
+      onRoomResult(await cancelIdleSuggestion(threadId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -225,11 +225,11 @@ export function RoomPanel({
     event.preventDefault()
     setError(null)
     try {
-      await startAutoDiscussion(threadId, {
+      const result = await startAutoDiscussion(threadId, {
         turn_count: autoTurns,
         allow_direct_roots: allowDirectRoots,
       })
-      onUpdate()
+      onRoomResult(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -238,8 +238,7 @@ export function RoomPanel({
   async function handlePauseAuto() {
     setError(null)
     try {
-      await pauseAutoDiscussion(threadId)
-      onUpdate()
+      onRoomResult(await pauseAutoDiscussion(threadId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -248,8 +247,7 @@ export function RoomPanel({
   async function handleStopAuto() {
     setError(null)
     try {
-      await stopAutoDiscussion(threadId)
-      onUpdate()
+      onRoomResult(await stopAutoDiscussion(threadId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -258,8 +256,7 @@ export function RoomPanel({
   async function handleExitAuto() {
     setError(null)
     try {
-      await exitAutoDiscussion(threadId)
-      onUpdate()
+      onRoomResult(await exitAutoDiscussion(threadId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -269,8 +266,7 @@ export function RoomPanel({
     event.preventDefault()
     setError(null)
     try {
-      await extendAutoDiscussion(threadId, { turn_count: extendTurns })
-      onUpdate()
+      onRoomResult(await extendAutoDiscussion(threadId, { turn_count: extendTurns }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -280,11 +276,11 @@ export function RoomPanel({
     if (!room?.input_prompt) return
     setError(null)
     try {
-      await sendRoomInputResponse(threadId, {
+      const result = await sendRoomInputResponse(threadId, {
         agent: room.input_prompt.agent,
         response,
       })
-      onUpdate()
+      onRoomResult(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -293,8 +289,7 @@ export function RoomPanel({
   async function handleRetry() {
     setError(null)
     try {
-      await retryTurn(threadId)
-      onUpdate()
+      onRoomResult(await retryTurn(threadId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -303,8 +298,7 @@ export function RoomPanel({
   async function handleSkip() {
     setError(null)
     try {
-      await skipTurn(threadId)
-      onUpdate()
+      onRoomResult(await skipTurn(threadId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }

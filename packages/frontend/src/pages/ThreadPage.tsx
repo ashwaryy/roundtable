@@ -40,6 +40,7 @@ import {
   retryTurn,
   sendRoomInputResponse,
   skipTurn,
+  type AgentTurnResult,
 } from '../api'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { WorkspaceHeader } from '../components/AppHeader'
@@ -248,6 +249,7 @@ function SideRailContent({
   onRetryTurn,
   onSkipTurn,
   onUpdate,
+  onRoomResult,
 }: {
   thread: ThreadDetail
   room: AgentRoom | null
@@ -268,6 +270,7 @@ function SideRailContent({
   onRetryTurn: () => void
   onSkipTurn: () => void
   onUpdate: () => void
+  onRoomResult: (result: AgentRoom | AgentTurnResult) => void
 }) {
   return (
     <>
@@ -291,6 +294,7 @@ function SideRailContent({
           hideRecoveryControls
           summary={roomSummary}
           onUpdate={onUpdate}
+          onRoomResult={onRoomResult}
         />
       </div>
 
@@ -604,12 +608,8 @@ export function ThreadPage() {
       activeJobAsk.agent === pendingAsk.agent
     ) {
       setPendingAsk(null)
-      return
     }
-    if (room && room.status !== 'running' && !room.active_job_id) {
-      setPendingAsk(null)
-    }
-  }, [activeJobAsk, pendingAsk, room])
+  }, [activeJobAsk, pendingAsk])
 
   const addTopLevel = useCallback(async (input: { body: string; type: CommentType }) => {
     if (!id) return
@@ -632,41 +632,52 @@ export function ThreadPage() {
     refreshComments()
   }, [id, refreshComments])
 
+  // Apply a mutation's returned room state directly so the UI reflects it
+  // immediately, instead of waiting on a separate (and slow) room refetch.
+  const applyRoomResult = useCallback((result: AgentRoom | AgentTurnResult) => {
+    if ('room' in result) {
+      setRoom(result.room)
+      setJobs((prev) =>
+        prev.some((job) => job.id === result.job.id)
+          ? prev.map((job) => (job.id === result.job.id ? result.job : job))
+          : [...prev, result.job],
+      )
+    } else {
+      setRoom(result)
+    }
+  }, [])
+
   const askDiscussion = useCallback(async (discussionId: string, agent: AgentName) => {
     if (!id) return
     setPendingAsk({ discussionId, agent })
     try {
-      await askAgent(id, { agent, discussion_id: discussionId })
-      refreshRoom()
+      applyRoomResult(await askAgent(id, { agent, discussion_id: discussionId }))
+      setPendingAsk(null)
     } catch (error) {
       setPendingAsk(null)
       throw error
     }
-  }, [id, refreshRoom])
+  }, [id, applyRoomResult])
 
   const sendRecoveryInput = useCallback(async (response: 'yes' | 'no') => {
     if (!id || !room?.input_prompt) return
-    await sendRoomInputResponse(id, { agent: room.input_prompt.agent, response })
-    refreshRoom()
-  }, [id, refreshRoom, room?.input_prompt])
+    applyRoomResult(await sendRoomInputResponse(id, { agent: room.input_prompt.agent, response }))
+  }, [id, applyRoomResult, room?.input_prompt])
 
   const restartRecoveryRoom = useCallback(async () => {
     if (!id) return
-    await restartRoom(id)
-    refreshRoom()
-  }, [id, refreshRoom])
+    applyRoomResult(await restartRoom(id))
+  }, [id, applyRoomResult])
 
   const retryRecoveryTurn = useCallback(async () => {
     if (!id) return
-    await retryTurn(id)
-    refreshRoom()
-  }, [id, refreshRoom])
+    applyRoomResult(await retryTurn(id))
+  }, [id, applyRoomResult])
 
   const skipRecoveryTurn = useCallback(async () => {
     if (!id) return
-    await skipTurn(id)
-    refreshRoom()
-  }, [id, refreshRoom])
+    applyRoomResult(await skipTurn(id))
+  }, [id, applyRoomResult])
 
   if (!thread) return <ThreadSkeleton />
 
@@ -714,6 +725,7 @@ export function ThreadPage() {
     onRetryTurn: retryRecoveryTurn,
     onSkipTurn: skipRecoveryTurn,
     onUpdate: refresh,
+    onRoomResult: applyRoomResult,
   }
 
   return (
