@@ -1,3 +1,20 @@
+# [1.1.0](https://github.com/ashwaryy/roundtable/compare/v1.0.0...v1.1.0) (2026-05-26)
+
+
+### Bug Fixes
+
+* make the new-thread agent picker styling consistent ([12ca689](https://github.com/ashwaryy/roundtable/commit/12ca6891e3b040769cef2171b1a8a584084fc987))
+* require stable startup trust prompt before sending keys ([44350a9](https://github.com/ashwaryy/roundtable/commit/44350a903ac3ce2ed45af52d6e27813f99dc4689))
+* revalidate index.html so rebuilt bundles load without hard refresh ([afd0d77](https://github.com/ashwaryy/roundtable/commit/afd0d772332762eda8ede13afedfc3cbcd18af6a))
+* show agent action feedback instantly from mutation results ([6857696](https://github.com/ashwaryy/roundtable/commit/6857696ef02ec9492a92b74de9b8f1264d0ff64f))
+
+
+### Features
+
+* add production build and static app serving ([832ef91](https://github.com/ashwaryy/roundtable/commit/832ef911b149a0459f14dbeff2aa465a357e46fd))
+* breathe an agent's rail card while it works a turn ([8b92b88](https://github.com/ashwaryy/roundtable/commit/8b92b887ff0e1f152c3da1eda37048fe8ef31e2a))
+* unify app headers and integrate brand assets ([723a772](https://github.com/ashwaryy/roundtable/commit/723a7725d5cdafbe2cd5f593683bca0c1c1f531a))
+
 # 1.0.0 (2026-05-26)
 
 
