@@ -106,7 +106,7 @@ export function ThreadContextPanel({
           {addedFiles.slice(0, 8).map((file) => (
             <div key={file} className="snapshot-change">
               <span>+</span>
-              <span className="mono">{file}</span>
+              <span className="mono" title={file}>{file}</span>
             </div>
           ))}
         </div>

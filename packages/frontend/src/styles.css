@@ -957,6 +957,7 @@ article + ul article {
   min-height: 0;
   display: flex;
   overflow: hidden;
+  margin-left: 24px;
 }
 
 /* ── Main scroll column ──────────────────────────────────────── */
@@ -5816,10 +5817,16 @@ a:hover {
   gap: 5px;
   font-size: 11px;
   color: var(--good);
+  min-width: 0;
+  overflow: hidden;
 }
 .snapshot-change .mono {
   color: var(--ink-soft);
   font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .rail-head {
