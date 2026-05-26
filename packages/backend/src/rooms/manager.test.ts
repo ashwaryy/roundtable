@@ -522,6 +522,40 @@ describe('createRoomManager', () => {
     })
   })
 
+  it('trusts generated Codex hooks when startup uses the selection-based prompt', async () => {
+    executor.paneCaptures.set('roundtable-thread-1:agent-claude', 'Claude Code ready')
+    executor.paneCaptures.set(
+      'roundtable-thread-1:agent-codex',
+      [
+        'Hooks need review',
+        '1 hook is new or changed.',
+        'Hooks can run outside the sandbox after you trust them.',
+        'Trusting hooks...',
+        '',
+        '›    Review hooks',
+        '     Trust all and continue',
+        '     Continue without trusting (hooks won\'t run)',
+        '',
+        '  Press enter to confirm or esc to go back',
+      ].join('\n'),
+    )
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptPollIntervalMs: 1,
+      startupTrustPromptTimeoutMs: 50,
+    })
+
+    manager.startRoom('thread-1', {})
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', 'Down', 'C-m'],
+    })
+  })
+
   it('accepts startup trust prompts that appear after agent startup is slow', async () => {
     const manager = createRoomManager({
       dataDir,

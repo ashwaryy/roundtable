@@ -40,6 +40,7 @@ function replySubClusters(replies: Comment[]): Array<{ author: string; comments:
 
 function CommentActions({
   disabled,
+  disabledReason,
   deleting,
   activeAgent,
   onDelete,
@@ -48,6 +49,7 @@ function CommentActions({
   roster,
 }: {
   disabled: boolean
+  disabledReason?: string | null
   deleting: boolean
   activeAgent: AgentName | null
   onDelete?: () => void
@@ -80,6 +82,9 @@ function CommentActions({
           </button>
         )
       })}
+      {disabled && disabledReason ? (
+        <span className="cmt-action-guidance">{disabledReason}</span>
+      ) : null}
       {onDelete ? (
         <button
           type="button"
@@ -103,6 +108,7 @@ const RootComment = memo(function RootComment({
   threadId,
   readOnly,
   disableAgentActions,
+  agentActionDisabledReason,
   activeAsk,
   originExcerpt,
   onReply,
@@ -117,6 +123,7 @@ const RootComment = memo(function RootComment({
   threadId: string
   readOnly: boolean
   disableAgentActions: boolean
+  agentActionDisabledReason?: string | null
   activeAsk: AgentName | null
   originExcerpt: (pending: PendingDiscussion) => string | null
   onReply: (replyTo: string, input: { body: string; type: CommentType }) => Promise<void>
@@ -135,6 +142,7 @@ const RootComment = memo(function RootComment({
   const controls = (
     <CommentActions
       disabled={disableAgentActions}
+      disabledReason={agentActionDisabledReason}
       deleting={deletingId === root.id}
       activeAgent={activeAsk}
       onReply={() => setOpenReply((v) => !v)}
@@ -347,6 +355,7 @@ export function CommentTree({
   onDelete,
   onAskDiscussion,
   disableAgentActions = false,
+  agentActionDisabledReason = null,
   activeAsk = null,
   readOnly = false,
   sortOrder = 'oldest',
@@ -360,6 +369,7 @@ export function CommentTree({
   onDelete: (commentId: string) => Promise<void>
   onAskDiscussion: (discussionId: string, agent: AgentName) => Promise<void>
   disableAgentActions?: boolean
+  agentActionDisabledReason?: string | null
   activeAsk?: { discussionId: string; agent: AgentName } | null
   readOnly?: boolean
   sortOrder?: CommentSortOrder
@@ -413,6 +423,7 @@ export function CommentTree({
           threadId={threadId}
           readOnly={readOnly}
           disableAgentActions={disableAgentActions}
+          agentActionDisabledReason={agentActionDisabledReason}
           activeAsk={activeAsk?.discussionId === root.id ? activeAsk.agent : null}
           originExcerpt={originExcerpt}
           onReply={onReply}

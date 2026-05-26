@@ -601,8 +601,13 @@ export function ThreadPage() {
   const activeJobAsk = discussionAskFromJob(activeRoomJob)
   const activeAsk = activeJobAsk ?? pendingAsk
   const workingAgent = activeRoomJob?.status === 'running' ? activeRoomJob.agent : null
+  const autoModeActive = room?.auto !== null && room?.auto !== undefined
+  const commentAskDisabledReason =
+    autoModeActive
+      ? 'Exit auto mode to enable Ask agent actions on comments.'
+      : null
   const disableCommentAgentActions =
-    room?.status === 'running' || room?.auto?.status === 'running' || pendingAsk !== null
+    room?.status === 'running' || autoModeActive || pendingAsk !== null
 
   useEffect(() => {
     if (!pendingAsk) return
@@ -930,6 +935,7 @@ export function ThreadPage() {
                 onAskDiscussion={askDiscussion}
                 activeAsk={activeAsk}
                 disableAgentActions={disableCommentAgentActions}
+                agentActionDisabledReason={commentAskDisabledReason}
                 readOnly={thread.status !== 'open'}
                 sortOrder={commentSortOrder}
                 roster={room?.roster ?? []}

@@ -4171,6 +4171,12 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .cmt-action.ask:disabled,
 .cmt-action:disabled { color: var(--muted); cursor: not-allowed; }
 .cmt-action.ask:disabled:hover { background: transparent; }
+.cmt-action-guidance {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 8px;
+}
 .cmt-action-spinner {
   width: 12px;
   height: 12px;
