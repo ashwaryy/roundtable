@@ -3968,6 +3968,23 @@ a:hover {
   color: var(--you);
 }
 
+.avatar.is-working {
+  animation: avatar-pulse 2.4s ease-in-out infinite;
+}
+@keyframes avatar-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--good) 80%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--good) 0%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .avatar.is-working {
+    animation: none;
+  }
+}
+
 .agent-stack {
   display: inline-flex;
 }
