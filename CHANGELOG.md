@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/ashwaryy/roundtable/compare/v1.2.0...v1.3.0) (2026-05-26)
+
+
+### Features
+
+* add logo and tagline to thread list header ([259b57a](https://github.com/ashwaryy/roundtable/commit/259b57ac420e8ab1a2f734e7b1e28bd0bf026646))
+
 # [1.2.0](https://github.com/ashwaryy/roundtable/compare/v1.1.0...v1.2.0) (2026-05-26)
 
 
