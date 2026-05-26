@@ -1364,8 +1364,22 @@ export function createApp(deps: {
   })
 
   if (frontendDistDir) {
-    app.use(express.static(frontendDistDir))
+    app.use(
+      express.static(frontendDistDir, {
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith(`${path.sep}index.html`)) {
+            // Always revalidate the entry HTML so new hashed bundles are picked
+            // up on refresh without a manual hard reload.
+            res.setHeader('Cache-Control', 'no-cache')
+          } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            // Content-hashed assets can be cached indefinitely.
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+          }
+        },
+      }),
+    )
     app.get(/^\/(?!api(?:\/|$)|ws(?:\/|$)).*/, (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache')
       res.sendFile(path.join(frontendDistDir, 'index.html'))
     })
   }
