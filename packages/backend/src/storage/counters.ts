@@ -212,8 +212,9 @@ function validateCounterNamespace(
   artifactPaths: string[],
   scanOnDiskMax: () => number,
   logResult: (namespace: string, oldValue: number | null, newValue: number) => void,
+  forceScan: boolean,
 ): void {
-  if (shouldSkipCounterScan(dataDir, namespace, artifactPaths)) return
+  if (!forceScan && shouldSkipCounterScan(dataDir, namespace, artifactPaths)) return
   const result = ensureCounterAhead(dataDir, namespace, scanOnDiskMax())
   if (result.repaired) logResult(namespace, result.oldValue, result.newValue)
 }
@@ -321,7 +322,9 @@ export function nextJobCounterValue(dataDir: string, threadId: string): number {
 export function validateAllMonotonicCounters(
   dataDir: string,
   logRepair: (message: string) => void = console.warn,
+  options: { forceScan?: boolean } = {},
 ): void {
+  const forceScan = options.forceScan ?? false
   const logResult = (namespace: string, oldValue: number | null, newValue: number): void => {
     logRepair(`counter repaired namespace=${namespace} old=${oldValue ?? 'missing'} new=${newValue}`)
   }
@@ -332,6 +335,7 @@ export function validateAllMonotonicCounters(
     [threadsDir(dataDir)],
     () => scanThreadIdMax(dataDir),
     logResult,
+    forceScan,
   )
 
   for (const threadId of threadIds(dataDir)) {
@@ -341,6 +345,7 @@ export function validateAllMonotonicCounters(
       [pendingDiscussionsPath(dataDir, threadId), commentsPath(dataDir, threadId)],
       () => scanPendingDiscussionMax(dataDir, threadId),
       logResult,
+      forceScan,
     )
 
     validateCounterNamespace(
@@ -349,6 +354,7 @@ export function validateAllMonotonicCounters(
       [consolidationsDir(dataDir, threadId)],
       () => scanConsolidationMax(dataDir, threadId),
       logResult,
+      forceScan,
     )
 
     validateCounterNamespace(
@@ -357,6 +363,7 @@ export function validateAllMonotonicCounters(
       [contextItemsPath(dataDir, threadId)],
       () => scanContextItemMax(dataDir, threadId),
       logResult,
+      forceScan,
     )
 
     validateCounterNamespace(
@@ -365,6 +372,7 @@ export function validateAllMonotonicCounters(
       [projectSnapshotReportsDir(dataDir, threadId)],
       () => scanSnapshotReportMax(dataDir, threadId),
       logResult,
+      forceScan,
     )
 
     validateCounterNamespace(
@@ -373,6 +381,7 @@ export function validateAllMonotonicCounters(
       [jobsDir(dataDir, threadId)],
       () => scanJobMax(dataDir, threadId),
       logResult,
+      forceScan,
     )
 
     for (const proposalId of proposalIds(dataDir, threadId)) {

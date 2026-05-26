@@ -547,7 +547,7 @@ export function acceptApplicationWrite(
 
 export function acknowledgeIntegrity(dataDir: string, threadId: string): IntegrityReport {
   const scan = scanCanonical(dataDir, threadId)
-  validateAllMonotonicCounters(dataDir)
+  validateAllMonotonicCounters(dataDir, console.warn, { forceScan: true })
   const timestamp = new Date().toISOString()
   const report: IntegrityReport = {
     thread_id: threadId,

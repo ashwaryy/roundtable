@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createStorage } from './index'
-import { attachmentsDir, commentsPath, integrityPath, threadMdPath } from './paths'
+import { attachmentsDir, commentsPath, counterFilePath, integrityPath, jobsDir, threadMdPath } from './paths'
 
 let dataDir: string
 
@@ -67,6 +67,29 @@ describe('canonical integrity', () => {
     expect(accepted.issues).toEqual(
       expect.arrayContaining([expect.objectContaining({ kind: 'invalid', path: 'comments.jsonl' })]),
     )
+  })
+
+  it('forces counter repair during acknowledgement even when startup heuristic would skip', () => {
+    const storage = createStorage(dataDir)
+    storage.createThread({ title: 'A', body: 'body' })
+    fs.mkdirSync(jobsDir(dataDir, 'thread-1'), { recursive: true })
+    fs.writeFileSync(path.join(jobsDir(dataDir, 'thread-1'), 'job-003.json'), '{}')
+
+    const namespace = 'thread:thread-1:jobs'
+    fs.mkdirSync(path.dirname(counterFilePath(dataDir, namespace)), { recursive: true })
+    fs.writeFileSync(
+      counterFilePath(dataDir, namespace),
+      JSON.stringify({
+        namespace,
+        value: 1,
+        updated_at: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    )
+
+    storage.acknowledgeIntegrity('thread-1')
+
+    const counter = JSON.parse(fs.readFileSync(counterFilePath(dataDir, namespace), 'utf8')) as { value: number }
+    expect(counter.value).toBe(3)
   })
 
   it('surfaces malformed canonical JSONL without throwing from the report', () => {
