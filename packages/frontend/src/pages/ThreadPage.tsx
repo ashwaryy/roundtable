@@ -250,6 +250,7 @@ function SideRailContent({
   onSkipTurn,
   onUpdate,
   onRoomResult,
+  workingAgent,
 }: {
   thread: ThreadDetail
   room: AgentRoom | null
@@ -271,6 +272,7 @@ function SideRailContent({
   onSkipTurn: () => void
   onUpdate: () => void
   onRoomResult: (result: AgentRoom | AgentTurnResult) => void
+  workingAgent: AgentName | null
 }) {
   return (
     <>
@@ -295,6 +297,7 @@ function SideRailContent({
           summary={roomSummary}
           onUpdate={onUpdate}
           onRoomResult={onRoomResult}
+          workingAgent={workingAgent}
         />
       </div>
 
@@ -597,6 +600,7 @@ export function ThreadPage() {
     : null
   const activeJobAsk = discussionAskFromJob(activeRoomJob)
   const activeAsk = activeJobAsk ?? pendingAsk
+  const workingAgent = activeRoomJob?.status === 'running' ? activeRoomJob.agent : null
   const disableCommentAgentActions =
     room?.status === 'running' || room?.auto?.status === 'running' || pendingAsk !== null
 
@@ -726,6 +730,7 @@ export function ThreadPage() {
     onSkipTurn: skipRecoveryTurn,
     onUpdate: refresh,
     onRoomResult: applyRoomResult,
+    workingAgent,
   }
 
   return (

@@ -5038,6 +5038,32 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   background: var(--good);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--good) 30%, transparent);
 }
+.agent-row .agent-meta .name .state.working {
+  background: var(--good);
+}
+
+/* Breathing card + dot while an agent is actively working a turn. */
+.agent-row.is-working {
+  border-color: color-mix(in srgb, var(--good) 38%, var(--rule));
+  animation: agent-breathe 2.4s ease-in-out infinite;
+}
+.agent-row.is-working .agent-meta .name .state.working {
+  animation: agent-breathe-dot 2.4s ease-in-out infinite;
+}
+@keyframes agent-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 22%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 9%, transparent); }
+}
+@keyframes agent-breathe-dot {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 45%, transparent); opacity: 1; }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--good) 0%, transparent); opacity: .5; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-row.is-working,
+  .agent-row.is-working .agent-meta .name .state.working {
+    animation: none;
+  }
+}
 .agent-row .agent-meta .sub {
   font-family: 'IBM Plex Sans', system-ui, sans-serif;
   font-size: 11px;

@@ -91,6 +91,7 @@ export function RoomPanel({
   summary,
   onUpdate,
   onRoomResult,
+  workingAgent = null,
 }: {
   threadId: string
   threadStatus: ThreadStatus
@@ -100,6 +101,7 @@ export function RoomPanel({
   summary?: string
   onUpdate: () => void
   onRoomResult: (result: AgentRoom | AgentTurnResult) => void
+  workingAgent?: AgentName | null
 }) {
   const [models, setModels] = useState<Record<string, string>>({})
   const [efforts, setEfforts] = useState<Record<string, string>>({})
@@ -421,15 +423,16 @@ export function RoomPanel({
           {roster.map((agent) => {
             const agentId = agent.agent_id
             const ready = showAgentReadiness && Boolean(room?.agents[agentId]?.ready_at)
+            const working = workingAgent === agentId
             return (
-              <div key={agentId} className="agent-row">
+              <div key={agentId} className={`agent-row${working ? ' is-working' : ''}`}>
                 <Avatar author={agentId} agent={agent} size={24} />
                 <div className="agent-meta">
                   <div className="name">
-                    <span className={`state ${ready ? 'on' : ''}`} />
+                    <span className={`state ${working ? 'working' : ready ? 'on' : ''}`} />
                     {agent.name}
                   </div>
-                  <div className="sub">{agent.runtime} · {ready ? 'ready' : 'not started'}</div>
+                  <div className="sub">{agent.runtime} · {working ? 'working…' : ready ? 'ready' : 'not started'}</div>
                 </div>
                 <div className="agent-row-controls">
                   <ModelSelect
