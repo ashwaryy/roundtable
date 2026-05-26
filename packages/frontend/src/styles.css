@@ -5028,14 +5028,11 @@ a:hover {
 }
 .reply-cluster-rail {
   position: absolute;
-  top: 4px;
-  bottom: 14px;
-  left: 13px;
+  top: -10px;
+  bottom: -6px;
+  left: 0px;
   width: 1px;
   background: var(--rule);
-}
-.reply-cluster:hover .reply-cluster-rail {
-  background: var(--rule-strong);
 }
 .reply-cluster-body {
   min-width: 0;
