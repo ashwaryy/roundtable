@@ -10,30 +10,13 @@ import type {
   TmuxPaneSnapshot,
 } from '@roundtable/shared'
 import {
-  cancelIdleSuggestion,
-  exitAutoDiscussion,
-  extendAutoDiscussion,
-  nudgeRoom,
-  requestIdleSuggestion,
-  openRoomTerminal,
-  pauseAutoDiscussion,
-  retryTurn,
-  restartRoom,
-  sendRoomInputResponse,
-  skipTurn,
-  startAutoDiscussion,
-  startRoom,
-  stopAutoDiscussion,
-  stopRoom,
-  inviteThreadAgent,
-  removeThreadAgent,
-  updateThreadAgent,
   type AgentTurnResult,
 } from '../api'
 import { Avatar, Icon } from './primitives'
 import { ModelSelect } from './ModelSelect'
 import { useAgentCatalogue } from '../useAgentCatalogue'
 import { useTmuxViewer } from '../useTmuxViewer'
+import { useRoomControls } from '../useRoomControls'
 
 const TMUX_VIEW_POLL_MS = 5000
 
@@ -383,15 +366,13 @@ export function RoomPanel({
   const [autoTurns, setAutoTurns] = useState(4)
   const [extendTurns, setExtendTurns] = useState(4)
   const [allowDirectRoots, setAllowDirectRoots] = useState(false)
-  const [startingRoom, setStartingRoom] = useState(false)
-  const [openingTerminal, setOpeningTerminal] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const catalogue = useAgentCatalogue()
   const isThreadOpen = threadStatus === 'open'
   const roster = room?.roster ?? []
   const viewableAgents = roster.filter((agent) => room?.agents[agent.agent_id]?.pane_viewable)
   const viewerAgents = viewableAgents.map((agent) => ({ agent_id: agent.agent_id, name: agent.name }))
   const viewer = useTmuxViewer(threadId, viewerAgents)
+  const controls = useRoomControls({ threadId, room, onUpdate, onRoomResult })
 
   useEffect(() => {
     setModels(Object.fromEntries(roster.map((agent) => [agent.agent_id, agent.model ?? ''])))
@@ -402,199 +383,6 @@ export function RoomPanel({
       setSuggestAgent((value) => roster.some((agent) => agent.agent_id === value) ? value : first)
     }
   }, [room?.roster])
-
-  async function handleStart(event: FormEvent) {
-    event.preventDefault()
-    setError(null)
-    setStartingRoom(true)
-    try {
-      await startRoom(threadId, {
-        claude_model: models.claude || null,
-        codex_model: models.codex || null,
-      })
-      onUpdate()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setStartingRoom(false)
-    }
-  }
-
-  async function handleStop() {
-    setError(null)
-    try {
-      onRoomResult(await stopRoom(threadId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleOpenTerminal() {
-    if (!room?.attach_command) return
-    setOpeningTerminal(true)
-    setError(null)
-    try {
-      await openRoomTerminal(threadId)
-    } catch (err) {
-      navigator.clipboard?.writeText(room.attach_command)
-      setError('Terminal could not be opened. Attach command copied.')
-    } finally {
-      setOpeningTerminal(false)
-    }
-  }
-
-  async function handleRestart() {
-    setError(null)
-    try {
-      onRoomResult(await restartRoom(threadId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleNudge(event: FormEvent) {
-    event.preventDefault()
-    setError(null)
-    try {
-      const result = await nudgeRoom(threadId, {
-        agent: nudgeAgent,
-        body: nudgeBody || null,
-      })
-      setNudgeBody('')
-      onRoomResult(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleSuggest(event: FormEvent) {
-    event.preventDefault()
-    setError(null)
-    try {
-      const result = await requestIdleSuggestion(threadId, {
-        agent: suggestAgent,
-        body: suggestBody || null,
-      })
-      setSuggestBody('')
-      onRoomResult(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleCancelSuggestion() {
-    setError(null)
-    try {
-      onRoomResult(await cancelIdleSuggestion(threadId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleStartAuto(event: FormEvent) {
-    event.preventDefault()
-    setError(null)
-    try {
-      const result = await startAutoDiscussion(threadId, {
-        turn_count: autoTurns,
-        allow_direct_roots: allowDirectRoots,
-      })
-      onRoomResult(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handlePauseAuto() {
-    setError(null)
-    try {
-      onRoomResult(await pauseAutoDiscussion(threadId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleStopAuto() {
-    setError(null)
-    try {
-      onRoomResult(await stopAutoDiscussion(threadId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleExitAuto() {
-    setError(null)
-    try {
-      onRoomResult(await exitAutoDiscussion(threadId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleExtendAuto(event: FormEvent) {
-    event.preventDefault()
-    setError(null)
-    try {
-      onRoomResult(await extendAutoDiscussion(threadId, { turn_count: extendTurns }))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleInputResponse(response: 'yes' | 'no') {
-    if (!room?.input_prompt) return
-    setError(null)
-    try {
-      const result = await sendRoomInputResponse(threadId, {
-        agent: room.input_prompt.agent,
-        response,
-      })
-      onRoomResult(result)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleRetry() {
-    setError(null)
-    try {
-      onRoomResult(await retryTurn(threadId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleSkip() {
-    setError(null)
-    try {
-      onRoomResult(await skipTurn(threadId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleInvite() {
-    if (!inviteId) return
-    try {
-      await inviteThreadAgent(threadId, { agent_id: inviteId })
-      setInviteId('')
-      onUpdate()
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
-  }
-
-  async function handleRemove(agentId: string) {
-    try {
-      await removeThreadAgent(threadId, agentId)
-      onUpdate()
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
-  }
-
-  async function saveModel(agentId: string, modelValue = models[agentId] || null) {
-    try {
-      await updateThreadAgent(threadId, agentId, { model: modelValue, effort: efforts[agentId] || null })
-      onUpdate()
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
-  }
 
   const canStart = canStartRoom(isThreadOpen, preflight, room)
   const canNudge = isThreadOpen && room?.status === 'idle'
@@ -647,12 +435,6 @@ export function RoomPanel({
   const autoProgress = room?.auto && room.auto.total_turns > 0
     ? Math.min(100, Math.round((room.auto.completed_turns / room.auto.total_turns) * 100))
     : 0
-
-  useEffect(() => {
-    if (startingRoom && !canStartRoom(isThreadOpen, preflight, room)) {
-      setStartingRoom(false)
-    }
-  }, [isThreadOpen, preflight, room, startingRoom])
 
   useEffect(() => {
     if (
@@ -708,10 +490,10 @@ export function RoomPanel({
                     ariaLabel={`${agentId} model`}
                     value={models[agentId] ?? ''}
                     onChange={(value) => setModels((modelsByAgent) => ({ ...modelsByAgent, [agentId]: value }))}
-                    onCommit={(value) => void saveModel(agentId, value || null)}
+                    onCommit={(value) => void controls.saveModel(agentId, value || null, efforts[agentId] || null)}
                     disabled={!isThreadOpen}
                   />
-                  <select className="agent-model" aria-label={`${agentId} effort`} value={efforts[agentId] ?? ''} onChange={(event) => setEfforts((value) => ({ ...value, [agentId]: event.target.value }))} onBlur={() => void saveModel(agentId)} disabled={!isThreadOpen}>
+                  <select className="agent-model" aria-label={`${agentId} effort`} value={efforts[agentId] ?? ''} onChange={(event) => setEfforts((value) => ({ ...value, [agentId]: event.target.value }))} onBlur={() => void controls.saveModel(agentId, models[agentId] || null, efforts[agentId] || null)} disabled={!isThreadOpen}>
                     <option value="">Effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>{agent.runtime === 'codex' ? <option value="xhigh">XHigh</option> : null}
                   </select>
                   {room?.agents[agentId]?.pane_viewable ? (
@@ -731,7 +513,7 @@ export function RoomPanel({
                       className="agent-remove"
                       title={`Remove ${agent.name}`}
                       aria-label={`Remove ${agent.name}`}
-                      onClick={() => void handleRemove(agentId)}
+                      onClick={() => void controls.remove(agentId)}
                     >
                       <Icon name="close" className="ic-sm" />
                     </button>
@@ -747,7 +529,7 @@ export function RoomPanel({
               <option value="">Invite agent...</option>
               {catalogue.filter((agent) => !roster.some((invite) => invite.agent_id === agent.id)).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
             </select>
-            <button type="button" className="btn sm" disabled={!inviteId} onClick={() => void handleInvite()}><Icon name="plus" className="ic-sm" /></button>
+            <button type="button" className="btn sm" disabled={!inviteId} onClick={() => void controls.invite(inviteId, () => setInviteId(''))}><Icon name="plus" className="ic-sm" /></button>
           </div>
         ) : null}
 
@@ -764,14 +546,14 @@ export function RoomPanel({
           </div>
         ) : null}
 
-        <form onSubmit={handleStart} aria-label="start-room" className="room-actions">
+        <form onSubmit={(event) => { event.preventDefault(); void controls.start(models) }} aria-label="start-room" className="room-actions">
           {canStop ? (
-            <button type="button" className="btn" onClick={handleStop}>
+            <button type="button" className="btn" onClick={() => void controls.stop()}>
               <Icon name="stop" className="ic-sm" /> {room?.auto?.status === 'running' ? 'Stop Room' : 'Stop'}
             </button>
           ) : (
-            <button type="submit" className="btn primary" disabled={!canStart || startingRoom}>
-              {startingRoom ? (
+            <button type="submit" className="btn primary" disabled={!canStart || controls.startingRoom}>
+              {controls.startingRoom ? (
                 <>
                   <span className="button-spinner" aria-hidden="true" />
                   Starting...
@@ -783,7 +565,7 @@ export function RoomPanel({
               )}
             </button>
           )}
-          <button type="button" className="btn" onClick={handleRestart} disabled={!canReloadRoom} title="Restart room">
+          <button type="button" className="btn" onClick={() => void controls.restart()} disabled={!canReloadRoom} title="Restart room">
             <Icon name="refresh" className="ic-sm" />
           </button>
         </form>
@@ -809,8 +591,8 @@ export function RoomPanel({
             className="tmux-watch"
             title="Open terminal attached to this tmux session"
             aria-label="Open terminal attached to this tmux session"
-            disabled={openingTerminal || !canOpenTerminal}
-            onClick={handleOpenTerminal}
+            disabled={controls.openingTerminal || !canOpenTerminal}
+            onClick={() => void controls.openTerminal()}
           >
             <Icon name="eye" className="ic-sm" />
           </button>
@@ -828,20 +610,20 @@ export function RoomPanel({
             </div>
             <pre className="rail-recovery-excerpt">{room.input_prompt.excerpt}</pre>
             <div className="pending-actions">
-              <button type="button" className="btn sm primary" onClick={() => handleInputResponse('yes')}>Send Yes</button>
-              <button type="button" className="btn sm" onClick={() => handleInputResponse('no')}>Send No</button>
+              <button type="button" className="btn sm primary" onClick={() => void controls.respondToInput('yes')}>Send Yes</button>
+              <button type="button" className="btn sm" onClick={() => void controls.respondToInput('no')}>Send No</button>
             </div>
           </div>
         ) : null}
 
         {!hideRecoveryControls && canResolveTurn ? (
           <div className="pending-actions">
-            <button type="button" className="btn sm primary" onClick={handleRetry}>Retry Turn</button>
-            <button type="button" className="btn sm" onClick={handleSkip}>Skip Turn</button>
+            <button type="button" className="btn sm primary" onClick={() => void controls.retry()}>Retry Turn</button>
+            <button type="button" className="btn sm" onClick={() => void controls.skip()}>Skip Turn</button>
           </div>
         ) : null}
 
-        {error ? <p role="alert" className="room-card__error">{error}</p> : null}
+        {controls.error ? <p role="alert" className="room-card__error">{controls.error}</p> : null}
       </div>
 
       <section className="rail-section" data-open={directOpen ? '1' : '0'}>
@@ -864,7 +646,7 @@ export function RoomPanel({
           </div>
 
           {controlTab === 'nudge' ? (
-            <form onSubmit={handleNudge} aria-label="nudge-room" className="rail-form">
+            <form onSubmit={(event) => { event.preventDefault(); void controls.nudge(nudgeAgent, nudgeBody, () => setNudgeBody('')) }} aria-label="nudge-room" className="rail-form">
               <div className="rail-hint" style={{ padding: 0 }}>One-line note into the room without consuming a turn.</div>
               <div className="rail-row">
                 <select className="rail-input" aria-label="Nudge agent" value={nudgeAgent} onChange={(e) => setNudgeAgent(e.target.value as AgentName)} disabled={!canNudge}>
@@ -879,7 +661,7 @@ export function RoomPanel({
           ) : null}
 
           {controlTab === 'suggest' ? (
-            <form onSubmit={handleSuggest} aria-label="request-suggestion" className="rail-form">
+            <form onSubmit={(event) => { event.preventDefault(); void controls.suggest(suggestAgent, suggestBody, () => setSuggestBody('')) }} aria-label="request-suggestion" className="rail-form">
               <div className="rail-hint" style={{ padding: 0 }}>Ask for proposed discussion points; they require your approval.</div>
               {room?.idle_suggestion_request ? (
                 <div className="rail-row">
@@ -888,7 +670,7 @@ export function RoomPanel({
                       ? `${room.idle_suggestion_request.agent} finished with ${room.idle_suggestion_request.submitted_count} suggestion${room.idle_suggestion_request.submitted_count === 1 ? '' : 's'}.`
                       : `Suggest is active for ${room.idle_suggestion_request.agent}; ${room.idle_suggestion_request.submitted_count} submitted so far. Cancel to stop further suggestions.`}
                   </div>
-                  <button type="button" className="btn sm" onClick={handleCancelSuggestion}>Cancel</button>
+                  <button type="button" className="btn sm" onClick={() => void controls.cancelSuggestion()}>Cancel</button>
                 </div>
               ) : null}
               <div className="rail-row">
@@ -912,10 +694,10 @@ export function RoomPanel({
                     <span className="mono" style={{ marginLeft: 'auto' }}>{room.auto.completed_turns}/{room.auto.total_turns}</span>
                   </div>
                   <div className="rail-row two">
-                    <button type="button" className="btn" onClick={handlePauseAuto} disabled={!canPauseAuto}>
+                    <button type="button" className="btn" onClick={() => void controls.pauseAuto()} disabled={!canPauseAuto}>
                       <Icon name="pause" className="ic-sm" /> Pause
                     </button>
-                    <button type="button" className="btn" onClick={handleStopAuto} disabled={!canStopAuto}>
+                    <button type="button" className="btn" onClick={() => void controls.stopAuto()} disabled={!canStopAuto}>
                       <Icon name="stop" className="ic-sm" /> Stop
                     </button>
                   </div>
@@ -930,14 +712,14 @@ export function RoomPanel({
                       {room?.auto?.completed_turns}/{room?.auto?.total_turns}
                     </span>
                   </div>
-                  <form onSubmit={handleExtendAuto} aria-label="extend-auto-discussion" className="rail-row auto-exit-row">
+                  <form onSubmit={(event) => { event.preventDefault(); void controls.extendAuto(extendTurns) }} aria-label="extend-auto-discussion" className="rail-row auto-exit-row">
                     <input className="rail-input" style={{ width: 78 }} aria-label="Extend turns" type="number" min={1} max={20} value={extendTurns} onChange={(e) => setExtendTurns(Number(e.target.value))} disabled={!canExtendAuto} />
                     <button type="submit" className="btn sm" disabled={!canExtendAuto}>Extend</button>
-                    <button type="button" className="btn sm" onClick={handleExitAuto} disabled={!canExitAuto}>Exit auto</button>
+                    <button type="button" className="btn sm" onClick={() => void controls.exitAuto()} disabled={!canExitAuto}>Exit auto</button>
                   </form>
                 </>
               ) : (
-                <form onSubmit={handleStartAuto} aria-label="start-auto-discussion" className="rail-form" style={{ padding: 0 }}>
+                <form onSubmit={(event) => { event.preventDefault(); void controls.startAuto(autoTurns, allowDirectRoots) }} aria-label="start-auto-discussion" className="rail-form" style={{ padding: 0 }}>
                   <div className="rail-row">
                     <span style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif", fontSize: 12, color: 'var(--muted-strong)' }}>Turns</span>
                     <input className="rail-input" style={{ width: 78 }} aria-label="Auto turns" type="number" min={1} max={20} value={autoTurns} onChange={(e) => setAutoTurns(Number(e.target.value))} disabled={!canStartAuto} />
