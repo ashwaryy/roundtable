@@ -1,3 +1,11 @@
+## [1.3.4](https://github.com/ashwaryy/roundtable/compare/v1.3.3...v1.3.4) (2026-05-27)
+
+
+### Bug Fixes
+
+* show room stop control during auto mode ([673ad1c](https://github.com/ashwaryy/roundtable/commit/673ad1c4bb1e9683228f35ffbad1020c07f77543))
+* style recovery card with semantic warn/error tokens and status pill ([af014a2](https://github.com/ashwaryy/roundtable/commit/af014a22cfc1d44fa1dae1c5b6b94d47c9b97153))
+
 ## [1.3.3](https://github.com/ashwaryy/roundtable/compare/v1.3.2...v1.3.3) (2026-05-27)
 
 
