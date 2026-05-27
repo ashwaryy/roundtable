@@ -455,7 +455,7 @@ function sendLineToPane(
 ): void {
   executor.execFile('tmux', ['send-keys', '-t', target, 'C-u'])
   executor.execFile('tmux', ['send-keys', '-t', target, '-l', line])
-  executor.execFile('tmux', ['send-keys', '-t', target, 'Enter'])
+  executor.execFile('tmux', ['send-keys', '-t', target, 'C-m'])
 }
 
 function sendKeysToPane(

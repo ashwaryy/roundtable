@@ -974,7 +974,7 @@ describe('createRoomManager', () => {
       },
       {
         file: 'tmux',
-        args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', 'Enter'],
+        args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', 'C-m'],
       },
     ])
     expect(executor.commands[promptTextCommandIndex].args[4]).not.toContain('\n')
