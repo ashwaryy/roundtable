@@ -13,7 +13,6 @@ import {
   cancelIdleSuggestion,
   exitAutoDiscussion,
   extendAutoDiscussion,
-  getTmuxPaneSnapshot,
   nudgeRoom,
   requestIdleSuggestion,
   openRoomTerminal,
@@ -21,7 +20,6 @@ import {
   retryTurn,
   restartRoom,
   sendRoomInputResponse,
-  sendTmuxPaneInput,
   skipTurn,
   startAutoDiscussion,
   startRoom,
@@ -35,6 +33,7 @@ import {
 import { Avatar, Icon } from './primitives'
 import { ModelSelect } from './ModelSelect'
 import { useAgentCatalogue } from '../useAgentCatalogue'
+import { useTmuxViewer } from '../useTmuxViewer'
 
 const TMUX_VIEW_POLL_MS = 5000
 
@@ -386,21 +385,13 @@ export function RoomPanel({
   const [allowDirectRoots, setAllowDirectRoots] = useState(false)
   const [startingRoom, setStartingRoom] = useState(false)
   const [openingTerminal, setOpeningTerminal] = useState(false)
-  const [viewerOpen, setViewerOpen] = useState(false)
-  const [viewerAgent, setViewerAgent] = useState<string | null>(null)
-  const [viewerSnapshot, setViewerSnapshot] = useState<TmuxPaneSnapshot | null>(null)
-  const [viewerLoading, setViewerLoading] = useState(false)
-  const [viewerStale, setViewerStale] = useState(false)
-  const [viewerError, setViewerError] = useState<string | null>(null)
-  const [viewerInputSending, setViewerInputSending] = useState(false)
-  const [viewerInputError, setViewerInputError] = useState<string | null>(null)
-  const [viewerRefreshNonce, setViewerRefreshNonce] = useState(0)
-  const viewerSnapshotRef = useRef<TmuxPaneSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const catalogue = useAgentCatalogue()
   const isThreadOpen = threadStatus === 'open'
   const roster = room?.roster ?? []
   const viewableAgents = roster.filter((agent) => room?.agents[agent.agent_id]?.pane_viewable)
+  const viewerAgents = viewableAgents.map((agent) => ({ agent_id: agent.agent_id, name: agent.name }))
+  const viewer = useTmuxViewer(threadId, viewerAgents)
 
   useEffect(() => {
     setModels(Object.fromEntries(roster.map((agent) => [agent.agent_id, agent.model ?? ''])))
@@ -411,109 +402,6 @@ export function RoomPanel({
       setSuggestAgent((value) => roster.some((agent) => agent.agent_id === value) ? value : first)
     }
   }, [room?.roster])
-
-  useEffect(() => {
-    if (!viewerOpen) return
-    if (viewableAgents.length === 0) {
-      setViewerAgent(null)
-      setViewerSnapshot(null)
-      setViewerLoading(false)
-      setViewerStale(false)
-      setViewerError('No tmux windows are currently viewable.')
-      setViewerInputError(null)
-      return
-    }
-    if (!viewerAgent || !viewableAgents.some((agent) => agent.agent_id === viewerAgent)) {
-      setViewerAgent(viewableAgents[0]?.agent_id ?? null)
-    }
-  }, [viewerAgent, viewerOpen, viewableAgents])
-
-  useEffect(() => {
-    viewerSnapshotRef.current = viewerSnapshot
-  }, [viewerSnapshot])
-
-  useEffect(() => {
-    if (!viewerOpen || !viewerAgent) return
-    let cancelled = false
-    let pollTimer: number | null = null
-
-    const loadSnapshot = async (showLoading: boolean) => {
-      if (showLoading) setViewerLoading(true)
-      try {
-        const next = await getTmuxPaneSnapshot(threadId, viewerAgent)
-        if (cancelled) return
-        setViewerSnapshot(next)
-        setViewerError(null)
-        setViewerInputError(null)
-        setViewerStale(false)
-      } catch (err) {
-        if (cancelled) return
-        const message = err instanceof Error ? err.message : String(err)
-        setViewerError(message)
-        if (showLoading || !viewerSnapshotRef.current) {
-          setViewerSnapshot(null)
-        } else {
-          setViewerStale(true)
-        }
-      } finally {
-        if (!cancelled) setViewerLoading(false)
-      }
-    }
-
-    setViewerSnapshot(null)
-    setViewerError(null)
-    setViewerStale(false)
-    void loadSnapshot(true)
-
-    pollTimer = window.setInterval(() => {
-      void loadSnapshot(false)
-    }, TMUX_VIEW_POLL_MS)
-
-    return () => {
-      cancelled = true
-      if (pollTimer !== null) window.clearInterval(pollTimer)
-    }
-  }, [threadId, viewerAgent, viewerOpen, viewerRefreshNonce])
-
-  function openViewer(agentId: string) {
-    setViewerOpen(true)
-    setViewerAgent(agentId)
-    setViewerSnapshot(null)
-    setViewerError(null)
-    setViewerInputError(null)
-    setViewerStale(false)
-  }
-
-  function closeViewer() {
-    setViewerOpen(false)
-    setViewerAgent(null)
-    setViewerSnapshot(null)
-    setViewerError(null)
-    setViewerInputError(null)
-    setViewerStale(false)
-    setViewerLoading(false)
-    setViewerInputSending(false)
-  }
-
-  function selectViewerAgent(agentId: string) {
-    setViewerAgent(agentId)
-    setViewerInputError(null)
-  }
-
-  async function handleTmuxPaneInput(input: TmuxPaneInput) {
-    if (!viewerAgent) return
-    setViewerInputSending(true)
-    setViewerInputError(null)
-    try {
-      await sendTmuxPaneInput(threadId, viewerAgent, input)
-      setViewerRefreshNonce((value) => value + 1)
-    } catch (err) {
-      setViewerInputError(err instanceof Error ? err.message : String(err))
-      throw err
-    } finally {
-      setViewerInputSending(false)
-    }
-  }
 
   async function handleStart(event: FormEvent) {
     event.preventDefault()
@@ -832,7 +720,7 @@ export function RoomPanel({
                       className="agent-viewer-toggle"
                       title={`View ${agent.name} tmux output`}
                       aria-label={`View ${agent.name} tmux output`}
-                      onClick={() => openViewer(agentId)}
+                      onClick={() => viewer.openViewer(agentId)}
                     >
                       <Icon name="eye" className="ic-sm" />
                     </button>
@@ -1070,17 +958,17 @@ export function RoomPanel({
       </section>
 
       <TmuxViewerDialog
-        open={viewerOpen}
-        agents={viewableAgents.map((agent) => ({ agent_id: agent.agent_id, name: agent.name }))}
-        selectedAgent={viewerAgent}
-        snapshot={viewerSnapshot}
-        loading={viewerLoading}
-        stale={viewerStale}
-        error={viewerInputError ?? viewerError}
-        sendingInput={viewerInputSending}
-        onClose={closeViewer}
-        onSelectAgent={selectViewerAgent}
-        onSendInput={handleTmuxPaneInput}
+        open={viewer.open}
+        agents={viewerAgents}
+        selectedAgent={viewer.selectedAgent}
+        snapshot={viewer.snapshot}
+        loading={viewer.loading}
+        stale={viewer.stale}
+        error={viewer.inputError ?? viewer.error}
+        sendingInput={viewer.inputSending}
+        onClose={viewer.closeViewer}
+        onSelectAgent={viewer.selectViewerAgent}
+        onSendInput={viewer.sendInput}
       />
     </>
   )
