@@ -781,10 +781,22 @@ describe('createRoomManager', () => {
         'send-keys',
         '-t',
         'roundtable-thread-1:agent-codex',
-        'Please inspect this.',
-        'C-m',
+        '-l',
+        expect.stringMatching(
+          /^Read \.roundtable\/tmp\/nudge-codex-.*\.md and follow it\.$/,
+        ),
       ],
     })
+    const prompts = fs
+      .readdirSync(path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'tmp'))
+      .filter((file) => /^nudge-codex-.*\.md$/.test(file))
+    expect(prompts).toHaveLength(1)
+    expect(
+      fs.readFileSync(
+        path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'tmp', prompts[0]),
+        'utf8',
+      ),
+    ).toBe('Please inspect this.')
   })
 
   it('requests idle suggestions and sends the permitted helper instruction', () => {
@@ -809,11 +821,21 @@ describe('createRoomManager', () => {
       file: 'tmux',
       args: expect.arrayContaining([
         '-l',
-        expect.stringContaining(
-          'roundtable pending-discussion --body-file <that-file> --type comment',
+        expect.stringMatching(
+          /^Read \.roundtable\/tmp\/idle-suggestion-codex-.*\.md and follow it\.$/,
         ),
       ]),
     })
+    const prompts = fs
+      .readdirSync(path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'tmp'))
+      .filter((file) => /^idle-suggestion-codex-.*\.md$/.test(file))
+    expect(prompts).toHaveLength(1)
+    expect(
+      fs.readFileSync(
+        path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'tmp', prompts[0]),
+        'utf8',
+      ),
+    ).toContain('roundtable pending-discussion --body-file <that-file> --type comment')
   })
 
   it('cancels an idle suggestion request before submission', () => {
@@ -823,6 +845,25 @@ describe('createRoomManager', () => {
     const room = manager.cancelIdleSuggestion('thread-1')
 
     expect(room.idle_suggestion_request).toBeNull()
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: expect.arrayContaining([
+        '-l',
+        expect.stringMatching(
+          /^Read \.roundtable\/tmp\/idle-suggestion-cancel-codex-.*\.md and follow it\.$/,
+        ),
+      ]),
+    })
+    const prompts = fs
+      .readdirSync(path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'tmp'))
+      .filter((file) => /^idle-suggestion-cancel-codex-.*\.md$/.test(file))
+    expect(prompts).toHaveLength(1)
+    expect(
+      fs.readFileSync(
+        path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'tmp', prompts[0]),
+        'utf8',
+      ),
+    ).toContain('Roundtable idle suggestion request cancelled.')
     expect(() =>
       manager.submitPendingDiscussion(
         'thread-1',

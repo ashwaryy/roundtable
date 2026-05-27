@@ -1354,6 +1354,27 @@ function turnPromptRelativePath(job: BoundedJob): string {
   return `.roundtable/tmp/${job.turn.id}-${job.turn.agent}-turn.md`
 }
 
+function controlPromptRelativePath(
+  kind: 'nudge' | 'idle-suggestion' | 'idle-suggestion-cancel',
+  agent: AgentName,
+  timestamp: string,
+): string {
+  return `.roundtable/tmp/${kind}-${agent}-${timestamp.replace(/[^0-9A-Za-z_-]+/g, '-')}.md`
+}
+
+function writeControlPrompt(
+  dataDir: string,
+  threadId: string,
+  kind: 'nudge' | 'idle-suggestion' | 'idle-suggestion-cancel',
+  agent: AgentName,
+  body: string,
+): string {
+  fs.mkdirSync(roundtableTmpDir(dataDir, threadId), { recursive: true })
+  const promptPath = controlPromptRelativePath(kind, agent, now())
+  writeTextFile(path.join(threadDir(dataDir, threadId), promptPath), body)
+  return promptPath
+}
+
 function sampleJob(
   id: string,
   kind: BoundedJob['turn']['kind'],
@@ -2755,13 +2776,12 @@ export function createRoomManager(options: {
       const body =
         input.body?.trim() ??
         'Roundtable nudge: inspect the current thread and approved discussion. If you need to make a durable comment or suggestion, wait for an explicit Roundtable request.'
-      executor.execFile('tmux', [
-        'send-keys',
-        '-t',
+      const promptPath = writeControlPrompt(dataDir, threadId, 'nudge', input.agent, body)
+      sendLineToPane(
+        executor,
         `${room.tmux_session}:${windowForAgent(input.agent)}`,
-        body,
-        'C-m',
-      ])
+        `Read ${promptPath} and follow it.`,
+      )
       const updated: InternalRoom = { ...room, updated_at: now(), last_error: null }
       writeRoom(dataDir, updated)
       return stripToken(updated)
@@ -2778,7 +2798,6 @@ export function createRoomManager(options: {
         return markError(dataDir, room, 'tmux session is not running')
       }
 
-      fs.mkdirSync(roundtableTmpDir(dataDir, threadId), { recursive: true })
       const request = {
         agent: input.agent,
         instructions: input.body?.trim() ?? null,
@@ -2790,10 +2809,17 @@ export function createRoomManager(options: {
       const focus = request.instructions
         ? ` Focus on this instruction: ${request.instructions}`
         : ' Inspect the current thread and approved discussion for useful new topics.'
+      const promptPath = writeControlPrompt(
+        dataDir,
+        threadId,
+        'idle-suggestion',
+        input.agent,
+        `Roundtable idle suggestion request.${focus} Queue useful new top-level topics for user approval only; do not submit approved comments. For each proposed topic, write the body to a distinct Markdown file under .roundtable/tmp/ and submit it with: roundtable pending-discussion --body-file <that-file> --type comment. You may submit multiple pending discussions while this request is active. When finished, submit: roundtable done. If no useful topic exists, submit roundtable done without creating a pending discussion.`,
+      )
       sendLineToPane(
         executor,
         `${room.tmux_session}:${windowForAgent(input.agent)}`,
-        `Roundtable idle suggestion request.${focus} Queue useful new top-level topics for user approval only; do not submit approved comments. For each proposed topic, write the body to a distinct Markdown file under .roundtable/tmp/ and submit it with: roundtable pending-discussion --body-file <that-file> --type comment. You may submit multiple pending discussions while this request is active. When finished, submit: roundtable done. If no useful topic exists, submit roundtable done without creating a pending discussion.`,
+        `Read ${promptPath} and follow it.`,
       )
       const updated: InternalRoom = {
         ...room,
@@ -2814,10 +2840,17 @@ export function createRoomManager(options: {
       const request = room.idle_suggestion_request
       if (!request) return stripToken(room)
       if (sessionExists(executor, room.tmux_session)) {
+        const promptPath = writeControlPrompt(
+          dataDir,
+          threadId,
+          'idle-suggestion-cancel',
+          request.agent,
+          'Roundtable idle suggestion request cancelled. Do not submit a pending discussion for the cancelled request.',
+        )
         sendLineToPane(
           executor,
           `${room.tmux_session}:${windowForAgent(request.agent)}`,
-          'Roundtable idle suggestion request cancelled. Do not submit a pending discussion for the cancelled request.',
+          `Read ${promptPath} and follow it.`,
         )
       }
       const updated: InternalRoom = {
