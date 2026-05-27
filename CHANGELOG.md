@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/ashwaryy/roundtable/compare/v1.3.0...v1.3.1) (2026-05-27)
+
+
+### Bug Fixes
+
+* emit snapshot worker at runtime path ([126293b](https://github.com/ashwaryy/roundtable/commit/126293bb11949f17e4c8c51f65c25c17d810628d))
+
 # [1.3.0](https://github.com/ashwaryy/roundtable/compare/v1.2.0...v1.3.0) (2026-05-26)
 
 
