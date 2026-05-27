@@ -764,31 +764,29 @@ export function RoomPanel({
           </div>
         ) : null}
 
-        {room?.auto?.status === 'running' ? null : (
-          <form onSubmit={handleStart} aria-label="start-room" className="room-actions">
-            {canStop ? (
-              <button type="button" className="btn" onClick={handleStop}>
-                <Icon name="stop" className="ic-sm" /> Stop
-              </button>
-            ) : (
-              <button type="submit" className="btn primary" disabled={!canStart || startingRoom}>
-                {startingRoom ? (
-                  <>
-                    <span className="button-spinner" aria-hidden="true" />
-                    Starting...
-                  </>
-                ) : (
-                  <>
-                    <Icon name="play" className="ic-sm" /> Start Room
-                  </>
-                )}
-              </button>
-            )}
-            <button type="button" className="btn" onClick={handleRestart} disabled={!canReloadRoom} title="Restart room">
-              <Icon name="refresh" className="ic-sm" />
+        <form onSubmit={handleStart} aria-label="start-room" className="room-actions">
+          {canStop ? (
+            <button type="button" className="btn" onClick={handleStop}>
+              <Icon name="stop" className="ic-sm" /> {room?.auto?.status === 'running' ? 'Stop Room' : 'Stop'}
             </button>
-          </form>
-        )}
+          ) : (
+            <button type="submit" className="btn primary" disabled={!canStart || startingRoom}>
+              {startingRoom ? (
+                <>
+                  <span className="button-spinner" aria-hidden="true" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Icon name="play" className="ic-sm" /> Start Room
+                </>
+              )}
+            </button>
+          )}
+          <button type="button" className="btn" onClick={handleRestart} disabled={!canReloadRoom} title="Restart room">
+            <Icon name="refresh" className="ic-sm" />
+          </button>
+        </form>
 
         <div className="tmux-attach" data-placeholder={room?.attach_command ? '0' : '1'}>
           <button
