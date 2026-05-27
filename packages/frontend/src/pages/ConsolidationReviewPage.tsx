@@ -1,8 +1,9 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AgentName, ConsolidationDetail, RoundtableEvent, ThreadDetail, AgentRoom, BoundedJob } from "@roundtable/shared";
+import type { AgentName, RoundtableEvent } from "@roundtable/shared";
 import {
   getConsolidation,
   getThread,
@@ -19,6 +20,7 @@ import { useLiveRefresh } from "../useLiveRefresh";
 import { WorkspaceHeader } from "../components/AppHeader";
 import { ConsolidationReviewSkeleton } from "../components/ConsolidationReviewSkeleton";
 import { Icon } from "../components/primitives";
+import { roundtableQueryKeys } from "../query";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { CONSOLIDATION_STEPS, buildConsolidationUiState } from "../lib/consolidationUi";
 import { useStoredBoolean } from "../useStoredBoolean";
@@ -45,10 +47,7 @@ function RailSection({ label, count, defaultOpen = true, children }: { label: st
 export function ConsolidationReviewPage() {
   const { id, proposalId } = useParams<{ id: string; proposalId: string }>();
   const navigate = useNavigate();
-  const [thread, setThread] = useState<ThreadDetail | null>(null);
-  const [detail, setDetail] = useState<ConsolidationDetail | null>(null);
-  const [room, setRoom] = useState<AgentRoom | null>(null);
-  const [jobs, setJobs] = useState<BoundedJob[]>([]);
+  const queryClient = useQueryClient();
   const [body, setBody] = useState("");
   const [reviewInstructions, setReviewInstructions] = useState("");
   const [revisionInstructions, setRevisionInstructions] = useState("");
@@ -60,21 +59,47 @@ export function ConsolidationReviewPage() {
   const [railCollapsed, setRailCollapsed] = useStoredBoolean(REVIEW_RAIL_COLLAPSED_STORAGE_KEY, false);
 
   const refresh = useCallback(() => {
-    if (!id || !proposalId) return;
-    getThread(id).then(setThread);
-    getRoom(id).then(setRoom);
-    listJobs(id).then(setJobs);
-    getConsolidation(id, proposalId).then((next) => {
-      setDetail(next);
-      setBody(next.latest_body ?? "");
-      setReviewer(next.proposal.reviewer_agent);
-      setReviser(next.proposal.reviser_agent);
-    });
-  }, [id, proposalId]);
+    if (!id) return;
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.detail(id) });
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.room(id) });
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.jobs(id) });
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.consolidations(id) });
+    if (proposalId) {
+      void queryClient.invalidateQueries({
+        queryKey: roundtableQueryKeys.threads.consolidation(id, proposalId),
+      });
+    }
+  }, [id, proposalId, queryClient]);
+
+  const { data: thread } = useQuery({
+    queryKey: id ? roundtableQueryKeys.threads.detail(id) : roundtableQueryKeys.threads.detail('missing'),
+    queryFn: () => getThread(id!),
+    enabled: Boolean(id),
+  });
+  const { data: room } = useQuery({
+    queryKey: id ? roundtableQueryKeys.threads.room(id) : roundtableQueryKeys.threads.room('missing'),
+    queryFn: () => getRoom(id!),
+    enabled: Boolean(id),
+  });
+  const { data: jobs = [] } = useQuery({
+    queryKey: id ? roundtableQueryKeys.threads.jobs(id) : roundtableQueryKeys.threads.jobs('missing'),
+    queryFn: () => listJobs(id!),
+    enabled: Boolean(id),
+  });
+  const { data: detail } = useQuery({
+    queryKey: id && proposalId
+      ? roundtableQueryKeys.threads.consolidation(id, proposalId)
+      : roundtableQueryKeys.threads.consolidation('missing', 'missing'),
+    queryFn: () => getConsolidation(id!, proposalId!),
+    enabled: Boolean(id && proposalId),
+  });
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (!detail) return;
+    setBody(detail.latest_body ?? "");
+    setReviewer(detail.proposal.reviewer_agent);
+    setReviser(detail.proposal.reviser_agent);
+  }, [detail]);
 
   const backendStatus = useLiveRefresh(
     useCallback(

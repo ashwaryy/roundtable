@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { SavedOutput, ThreadDetail } from '@roundtable/shared'
 import { getSavedOutput, getThread } from '../api'
 import { WorkspaceHeader } from '../components/AppHeader'
 import { Icon } from '../components/primitives'
+import { roundtableQueryKeys } from '../query'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useLiveRefresh } from '../useLiveRefresh'
 
@@ -22,16 +22,20 @@ function formatSavedDate(iso: string): string {
 export function SavedOutputPage() {
   const backendStatus = useLiveRefresh(() => {})
   const { savedId } = useParams<{ savedId: string }>()
-  const [saved, setSaved] = useState<SavedOutput | null>(null)
-  const [sourceThread, setSourceThread] = useState<ThreadDetail | null>(null)
-
-  useEffect(() => {
-    if (!savedId) return
-    getSavedOutput(savedId).then((next) => {
-      setSaved(next)
-      getThread(next.source_thread_id).then(setSourceThread)
-    })
-  }, [savedId])
+  const { data: saved } = useQuery({
+    queryKey: savedId
+      ? roundtableQueryKeys.savedOutputs.detail(savedId)
+      : roundtableQueryKeys.savedOutputs.detail('missing'),
+    queryFn: () => getSavedOutput(savedId!),
+    enabled: Boolean(savedId),
+  })
+  const { data: sourceThread } = useQuery({
+    queryKey: saved
+      ? roundtableQueryKeys.threads.detail(saved.source_thread_id)
+      : roundtableQueryKeys.threads.detail('missing'),
+    queryFn: () => getThread(saved!.source_thread_id),
+    enabled: Boolean(saved?.source_thread_id),
+  })
 
   if (!saved) {
     return (

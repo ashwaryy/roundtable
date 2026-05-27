@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { RoundtableEvent, ThreadDisplayStatus, ThreadListItem } from "@roundtable/shared";
 import logoUrl from "../../assets/web/icon-192.png";
 import { archiveThread, deleteThread, listThreads } from "../api";
+import { roundtableQueryKeys } from "../query";
 import { useLiveRefresh } from "../useLiveRefresh";
 import { TopbarHeader } from "../components/AppHeader";
 import { NewThreadForm } from "../components/NewThreadForm";
@@ -60,8 +62,7 @@ function relativeTime(iso: string): string {
 
 export function ThreadListPage() {
   const navigate = useNavigate();
-  const [threads, setThreads] = useState<ThreadListItem[]>([]);
-  const [threadsLoaded, setThreadsLoaded] = useState(false);
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState<ThreadDisplayStatus | "all">("all");
   const [openMenuThreadId, setOpenMenuThreadId] = useState<string | null>(null);
   const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
@@ -69,15 +70,15 @@ export function ThreadListPage() {
 
   useGlobalDismiss(openMenuThreadId !== null, () => setOpenMenuThreadId(null), { pointerDown: true });
 
-  const refresh = useCallback(() => {
-    listThreads()
-      .then(setThreads)
-      .finally(() => setThreadsLoaded(true));
-  }, []);
+  const { data: threads = [], status: threadsStatus } = useQuery({
+    queryKey: roundtableQueryKeys.threads.list(),
+    queryFn: listThreads,
+  });
+  const threadsLoaded = threadsStatus !== "pending";
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const refresh = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.all });
+  }, [queryClient]);
 
   const onEvent = useCallback(
     (event: RoundtableEvent) => {
@@ -90,9 +91,13 @@ export function ThreadListPage() {
         event.type === "pending_discussion_updated"
       ) {
         refresh();
+        return;
+      }
+      if (event.type === "agents_updated") {
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.agents.all });
       }
     },
-    [refresh],
+    [queryClient, refresh],
   );
   const backendStatus = useLiveRefresh(onEvent);
   const counts = useMemo(() => {

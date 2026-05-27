@@ -1,8 +1,10 @@
+import { QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { App } from './App'
 import { applyStoredTheme } from './components/ThemeToggle'
+import { queryClient } from './query'
 import appleTouchIconUrl from '../assets/web/apple-touch-icon.png'
 import faviconIcoUrl from '../assets/web/favicon.ico'
 import './styles.css'
@@ -25,8 +27,10 @@ ensureLink('apple-touch-icon', appleTouchIconUrl)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </QueryClientProvider>
   </React.StrictMode>,
 )

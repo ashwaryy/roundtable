@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useQueries } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { SystemInfo, SystemPromptRuntime, SystemPromptSection } from '@roundtable/shared'
+import type { SystemPromptRuntime, SystemPromptSection } from '@roundtable/shared'
 import { getSystemInfo, listSystemPrompts } from '../api'
 import { TopbarHeader } from '../components/AppHeader'
 import { Icon } from '../components/primitives'
+import { roundtableQueryKeys } from '../query'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useLiveRefresh } from '../useLiveRefresh'
 
@@ -23,20 +25,23 @@ function languageFor(section: SystemPromptSection): string {
 }
 
 export function SystemPage() {
-  const [sections, setSections] = useState<SystemPromptSection[]>([])
-  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
   const [runtime, setRuntime] = useState<SystemPromptRuntime | 'all'>('all')
-  const [error, setError] = useState<string | null>(null)
   const backendStatus = useLiveRefresh(() => {})
-
-  useEffect(() => {
-    Promise.all([listSystemPrompts(), getSystemInfo()])
-      .then(([nextSections, nextInfo]) => {
-        setSections(nextSections)
-        setSystemInfo(nextInfo)
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-  }, [])
+  const [sectionsQuery, systemInfoQuery] = useQueries({
+    queries: [
+      {
+        queryKey: roundtableQueryKeys.system.prompts(),
+        queryFn: listSystemPrompts,
+      },
+      {
+        queryKey: roundtableQueryKeys.system.info(),
+        queryFn: getSystemInfo,
+      },
+    ],
+  })
+  const sections = sectionsQuery.data ?? []
+  const systemInfo = systemInfoQuery.data ?? null
+  const error = sectionsQuery.error ?? systemInfoQuery.error
 
   const visible = useMemo(
     () => runtime === 'all' ? sections : sections.filter((section) => section.runtime === runtime),
@@ -97,7 +102,7 @@ export function SystemPage() {
             </button>
           ))}
         </div>
-        {error ? <p className="agents-error" role="alert">{error}</p> : null}
+        {error ? <p className="agents-error" role="alert">{error instanceof Error ? error.message : String(error)}</p> : null}
         <div className="system-sections">
           {visible.map((section) => (
             <article className="system-section" key={section.id}>

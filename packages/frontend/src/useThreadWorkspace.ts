@@ -1,20 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   AgentName,
   AgentRoom,
   BoundedJob,
-  Comment,
   CommentType,
-  ConsolidationDetail,
-  ConsolidationProposal,
-  IntegrityReport,
-  PendingDiscussion,
-  RoomPreflight,
   RoundtableEvent,
-  SavedConsolidation,
-  SnapshotReport,
-  ThreadContext,
-  ThreadDetail,
 } from '@roundtable/shared'
 import {
   askAgent,
@@ -38,8 +29,9 @@ import {
   skipTurn,
   type AgentTurnResult,
 } from './api'
-import { useLiveRefresh } from './useLiveRefresh'
 import { isActiveProposal } from './lib/consolidationUi'
+import { roundtableQueryKeys } from './query'
+import { useLiveRefresh } from './useLiveRefresh'
 
 type DiscussionAskStatus = { discussionId: string; agent: AgentName }
 
@@ -51,127 +43,131 @@ function discussionAskFromJob(job: BoundedJob | null): DiscussionAskStatus | nul
 }
 
 export function useThreadWorkspace(threadId: string | undefined, onThreadDeleted: () => void) {
-  const [thread, setThread] = useState<ThreadDetail | null>(null)
-  const [comments, setComments] = useState<Comment[]>([])
-  const [commentsLoaded, setCommentsLoaded] = useState(false)
-  const [pendingDiscussions, setPendingDiscussions] = useState<PendingDiscussion[]>([])
-  const [threadContext, setThreadContext] = useState<ThreadContext | null>(null)
-  const [room, setRoom] = useState<AgentRoom | null>(null)
-  const [jobs, setJobs] = useState<BoundedJob[]>([])
-  const [roomPreflight, setRoomPreflight] = useState<RoomPreflight | null>(null)
-  const [proposals, setProposals] = useState<ConsolidationProposal[]>([])
-  const [integrity, setIntegrity] = useState<IntegrityReport | null>(null)
-  const [savedOutputs, setSavedOutputs] = useState<SavedConsolidation[]>([])
-  const [snapshotReports, setSnapshotReports] = useState<SnapshotReport[]>([])
-  const [sourceThread, setSourceThread] = useState<ThreadDetail | null>(null)
-  const [sourceProposal, setSourceProposal] = useState<ConsolidationProposal | null>(null)
-  const [activeConsolidationDetail, setActiveConsolidationDetail] = useState<ConsolidationDetail | null>(null)
+  const queryClient = useQueryClient()
   const [pendingAsk, setPendingAsk] = useState<DiscussionAskStatus | null>(null)
-  const requestSeqRef = useRef<Record<string, number>>({})
+  const enabled = Boolean(threadId)
 
-  const loadLatest = useCallback(<T,>(key: string, request: () => Promise<T>, apply: (value: T) => void) => {
-    const seq = (requestSeqRef.current[key] ?? 0) + 1
-    requestSeqRef.current[key] = seq
-    request()
-      .then((value) => {
-        if (requestSeqRef.current[key] === seq) apply(value)
-      })
-      .catch(() => {
-        // Keep the existing state when a transient refresh request fails.
-      })
-  }, [])
-
-  const refreshThread = useCallback(() => {
-    if (!threadId) return
-    loadLatest('thread', () => getThread(threadId), setThread)
-  }, [loadLatest, threadId])
-
-  const refreshComments = useCallback(() => {
-    if (!threadId) return
-    loadLatest('comments', () => listComments(threadId), (nextComments) => {
-      setComments(nextComments)
-      setCommentsLoaded(true)
-    })
-  }, [loadLatest, threadId])
-
-  const refreshPendingDiscussions = useCallback(() => {
-    if (!threadId) return
-    loadLatest('pending', () => listPendingDiscussions(threadId), setPendingDiscussions)
-  }, [loadLatest, threadId])
-
-  const refreshContext = useCallback(() => {
-    if (!threadId) return
-    loadLatest('context', () => getThreadContext(threadId), setThreadContext)
-    loadLatest('snapshotReports', () => listSnapshotReports(threadId), setSnapshotReports)
-  }, [loadLatest, threadId])
-
-  const refreshRoom = useCallback(() => {
-    if (!threadId) return
-    loadLatest('room', () => getRoom(threadId), setRoom)
-    loadLatest('jobs', () => listJobs(threadId), setJobs)
-    loadLatest('roomPreflight', () => getRoomPreflight(threadId), setRoomPreflight)
-  }, [loadLatest, threadId])
-
-  const refreshConsolidations = useCallback(() => {
-    if (!threadId) return
-    loadLatest('proposals', () => listConsolidations(threadId), setProposals)
-    loadLatest('savedOutputs', () => listSavedOutputs(threadId), setSavedOutputs)
-  }, [loadLatest, threadId])
-
-  const refreshIntegrity = useCallback(() => {
-    if (!threadId) return
-    loadLatest('integrity', () => getIntegrity(threadId), setIntegrity)
-  }, [loadLatest, threadId])
-
-  const refresh = useCallback(() => {
-    if (!threadId) return
-    refreshThread()
-    refreshComments()
-    refreshPendingDiscussions()
-    refreshContext()
-    refreshRoom()
-    refreshConsolidations()
-    refreshIntegrity()
-  }, [refreshComments, refreshConsolidations, refreshContext, refreshIntegrity, refreshPendingDiscussions, refreshRoom, refreshThread, threadId])
-
-  const refreshDiscussionQueues = useCallback(() => {
-    refreshComments()
-    refreshPendingDiscussions()
-  }, [refreshComments, refreshPendingDiscussions])
-
-  useEffect(() => {
-    refresh()
-  }, [refresh])
-
-  useEffect(() => {
-    if (!thread?.parent_thread_id || !thread.created_from_consolidation_id) {
-      setSourceThread(null)
-      setSourceProposal(null)
-      return
-    }
-    getThread(thread.parent_thread_id)
-      .then(setSourceThread)
-      .catch(() => setSourceThread(null))
-    getConsolidation(thread.parent_thread_id, thread.created_from_consolidation_id)
-      .then((detail) => setSourceProposal(detail.proposal))
-      .catch(() => setSourceProposal(null))
-  }, [thread?.created_from_consolidation_id, thread?.parent_thread_id])
+  const { data: thread = null } = useQuery({
+    queryKey: threadId ? roundtableQueryKeys.threads.detail(threadId) : roundtableQueryKeys.threads.detail('missing'),
+    queryFn: () => getThread(threadId!),
+    enabled,
+  })
+  const commentsQuery = useQuery({
+    queryKey: threadId ? roundtableQueryKeys.threads.comments(threadId) : roundtableQueryKeys.threads.comments('missing'),
+    queryFn: () => listComments(threadId!),
+    enabled,
+  })
+  const { data: pendingDiscussions = [] } = useQuery({
+    queryKey: threadId
+      ? roundtableQueryKeys.threads.pendingDiscussions(threadId)
+      : roundtableQueryKeys.threads.pendingDiscussions('missing'),
+    queryFn: () => listPendingDiscussions(threadId!),
+    enabled,
+  })
+  const { data: threadContext = null } = useQuery({
+    queryKey: threadId ? roundtableQueryKeys.threads.context(threadId) : roundtableQueryKeys.threads.context('missing'),
+    queryFn: () => getThreadContext(threadId!),
+    enabled,
+  })
+  const { data: snapshotReports = [] } = useQuery({
+    queryKey: threadId
+      ? roundtableQueryKeys.threads.snapshotReports(threadId)
+      : roundtableQueryKeys.threads.snapshotReports('missing'),
+    queryFn: () => listSnapshotReports(threadId!),
+    enabled,
+  })
+  const { data: room = null } = useQuery({
+    queryKey: threadId ? roundtableQueryKeys.threads.room(threadId) : roundtableQueryKeys.threads.room('missing'),
+    queryFn: () => getRoom(threadId!),
+    enabled,
+  })
+  const { data: jobs = [] } = useQuery({
+    queryKey: threadId ? roundtableQueryKeys.threads.jobs(threadId) : roundtableQueryKeys.threads.jobs('missing'),
+    queryFn: () => listJobs(threadId!),
+    enabled,
+  })
+  const { data: roomPreflight = null } = useQuery({
+    queryKey: threadId
+      ? roundtableQueryKeys.threads.roomPreflight(threadId)
+      : roundtableQueryKeys.threads.roomPreflight('missing'),
+    queryFn: () => getRoomPreflight(threadId!),
+    enabled,
+  })
+  const { data: proposals = [] } = useQuery({
+    queryKey: threadId
+      ? roundtableQueryKeys.threads.consolidations(threadId)
+      : roundtableQueryKeys.threads.consolidations('missing'),
+    queryFn: () => listConsolidations(threadId!),
+    enabled,
+  })
+  const { data: integrity = null } = useQuery({
+    queryKey: threadId
+      ? roundtableQueryKeys.threads.integrity(threadId)
+      : roundtableQueryKeys.threads.integrity('missing'),
+    queryFn: () => getIntegrity(threadId!),
+    enabled,
+  })
+  const { data: savedOutputs = [] } = useQuery({
+    queryKey: threadId
+      ? roundtableQueryKeys.threads.savedOutputs(threadId)
+      : roundtableQueryKeys.threads.savedOutputs('missing'),
+    queryFn: () => listSavedOutputs(threadId!),
+    enabled,
+  })
 
   const activeProposal = proposals.find(isActiveProposal)
   const selectedOutcomeProposal = activeProposal ?? proposals[proposals.length - 1] ?? null
 
-  useEffect(() => {
-    if (!threadId || !selectedOutcomeProposal) {
-      setActiveConsolidationDetail(null)
-      return
-    }
-    getConsolidation(threadId, selectedOutcomeProposal.id)
-      .then(setActiveConsolidationDetail)
-      .catch(() => setActiveConsolidationDetail(null))
-  }, [selectedOutcomeProposal?.id, selectedOutcomeProposal?.updated_at, threadId])
+  const { data: sourceThread = null } = useQuery({
+    queryKey: thread?.parent_thread_id
+      ? roundtableQueryKeys.threads.detail(thread.parent_thread_id)
+      : roundtableQueryKeys.threads.detail('missing-parent'),
+    queryFn: () => getThread(thread!.parent_thread_id!),
+    enabled: Boolean(thread?.parent_thread_id),
+  })
+  const { data: sourceProposal = null } = useQuery({
+    queryKey: thread?.parent_thread_id && thread?.created_from_consolidation_id
+      ? roundtableQueryKeys.threads.consolidation(thread.parent_thread_id, thread.created_from_consolidation_id)
+      : roundtableQueryKeys.threads.consolidation('missing-parent', 'missing-proposal'),
+    queryFn: () => getConsolidation(thread!.parent_thread_id!, thread!.created_from_consolidation_id!),
+    enabled: Boolean(thread?.parent_thread_id && thread?.created_from_consolidation_id),
+    select: (detail) => detail.proposal,
+  })
+  const { data: activeConsolidationDetail = null } = useQuery({
+    queryKey: threadId && selectedOutcomeProposal
+      ? roundtableQueryKeys.threads.consolidation(threadId, selectedOutcomeProposal.id)
+      : roundtableQueryKeys.threads.consolidation('missing', 'missing'),
+    queryFn: () => getConsolidation(threadId!, selectedOutcomeProposal!.id),
+    enabled: Boolean(threadId && selectedOutcomeProposal),
+  })
+
+  const refresh = useCallback(() => {
+    if (!threadId) return
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.detail(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.comments(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.pendingDiscussions(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.context(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.snapshotReports(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.room(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.jobs(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.roomPreflight(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.consolidations(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.integrity(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.savedOutputs(threadId) })
+  }, [queryClient, threadId])
+
+  const refreshDiscussionQueues = useCallback(() => {
+    if (!threadId) return
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.comments(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.pendingDiscussions(threadId) })
+  }, [queryClient, threadId])
 
   const onEvent = useCallback((event: RoundtableEvent) => {
-    if (!('thread_id' in event) || event.thread_id !== threadId) return
+    if (event.type === 'agents_updated') {
+      void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.agents.all })
+      return
+    }
+    if (!threadId || !('thread_id' in event) || event.thread_id !== threadId) return
     if (event.type === 'thread_deleted') {
       onThreadDeleted()
       return
@@ -179,34 +175,49 @@ export function useThreadWorkspace(threadId: string | undefined, onThreadDeleted
     switch (event.type) {
       case 'comment_created':
       case 'comment_deleted':
-        refreshComments()
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.comments(threadId) })
         return
       case 'pending_discussion_created':
       case 'pending_discussion_updated':
-        refreshPendingDiscussions()
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.pendingDiscussions(threadId) })
         return
       case 'room_updated':
       case 'job_updated':
       case 'thread_agents_updated':
-        refreshRoom()
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.room(threadId) })
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.jobs(threadId) })
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.roomPreflight(threadId) })
         return
       case 'consolidation_updated':
-        refreshConsolidations()
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.detail(threadId) })
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.consolidations(threadId) })
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.savedOutputs(threadId) })
+        void queryClient.invalidateQueries({
+          queryKey: roundtableQueryKeys.threads.consolidation(threadId, event.proposal_id),
+        })
+        if (selectedOutcomeProposal) {
+          void queryClient.invalidateQueries({
+            queryKey: roundtableQueryKeys.threads.consolidation(threadId, selectedOutcomeProposal.id),
+          })
+        }
         return
       case 'integrity_updated':
-        refreshIntegrity()
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.integrity(threadId) })
         return
       case 'thread_context_updated':
-        refreshContext()
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.context(threadId) })
+        void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.snapshotReports(threadId) })
         return
       default:
         refresh()
     }
-  }, [onThreadDeleted, refresh, refreshComments, refreshConsolidations, refreshContext, refreshIntegrity, refreshPendingDiscussions, refreshRoom, threadId])
+  }, [onThreadDeleted, queryClient, refresh, selectedOutcomeProposal, threadId])
 
   const backendStatus = useLiveRefresh(onEvent)
 
-  const activeRoomJob = room?.active_job_id ? (jobs.find((job) => job.id === room.active_job_id) ?? null) : null
+  const comments = commentsQuery.data ?? []
+  const commentsLoaded = commentsQuery.status !== 'pending'
+  const activeRoomJob = room?.active_job_id ? jobs.find((job) => job.id === room.active_job_id) ?? null : null
   const activeJobAsk = discussionAskFromJob(activeRoomJob)
   const activeAsk = activeJobAsk ?? pendingAsk
   const workingAgent = activeRoomJob?.status === 'running' ? activeRoomJob.agent : null
@@ -224,33 +235,34 @@ export function useThreadWorkspace(threadId: string | undefined, onThreadDeleted
   const addTopLevel = useCallback(async (input: { body: string; type: CommentType }) => {
     if (!threadId) return
     await createComment(threadId, input)
-    refreshComments()
-  }, [refreshComments, threadId])
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.comments(threadId) })
+  }, [queryClient, threadId])
 
   const addReply = useCallback(async (replyTo: string, input: { body: string; type: CommentType }) => {
     if (!threadId) return
     await createComment(threadId, { ...input, reply_to: replyTo })
-    refreshComments()
-  }, [refreshComments, threadId])
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.comments(threadId) })
+  }, [queryClient, threadId])
 
   const removeComment = useCallback(async (commentId: string) => {
     if (!threadId) return
     await deleteComment(threadId, commentId)
-    refreshComments()
-  }, [refreshComments, threadId])
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.comments(threadId) })
+  }, [queryClient, threadId])
 
   const applyRoomResult = useCallback((result: AgentRoom | AgentTurnResult) => {
+    if (!threadId) return
     if ('room' in result) {
-      setRoom(result.room)
-      setJobs((previousJobs) =>
+      queryClient.setQueryData(roundtableQueryKeys.threads.room(threadId), result.room)
+      queryClient.setQueryData<BoundedJob[]>(roundtableQueryKeys.threads.jobs(threadId), (previousJobs = []) =>
         previousJobs.some((job) => job.id === result.job.id)
           ? previousJobs.map((job) => (job.id === result.job.id ? result.job : job))
           : [...previousJobs, result.job],
       )
-    } else {
-      setRoom(result)
+      return
     }
-  }, [])
+    queryClient.setQueryData(roundtableQueryKeys.threads.room(threadId), result)
+  }, [queryClient, threadId])
 
   const askDiscussion = useCallback(async (discussionId: string, agent: AgentName) => {
     if (!threadId) return

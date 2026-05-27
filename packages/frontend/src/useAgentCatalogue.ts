@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { Agent } from '@roundtable/shared'
 import { listAgents } from './api'
+import { roundtableQueryKeys } from './query'
 
 export function useAgentCatalogue() {
-  const [agents, setAgents] = useState<Agent[]>([])
+  const { data } = useQuery({
+    queryKey: roundtableQueryKeys.agents.list(),
+    queryFn: listAgents,
+    select: (items: Agent[]) => items.filter((item) => !item.archived),
+  })
 
-  useEffect(() => {
-    listAgents().then((items) => setAgents(items.filter((item) => !item.archived)))
-  }, [])
-
-  return agents
+  return data ?? []
 }

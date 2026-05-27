@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import type { AgentColorPreset, Agent, AgentRuntime } from '@roundtable/shared'
+import type { AgentColorPreset, Agent, AgentRuntime, RoundtableEvent } from '@roundtable/shared'
 import { createAgent, deleteAgent, importAgents, listAgents, updateAgent } from '../api'
 import { TopbarHeader } from '../components/AppHeader'
 import { Avatar, Icon } from '../components/primitives'
 import { ModelSelect } from '../components/ModelSelect'
+import { roundtableQueryKeys } from '../query'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useLiveRefresh } from '../useLiveRefresh'
 import { useGlobalDismiss } from '../useGlobalDismiss'
@@ -12,8 +14,7 @@ import { useGlobalDismiss } from '../useGlobalDismiss'
 const COLORS: AgentColorPreset[] = ['blue', 'green', 'amber', 'rose', 'violet', 'teal']
 
 export function AgentsPage() {
-  const backendStatus = useLiveRefresh(() => {})
-  const [agents, setAgents] = useState<Agent[]>([])
+  const queryClient = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formVersion, setFormVersion] = useState(0)
   const [name, setName] = useState('')
@@ -28,8 +29,20 @@ export function AgentsPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  function refresh() { listAgents().then(setAgents).catch((err) => setError(String(err))) }
-  useEffect(refresh, [])
+  const agentsQuery = useQuery({
+    queryKey: roundtableQueryKeys.agents.list(),
+    queryFn: listAgents,
+  })
+  const agents = agentsQuery.data ?? []
+  const displayedError = error ?? (agentsQuery.error instanceof Error ? agentsQuery.error.message : agentsQuery.error ? String(agentsQuery.error) : null)
+  const refresh = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.agents.all })
+  }, [queryClient])
+  const backendStatus = useLiveRefresh(
+    useCallback((event: RoundtableEvent) => {
+      if (event.type === 'agents_updated') refresh()
+    }, [refresh]),
+  )
   useGlobalDismiss(importOpen || agentDialogOpen, () => {
     if (importOpen) {
       setImportOpen(false)
@@ -181,7 +194,7 @@ export function AgentsPage() {
               ))}
             </div>
           </section>
-          {error && !importOpen && !agentDialogOpen ? <p className="agents-error" role="alert">{error}</p> : null}
+          {displayedError && !importOpen && !agentDialogOpen ? <p className="agents-error" role="alert">{displayedError}</p> : null}
         </div>
       </main>
       {agentDialogOpen ? (
