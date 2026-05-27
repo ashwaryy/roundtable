@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 type DismissOptions = {
   escape?: boolean
@@ -7,16 +7,21 @@ type DismissOptions = {
 
 export function useGlobalDismiss(active: boolean, onDismiss: () => void, options: DismissOptions = {}) {
   const { escape = false, pointerDown = false } = options
+  const onDismissRef = useRef(onDismiss)
+
+  useEffect(() => {
+    onDismissRef.current = onDismiss
+  }, [onDismiss])
 
   useEffect(() => {
     if (!active) return
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') onDismiss()
+      if (event.key === 'Escape') onDismissRef.current()
     }
 
     function onPointerDown() {
-      onDismiss()
+      onDismissRef.current()
     }
 
     if (escape) window.addEventListener('keydown', onKeyDown)
@@ -26,5 +31,5 @@ export function useGlobalDismiss(active: boolean, onDismiss: () => void, options
       if (escape) window.removeEventListener('keydown', onKeyDown)
       if (pointerDown) window.removeEventListener('pointerdown', onPointerDown)
     }
-  }, [active, escape, onDismiss, pointerDown])
+  }, [active, escape, pointerDown])
 }

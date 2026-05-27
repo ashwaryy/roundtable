@@ -117,6 +117,7 @@ const RootComment = memo(function RootComment({
   onAskDiscussion,
   onPendingUpdate,
   roster,
+  agentById,
 }: {
   root: Comment
   replies: Comment[]
@@ -132,6 +133,7 @@ const RootComment = memo(function RootComment({
   onAskDiscussion: (discussionId: string, agent: AgentName) => Promise<void>
   onPendingUpdate: () => void
   roster: ThreadAgentInvite[]
+  agentById: Map<string, ThreadAgentInvite>
 }) {
   const [openReply, setOpenReply] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
@@ -172,13 +174,13 @@ const RootComment = memo(function RootComment({
   }
 
   return (
-    <div className="cmt-root" data-author={root.author} data-color={roster.find((agent) => agent.agent_id === root.author)?.color}>
+    <div className="cmt-root" data-author={root.author} data-color={agentById.get(root.author)?.color}>
       <div className="cmt cmt-root-row">
         <div className="cmt-row">
           <div className="cmt-body">
             <div className="cmt-head">
-              <Avatar author={root.author} agent={roster.find((agent) => agent.agent_id === root.author)} size={20} />
-              <AgentTag author={root.author} agent={roster.find((agent) => agent.agent_id === root.author)} />
+              <Avatar author={root.author} agent={agentById.get(root.author)} size={20} />
+              <AgentTag author={root.author} agent={agentById.get(root.author)} />
               <TypeBadge type={root.type} />
               <span className="time">{formatTs(root.created_at)}</span>
               <span className="cmt-id mono">{root.id}</span>
@@ -249,8 +251,8 @@ const RootComment = memo(function RootComment({
               <div className="reply-cluster-rail" />
               <div className="reply-cluster-body">
                 <div className="cmt-head">
-                  <Avatar author={sub.author} agent={roster.find((agent) => agent.agent_id === sub.author)} size={20} />
-                  <AgentTag author={sub.author} agent={roster.find((agent) => agent.agent_id === sub.author)} />
+                  <Avatar author={sub.author} agent={agentById.get(sub.author)} size={20} />
+                  <AgentTag author={sub.author} agent={agentById.get(sub.author)} />
                   {sub.comments[0].type !== 'comment' ? (
                     <TypeBadge type={sub.comments[0].type} />
                   ) : null}
@@ -312,7 +314,7 @@ const RootComment = memo(function RootComment({
                 threadId={threadId}
                 discussion={pending}
                 originExcerpt={originExcerpt(pending)}
-                agent={roster.find((agent) => agent.agent_id === pending.author)}
+                agent={agentById.get(pending.author)}
                 onUpdate={onPendingUpdate}
               />
             </div>
@@ -372,6 +374,7 @@ export function CommentTree({
   const derived = useMemo(() => {
     const groups = groupComments(comments, sortOrder)
     const commentsById = new Map(comments.map((c) => [c.id, c]))
+    const agentById = new Map(roster.map((agent) => [agent.agent_id, agent]))
     const pendingByDiscussion = new Map<string, PendingDiscussion[]>()
     const pendingWithoutOrigin: PendingDiscussion[] = []
 
@@ -385,8 +388,8 @@ export function CommentTree({
       pendingByDiscussion.set(pending.origin_discussion_id, existing)
     }
 
-    return { groups, commentsById, pendingByDiscussion, pendingWithoutOrigin }
-  }, [comments, pendingDiscussions, sortOrder])
+    return { agentById, groups, commentsById, pendingByDiscussion, pendingWithoutOrigin }
+  }, [comments, pendingDiscussions, roster, sortOrder])
 
   const originExcerpt = useCallback((pending: PendingDiscussion): string | null => {
     const origin =
@@ -425,6 +428,7 @@ export function CommentTree({
           onAskDiscussion={onAskDiscussion}
           onPendingUpdate={onPendingUpdate}
           roster={roster}
+          agentById={derived.agentById}
         />
       ))}
 
@@ -440,7 +444,7 @@ export function CommentTree({
               threadId={threadId}
               discussion={pending}
               originExcerpt={originExcerpt(pending)}
-              agent={roster.find((agent) => agent.agent_id === pending.author)}
+              agent={derived.agentById.get(pending.author)}
               onUpdate={onPendingUpdate}
             />
           ))}

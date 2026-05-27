@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Comment } from '@roundtable/shared'
 
 export function useNewCommentTracking(mainRef: React.RefObject<HTMLDivElement>, comments: Comment[], commentsLoaded: boolean, bottomThresholdPx = 24) {
-  const [isAtBottom, setIsAtBottom] = useState(true)
+  const isAtBottomRef = useRef(true)
   const prevCommentIdsRef = useRef<Set<string>>(new Set())
   const [newCommentCount, setNewCommentCount] = useState(0)
   const [latestNewCommentId, setLatestNewCommentId] = useState<string | null>(null)
@@ -15,7 +15,7 @@ export function useNewCommentTracking(mainRef: React.RefObject<HTMLDivElement>, 
       const current = mainRef.current
       if (!current) return
       const atBottom = current.scrollHeight - current.scrollTop - current.clientHeight <= bottomThresholdPx
-      setIsAtBottom(atBottom)
+      isAtBottomRef.current = atBottom
       if (atBottom) {
         setNewCommentCount(0)
         setLatestNewCommentId(null)
@@ -30,8 +30,8 @@ export function useNewCommentTracking(mainRef: React.RefObject<HTMLDivElement>, 
   useEffect(() => {
     if (!commentsLoaded) return
     const el = mainRef.current
-    const atBottom = el ? el.scrollHeight - el.scrollTop - el.clientHeight <= bottomThresholdPx : isAtBottom
-    setIsAtBottom(atBottom)
+    const atBottom = el ? el.scrollHeight - el.scrollTop - el.clientHeight <= bottomThresholdPx : isAtBottomRef.current
+    isAtBottomRef.current = atBottom
 
     const prev = prevCommentIdsRef.current
     const newOnes = comments.filter((comment) => !prev.has(comment.id))
@@ -44,7 +44,7 @@ export function useNewCommentTracking(mainRef: React.RefObject<HTMLDivElement>, 
     }
 
     prevCommentIdsRef.current = new Set(comments.map((comment) => comment.id))
-  }, [bottomThresholdPx, comments, commentsLoaded, isAtBottom, mainRef])
+  }, [bottomThresholdPx, comments, commentsLoaded, mainRef])
 
   return {
     newCommentCount,

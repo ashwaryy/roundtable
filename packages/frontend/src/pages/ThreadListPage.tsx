@@ -111,6 +111,10 @@ export function ThreadListPage() {
   const totalPending = threads.reduce((n, thread) => n + thread.pending_count, 0);
   const activeCount = (counts.discussing ?? 0) + (counts.consolidating ?? 0);
   const attentionCount = (counts.needs_attention ?? 0) + (counts.error ?? 0);
+  const threadNumberById = useMemo(
+    () => new Map(threads.map((thread, index) => [thread.id, threads.length - index])),
+    [threads],
+  );
 
   const filters: Array<{ id: ThreadDisplayStatus | "all"; label: string }> = [
     { id: "all", label: "All open" },
@@ -250,7 +254,7 @@ export function ThreadListPage() {
           ) : visibleThreads.length > 0 ? (
             <div className="threads-list">
               {visibleThreads.map((thread) => {
-                const num = threads.length - threads.indexOf(thread);
+                const num = threadNumberById.get(thread.id) ?? 0;
                 const menuOpen = openMenuThreadId === thread.id;
                 const isDeleting = deletingThreadId === thread.id;
                 const isArchiving = archivingThreadId === thread.id;
