@@ -228,9 +228,23 @@ const DEFAULT_TURN_TIMEOUT_MS = 10 * 60 * 1000
 const TMUX_VIEW_LINE_LIMIT = 200
 const DEFAULT_EXEC_TIMEOUT_MS = 5_000
 const ROOM_SUMMARY_PROBE_TTL_MS = 1_500
+const DEFAULT_TMUX_SUBMIT_DELAY_MS = 200
 
 function now(): string {
   return new Date().toISOString()
+}
+
+function tmuxSubmitDelayMs(): number {
+  const raw = process.env.ROUNDTABLE_TMUX_SUBMIT_DELAY_MS
+  if (!raw) return DEFAULT_TMUX_SUBMIT_DELAY_MS
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_TMUX_SUBMIT_DELAY_MS
+}
+
+function sleepSync(ms: number): void {
+  if (ms <= 0) return
+  const buffer = new SharedArrayBuffer(4)
+  Atomics.wait(new Int32Array(buffer), 0, 0, ms)
 }
 
 function tmuxSessionName(threadId: string): string {
@@ -455,6 +469,7 @@ function sendLineToPane(
 ): void {
   executor.execFile('tmux', ['send-keys', '-t', target, 'C-u'])
   executor.execFile('tmux', ['send-keys', '-t', target, '-l', line])
+  sleepSync(tmuxSubmitDelayMs())
   executor.execFile('tmux', ['send-keys', '-t', target, 'C-m'])
 }
 
