@@ -1,3 +1,11 @@
+## [1.3.2](https://github.com/ashwaryy/roundtable/compare/v1.3.1...v1.3.2) (2026-05-27)
+
+
+### Bug Fixes
+
+* submit room prompts with carriage return ([2d9dc9a](https://github.com/ashwaryy/roundtable/commit/2d9dc9a130a865cbe0f1e4ad49fee403bda9c0e3))
+* write idle room prompts to markdown files ([334c330](https://github.com/ashwaryy/roundtable/commit/334c33076da4a4769c7c363454b30ef6d99bb537))
+
 ## [1.3.1](https://github.com/ashwaryy/roundtable/compare/v1.3.0...v1.3.1) (2026-05-27)
 
 
