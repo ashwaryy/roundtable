@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import type { AgentName, Comment, CommentType, PendingDiscussion, ThreadAgentInvite } from '@roundtable/shared'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -6,6 +6,7 @@ import { groupComments, type CommentSortOrder } from '../lib/commentTree'
 import { CommentForm } from './CommentForm'
 import { PendingDiscussionModerationCard } from './PendingDiscussionQueue'
 import { Avatar, AgentTag, Icon, TypeBadge } from './primitives'
+import { useGlobalDismiss } from '../useGlobalDismiss'
 
 const tsFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -152,14 +153,7 @@ const RootComment = memo(function RootComment({
     />
   )
 
-  useEffect(() => {
-    if (!openMenuId) return
-    function closeMenu() {
-      setOpenMenuId(null)
-    }
-    window.addEventListener('pointerdown', closeMenu)
-    return () => window.removeEventListener('pointerdown', closeMenu)
-  }, [openMenuId])
+  useGlobalDismiss(openMenuId !== null, () => setOpenMenuId(null), { pointerDown: true })
 
   async function deleteWithConfirm(comment: Comment) {
     const isRoot = comment.parent_id === null

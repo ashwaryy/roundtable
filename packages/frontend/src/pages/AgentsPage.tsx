@@ -7,6 +7,7 @@ import { Avatar, Icon } from '../components/primitives'
 import { ModelSelect } from '../components/ModelSelect'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useLiveRefresh } from '../useLiveRefresh'
+import { useGlobalDismiss } from '../useGlobalDismiss'
 
 const COLORS: AgentColorPreset[] = ['blue', 'green', 'amber', 'rose', 'violet', 'teal']
 
@@ -29,19 +30,13 @@ export function AgentsPage() {
 
   function refresh() { listAgents().then(setAgents).catch((err) => setError(String(err))) }
   useEffect(refresh, [])
-  useEffect(() => {
-    if (!importOpen && !agentDialogOpen) return undefined
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
-      if (importOpen) {
-        setImportOpen(false)
-        return
-      }
-      setAgentDialogOpen(false)
+  useGlobalDismiss(importOpen || agentDialogOpen, () => {
+    if (importOpen) {
+      setImportOpen(false)
+      return
     }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [agentDialogOpen, importOpen])
+    setAgentDialogOpen(false)
+  }, { escape: true })
 
   function clearForm() {
     setFormVersion((version) => version + 1)

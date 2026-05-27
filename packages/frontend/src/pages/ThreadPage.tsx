@@ -57,6 +57,7 @@ import { AgentStack, Avatar, Icon, StatusPill } from "../components/primitives";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { RAIL_COLLAPSED_STORAGE_KEY, readStoredBoolean, writeStoredBoolean } from "../lib/uiStorage";
 import { buildConsolidationUiState, isActiveProposal } from "../lib/consolidationUi";
+import { useStoredBoolean } from "../useStoredBoolean";
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -346,7 +347,7 @@ export function ThreadPage() {
   // Layout state
   const [bodyCollapsed, setBodyCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [railCollapsed, setRailCollapsed] = useState(() => readStoredBoolean(RAIL_COLLAPSED_STORAGE_KEY, false));
+  const [railCollapsed, setRailCollapsed] = useStoredBoolean(RAIL_COLLAPSED_STORAGE_KEY, false);
   const [commentSortOrder, setCommentSortOrder] = useState<CommentSortOrder>("oldest");
   const [pendingAsk, setPendingAsk] = useState<DiscussionAskStatus | null>(null);
 
@@ -475,10 +476,6 @@ export function ThreadPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    writeStoredBoolean(RAIL_COLLAPSED_STORAGE_KEY, railCollapsed);
-  }, [railCollapsed]);
 
   useEffect(() => {
     if (!thread?.parent_thread_id || !thread.created_from_consolidation_id) {

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type {
   AgentName,
-  Agent,
   AgentRoom,
   RoomPreflight,
   ThreadStatus,
@@ -29,13 +28,13 @@ import {
   stopAutoDiscussion,
   stopRoom,
   inviteThreadAgent,
-  listAgents,
   removeThreadAgent,
   updateThreadAgent,
   type AgentTurnResult,
 } from '../api'
 import { Avatar, Icon } from './primitives'
 import { ModelSelect } from './ModelSelect'
+import { useAgentCatalogue } from '../useAgentCatalogue'
 
 const TMUX_VIEW_POLL_MS = 5000
 
@@ -375,7 +374,6 @@ export function RoomPanel({
 }) {
   const [models, setModels] = useState<Record<string, string>>({})
   const [efforts, setEfforts] = useState<Record<string, string>>({})
-  const [catalogue, setCatalogue] = useState<Agent[]>([])
   const [inviteId, setInviteId] = useState('')
   const [nudgeAgent, setNudgeAgent] = useState<AgentName>('claude')
   const [nudgeBody, setNudgeBody] = useState('')
@@ -399,13 +397,10 @@ export function RoomPanel({
   const [viewerRefreshNonce, setViewerRefreshNonce] = useState(0)
   const viewerSnapshotRef = useRef<TmuxPaneSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const catalogue = useAgentCatalogue()
   const isThreadOpen = threadStatus === 'open'
   const roster = room?.roster ?? []
   const viewableAgents = roster.filter((agent) => room?.agents[agent.agent_id]?.pane_viewable)
-
-  useEffect(() => {
-    listAgents().then((items) => setCatalogue(items.filter((item) => !item.archived)))
-  }, [])
 
   useEffect(() => {
     setModels(Object.fromEntries(roster.map((agent) => [agent.agent_id, agent.model ?? ''])))

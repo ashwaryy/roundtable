@@ -21,7 +21,7 @@ import { ConsolidationReviewSkeleton } from "../components/ConsolidationReviewSk
 import { Icon } from "../components/primitives";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { CONSOLIDATION_STEPS, buildConsolidationUiState } from "../lib/consolidationUi";
-import { readStoredBoolean, writeStoredBoolean } from "../lib/uiStorage";
+import { useStoredBoolean } from "../useStoredBoolean";
 
 const REVIEW_RAIL_COLLAPSED_STORAGE_KEY = "roundtable.reviewRailCollapsed";
 
@@ -57,7 +57,7 @@ export function ConsolidationReviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [railCollapsed, setRailCollapsed] = useState(() => readStoredBoolean(REVIEW_RAIL_COLLAPSED_STORAGE_KEY, false));
+  const [railCollapsed, setRailCollapsed] = useStoredBoolean(REVIEW_RAIL_COLLAPSED_STORAGE_KEY, false);
 
   const refresh = useCallback(() => {
     if (!id || !proposalId) return;
@@ -75,10 +75,6 @@ export function ConsolidationReviewPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    writeStoredBoolean(REVIEW_RAIL_COLLAPSED_STORAGE_KEY, railCollapsed);
-  }, [railCollapsed]);
 
   const backendStatus = useLiveRefresh(
     useCallback(

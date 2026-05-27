@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Agent, Thread } from '@roundtable/shared'
+import type { Thread } from '@roundtable/shared'
 import {
   addUrlContextItem,
   createProjectSnapshot,
   createThread,
-  listAgents,
   uploadAttachmentFiles,
 } from '../api'
 import { AgentStack, Icon, type IconName } from './primitives'
+import { useAgentCatalogue } from '../useAgentCatalogue'
 
 interface DraftUrl {
   id: string
@@ -123,8 +123,8 @@ export function NewThreadForm({
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [catalogue, setCatalogue] = useState<Agent[]>([])
   const [agentIds, setAgentIds] = useState<string[]>(['claude', 'codex'])
+  const catalogue = useAgentCatalogue()
 
   const titleRef = useRef<HTMLInputElement>(null)
   const stepRef = useRef(step)
@@ -156,10 +156,6 @@ export function NewThreadForm({
   const roomAgents = agentIds
   const ctxCount = (snapStaged ? 1 : 0) + files.length + urls.length
   const hasContext = ctxCount > 0
-
-  useEffect(() => {
-    listAgents().then((items) => setCatalogue(items.filter((item) => !item.archived)))
-  }, [])
 
   function resetCompose() {
     setStep(1)

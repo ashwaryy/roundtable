@@ -8,6 +8,7 @@ import { TopbarHeader } from "../components/AppHeader";
 import { NewThreadForm } from "../components/NewThreadForm";
 import { Icon, StatusPill } from "../components/primitives";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { useGlobalDismiss } from "../useGlobalDismiss";
 
 function ThreadListSkeleton() {
   return (
@@ -66,14 +67,7 @@ export function ThreadListPage() {
   const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
   const [archivingThreadId, setArchivingThreadId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!openMenuThreadId) return;
-    function onPointerDown() {
-      setOpenMenuThreadId(null);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [openMenuThreadId]);
+  useGlobalDismiss(openMenuThreadId !== null, () => setOpenMenuThreadId(null), { pointerDown: true });
 
   const refresh = useCallback(() => {
     listThreads()
