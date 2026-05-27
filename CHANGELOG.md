@@ -1,3 +1,10 @@
+## [1.3.3](https://github.com/ashwaryy/roundtable/compare/v1.3.2...v1.3.3) (2026-05-27)
+
+
+### Bug Fixes
+
+* pace tmux prompt submission ([fc511a0](https://github.com/ashwaryy/roundtable/commit/fc511a06437b8609f5f5951817537bd8513854a2))
+
 ## [1.3.2](https://github.com/ashwaryy/roundtable/compare/v1.3.1...v1.3.2) (2026-05-27)
 
 
