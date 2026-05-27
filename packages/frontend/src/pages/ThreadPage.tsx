@@ -1,13 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type {
   ThreadDetail,
-  Comment,
-  CommentType,
-  PendingDiscussion,
-  RoundtableEvent,
   AgentRoom,
   RoomPreflight,
   ThreadContext,
@@ -15,34 +11,13 @@ import type {
   ConsolidationDetail,
   ConsolidationProposal,
   IntegrityReport,
-  SavedConsolidation,
   SnapshotReport,
   ThreadDisplayStatus,
   BoundedJob,
 } from "@roundtable/shared";
 import {
-  getThread,
-  listComments,
-  createComment,
-  deleteComment,
-  listPendingDiscussions,
-  getThreadContext,
-  getRoom,
-  getRoomPreflight,
-  askAgent,
-  listJobs,
-  getConsolidation,
-  listConsolidations,
-  getIntegrity,
-  listSavedOutputs,
-  listSnapshotReports,
-  restartRoom,
-  retryTurn,
-  sendRoomInputResponse,
-  skipTurn,
   type AgentTurnResult,
 } from "../api";
-import { useLiveRefresh } from "../useLiveRefresh";
 import { WorkspaceHeader } from "../components/AppHeader";
 import { CommentForm } from "../components/CommentForm";
 import { CommentTree } from "../components/CommentTree";
@@ -58,6 +33,8 @@ import { ThemeToggle } from "../components/ThemeToggle";
 import { RAIL_COLLAPSED_STORAGE_KEY, readStoredBoolean, writeStoredBoolean } from "../lib/uiStorage";
 import { buildConsolidationUiState, isActiveProposal } from "../lib/consolidationUi";
 import { useStoredBoolean } from "../useStoredBoolean";
+import { useThreadWorkspace } from "../useThreadWorkspace";
+import { useNewCommentTracking } from "../useNewCommentTracking";
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -88,15 +65,6 @@ function consolidationSectionLabel(status: ThreadDetail["status"]): string {
   return status === "open" ? "Discussion consolidation" : "Discussion outcome";
 }
 
-
-type DiscussionAskStatus = { discussionId: string; agent: AgentName };
-
-function discussionAskFromJob(job: BoundedJob | null): DiscussionAskStatus | null {
-  if (!job || job.status !== "running" || job.turn.kind !== "comment" || job.turn.scope !== "discussion" || !job.turn.discussion_id) {
-    return null;
-  }
-  return { discussionId: job.turn.discussion_id, agent: job.agent };
-}
 
 // ── Recovery sidebar card ─────────────────────────────────────
 
@@ -324,315 +292,49 @@ function SideRailContent({
 // ── Main page ─────────────────────────────────────────────────
 
 export function ThreadPage() {
-  const bottomThresholdPx = 24;
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-
-  const [thread, setThread] = useState<ThreadDetail | null>(null);
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [commentsLoaded, setCommentsLoaded] = useState(false);
-  const [pendingDiscussions, setPendingDiscussions] = useState<PendingDiscussion[]>([]);
-  const [threadContext, setThreadContext] = useState<ThreadContext | null>(null);
-  const [room, setRoom] = useState<AgentRoom | null>(null);
-  const [jobs, setJobs] = useState<BoundedJob[]>([]);
-  const [roomPreflight, setRoomPreflight] = useState<RoomPreflight | null>(null);
-  const [proposals, setProposals] = useState<ConsolidationProposal[]>([]);
-  const [integrity, setIntegrity] = useState<IntegrityReport | null>(null);
-  const [savedOutputs, setSavedOutputs] = useState<SavedConsolidation[]>([]);
-  const [snapshotReports, setSnapshotReports] = useState<SnapshotReport[]>([]);
-  const [sourceThread, setSourceThread] = useState<ThreadDetail | null>(null);
-  const [sourceProposal, setSourceProposal] = useState<ConsolidationProposal | null>(null);
-  const [activeConsolidationDetail, setActiveConsolidationDetail] = useState<ConsolidationDetail | null>(null);
 
   // Layout state
   const [bodyCollapsed, setBodyCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useStoredBoolean(RAIL_COLLAPSED_STORAGE_KEY, false);
   const [commentSortOrder, setCommentSortOrder] = useState<CommentSortOrder>("oldest");
-  const [pendingAsk, setPendingAsk] = useState<DiscussionAskStatus | null>(null);
-
-  // Scroll / new-comments tracking
   const mainRef = useRef<HTMLDivElement>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const prevCommentIdsRef = useRef<Set<string>>(new Set());
-  const [newCommentCount, setNewCommentCount] = useState(0);
-  const latestNewCommentIdRef = useRef<string | null>(null);
-  const requestSeqRef = useRef<Record<string, number>>({});
-
-  // Track bottom state on scroll
-  useEffect(() => {
-    const el = mainRef.current;
-    if (!el) return;
-    function onScroll() {
-      if (!el) return;
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= bottomThresholdPx;
-      setIsAtBottom(atBottom);
-      if (atBottom) {
-        setNewCommentCount(0);
-        latestNewCommentIdRef.current = null;
-      }
-    }
-    onScroll();
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [bottomThresholdPx]);
-
-  // Detect new comments
-  useEffect(() => {
-    if (!commentsLoaded) return;
-    const el = mainRef.current;
-    const atBottom = el ? el.scrollHeight - el.scrollTop - el.clientHeight <= bottomThresholdPx : isAtBottom;
-    setIsAtBottom(atBottom);
-
-    const prev = prevCommentIdsRef.current;
-    const newOnes = comments.filter((c) => !prev.has(c.id));
-    if (atBottom) {
-      setNewCommentCount(0);
-      latestNewCommentIdRef.current = null;
-    } else if (prev.size > 0 && newOnes.length > 0) {
-      setNewCommentCount((n) => n + newOnes.length);
-      const latestNew = newOnes[newOnes.length - 1];
-      if (latestNew) {
-        latestNewCommentIdRef.current = latestNew.id;
-      }
-    }
-    prevCommentIdsRef.current = new Set(comments.map((c) => c.id));
-  }, [bottomThresholdPx, comments, commentsLoaded, isAtBottom]);
-
-  const loadLatest = useCallback(<T,>(key: string, request: () => Promise<T>, apply: (value: T) => void) => {
-    const seq = (requestSeqRef.current[key] ?? 0) + 1;
-    requestSeqRef.current[key] = seq;
-    request()
-      .then((value) => {
-        if (requestSeqRef.current[key] === seq) apply(value);
-      })
-      .catch(() => {
-        // Keep the existing state when a transient refresh request fails.
-      });
-  }, []);
-
-  const refreshThread = useCallback(() => {
-    if (!id) return;
-    loadLatest("thread", () => getThread(id), setThread);
-  }, [id, loadLatest]);
-
-  const refreshComments = useCallback(() => {
-    if (!id) return;
-    loadLatest(
-      "comments",
-      () => listComments(id),
-      (c) => {
-        setComments(c);
-        setCommentsLoaded(true);
-      },
-    );
-  }, [id, loadLatest]);
-
-  const refreshPendingDiscussions = useCallback(() => {
-    if (!id) return;
-    loadLatest("pending", () => listPendingDiscussions(id), setPendingDiscussions);
-  }, [id, loadLatest]);
-
-  const refreshContext = useCallback(() => {
-    if (!id) return;
-    loadLatest("context", () => getThreadContext(id), setThreadContext);
-    loadLatest("snapshotReports", () => listSnapshotReports(id), setSnapshotReports);
-  }, [id, loadLatest]);
-
-  const refreshRoom = useCallback(() => {
-    if (!id) return;
-    loadLatest("room", () => getRoom(id), setRoom);
-    loadLatest("jobs", () => listJobs(id), setJobs);
-    loadLatest("roomPreflight", () => getRoomPreflight(id), setRoomPreflight);
-  }, [id, loadLatest]);
-
-  const refreshConsolidations = useCallback(() => {
-    if (!id) return;
-    loadLatest("proposals", () => listConsolidations(id), setProposals);
-    loadLatest("savedOutputs", () => listSavedOutputs(id), setSavedOutputs);
-  }, [id, loadLatest]);
-
-  const refreshIntegrity = useCallback(() => {
-    if (!id) return;
-    loadLatest("integrity", () => getIntegrity(id), setIntegrity);
-  }, [id, loadLatest]);
-
-  const refresh = useCallback(() => {
-    if (!id) return;
-    refreshThread();
-    refreshComments();
-    refreshPendingDiscussions();
-    refreshContext();
-    refreshRoom();
-    refreshConsolidations();
-    refreshIntegrity();
-  }, [id, refreshThread, refreshComments, refreshPendingDiscussions, refreshContext, refreshRoom, refreshConsolidations, refreshIntegrity]);
-
-  const refreshDiscussionQueues = useCallback(() => {
-    refreshComments();
-    refreshPendingDiscussions();
-  }, [refreshComments, refreshPendingDiscussions]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    if (!thread?.parent_thread_id || !thread.created_from_consolidation_id) {
-      setSourceThread(null);
-      setSourceProposal(null);
-      return;
-    }
-    getThread(thread.parent_thread_id)
-      .then(setSourceThread)
-      .catch(() => setSourceThread(null));
-    getConsolidation(thread.parent_thread_id, thread.created_from_consolidation_id)
-      .then((d) => setSourceProposal(d.proposal))
-      .catch(() => setSourceProposal(null));
-  }, [thread?.created_from_consolidation_id, thread?.parent_thread_id]);
-
-  const activeProposal = proposals.find(isActiveProposal);
-  const selectedOutcomeProposal = activeProposal ?? proposals[proposals.length - 1] ?? null;
-
-  useEffect(() => {
-    if (!id || !selectedOutcomeProposal) {
-      setActiveConsolidationDetail(null);
-      return;
-    }
-    getConsolidation(id, selectedOutcomeProposal.id)
-      .then(setActiveConsolidationDetail)
-      .catch(() => setActiveConsolidationDetail(null));
-  }, [selectedOutcomeProposal?.id, selectedOutcomeProposal?.updated_at, id]);
-
-  const onEvent = useCallback(
-    (event: RoundtableEvent) => {
-      if (!("thread_id" in event) || event.thread_id !== id) return;
-      if (event.type === "thread_deleted") {
-        navigate("/");
-        return;
-      }
-      switch (event.type) {
-        case "comment_created":
-        case "comment_deleted":
-          refreshComments();
-          return;
-        case "pending_discussion_created":
-        case "pending_discussion_updated":
-          refreshPendingDiscussions();
-          return;
-        case "room_updated":
-        case "job_updated":
-        case "thread_agents_updated":
-          refreshRoom();
-          return;
-        case "consolidation_updated":
-          refreshConsolidations();
-          return;
-        case "integrity_updated":
-          refreshIntegrity();
-          return;
-        case "thread_context_updated":
-          refreshContext();
-          return;
-        default:
-          refresh();
-      }
-    },
-    [id, navigate, refresh, refreshComments, refreshPendingDiscussions, refreshRoom, refreshConsolidations, refreshIntegrity, refreshContext],
-  );
-  const backendStatus = useLiveRefresh(onEvent);
-  const activeRoomJob = room?.active_job_id ? (jobs.find((job) => job.id === room.active_job_id) ?? null) : null;
-  const activeJobAsk = discussionAskFromJob(activeRoomJob);
-  const activeAsk = activeJobAsk ?? pendingAsk;
-  const workingAgent = activeRoomJob?.status === "running" ? activeRoomJob.agent : null;
-  const autoModeActive = room?.auto !== null && room?.auto !== undefined;
-  const commentAskDisabledReason = autoModeActive ? "Exit auto mode to enable Ask agent actions on comments." : null;
-  const disableCommentAgentActions = room?.status === "running" || autoModeActive || pendingAsk !== null;
-
-  useEffect(() => {
-    if (!pendingAsk) return;
-    if (activeJobAsk && activeJobAsk.discussionId === pendingAsk.discussionId && activeJobAsk.agent === pendingAsk.agent) {
-      setPendingAsk(null);
-    }
-  }, [activeJobAsk, pendingAsk]);
-
-  const addTopLevel = useCallback(
-    async (input: { body: string; type: CommentType }) => {
-      if (!id) return;
-      await createComment(id, input);
-      refreshComments();
-    },
-    [id, refreshComments],
-  );
-
-  const addReply = useCallback(
-    async (replyTo: string, input: { body: string; type: CommentType }) => {
-      if (!id) return;
-      await createComment(id, { ...input, reply_to: replyTo });
-      refreshComments();
-    },
-    [id, refreshComments],
-  );
-
-  const removeComment = useCallback(
-    async (commentId: string) => {
-      if (!id) return;
-      await deleteComment(id, commentId);
-      refreshComments();
-    },
-    [id, refreshComments],
-  );
-
-  // Apply a mutation's returned room state directly so the UI reflects it
-  // immediately, instead of waiting on a separate (and slow) room refetch.
-  const applyRoomResult = useCallback((result: AgentRoom | AgentTurnResult) => {
-    if ("room" in result) {
-      setRoom(result.room);
-      setJobs((prev) =>
-        prev.some((job) => job.id === result.job.id) ? prev.map((job) => (job.id === result.job.id ? result.job : job)) : [...prev, result.job],
-      );
-    } else {
-      setRoom(result);
-    }
-  }, []);
-
-  const askDiscussion = useCallback(
-    async (discussionId: string, agent: AgentName) => {
-      if (!id) return;
-      setPendingAsk({ discussionId, agent });
-      try {
-        applyRoomResult(await askAgent(id, { agent, discussion_id: discussionId }));
-        setPendingAsk(null);
-      } catch (error) {
-        setPendingAsk(null);
-        throw error;
-      }
-    },
-    [id, applyRoomResult],
-  );
-
-  const sendRecoveryInput = useCallback(
-    async (response: "yes" | "no") => {
-      if (!id || !room?.input_prompt) return;
-      applyRoomResult(await sendRoomInputResponse(id, { agent: room.input_prompt.agent, response }));
-    },
-    [id, applyRoomResult, room?.input_prompt],
-  );
-
-  const restartRecoveryRoom = useCallback(async () => {
-    if (!id) return;
-    applyRoomResult(await restartRoom(id));
-  }, [id, applyRoomResult]);
-
-  const retryRecoveryTurn = useCallback(async () => {
-    if (!id) return;
-    applyRoomResult(await retryTurn(id));
-  }, [id, applyRoomResult]);
-
-  const skipRecoveryTurn = useCallback(async () => {
-    if (!id) return;
-    applyRoomResult(await skipTurn(id));
-  }, [id, applyRoomResult]);
+  const {
+    thread,
+    comments,
+    commentsLoaded,
+    pendingDiscussions,
+    threadContext,
+    room,
+    jobs,
+    roomPreflight,
+    proposals,
+    integrity,
+    savedOutputs,
+    snapshotReports,
+    sourceThread,
+    sourceProposal,
+    activeConsolidationDetail,
+    backendStatus,
+    refresh,
+    refreshDiscussionQueues,
+    addTopLevel,
+    addReply,
+    removeComment,
+    askDiscussion,
+    activeAsk,
+    disableCommentAgentActions,
+    commentAskDisabledReason,
+    sendRecoveryInput,
+    restartRecoveryRoom,
+    retryRecoveryTurn,
+    skipRecoveryTurn,
+    applyRoomResult,
+    workingAgent,
+  } = useThreadWorkspace(id, () => navigate("/"));
+  const { newCommentCount, latestNewCommentId, dismissNewComments } = useNewCommentTracking(mainRef, comments, commentsLoaded);
 
   if (!thread) return <ThreadSkeleton />;
 
@@ -649,6 +351,8 @@ export function ThreadPage() {
             : null;
 
   const contextChip = contextSummary(threadContext);
+  const activeProposal = proposals.find(isActiveProposal);
+  const selectedOutcomeProposal = activeProposal ?? proposals[proposals.length - 1] ?? null;
   const consolidationUi = buildConsolidationUiState({
     proposals,
     jobs,
@@ -871,11 +575,8 @@ export function ThreadPage() {
             <div className="composer-anchor" aria-label="add discussion point">
               <NewCommentsPill
                 count={newCommentCount}
-                latestNewId={latestNewCommentIdRef.current}
-                onDismiss={() => {
-                  setNewCommentCount(0);
-                  latestNewCommentIdRef.current = null;
-                }}
+                latestNewId={latestNewCommentId}
+                onDismiss={dismissNewComments}
               />
               <div className="composer-card" style={{ maxWidth: 920, margin: "0 auto" }}>
                 <CommentForm label="Post" threadId={thread.id} draftContext="root" onSubmit={addTopLevel} />
