@@ -26,6 +26,7 @@ import {
   startAutoDiscussionInputSchema,
   startConsolidationInputSchema,
   startRoomInputSchema,
+  tmuxPaneInputSchema,
   createAgentInputSchema,
   updateAgentInputSchema,
   inviteAgentInputSchema,
@@ -996,6 +997,22 @@ export function createApp(deps: {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
     try {
       res.json(rooms.getTmuxPaneSnapshot(req.params.id, req.params.agentId))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
+  app.post('/api/threads/:id/room/agents/:agentId/tmux-input', (req, res) => {
+    if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
+    const parsed = tmuxPaneInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      rooms.sendTmuxPaneInput(req.params.id, req.params.agentId, parsed.data)
+      res.status(202).json({ ok: true })
     } catch (err) {
       if (handleStorageError(err, res)) return
       throw err

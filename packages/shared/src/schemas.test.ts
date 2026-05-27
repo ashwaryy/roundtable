@@ -14,6 +14,7 @@ import {
   helperPendingDiscussionInputSchema,
   sendRoomInputResponseInputSchema,
   startAutoDiscussionInputSchema,
+  tmuxPaneInputSchema,
   createAgentInputSchema,
   agentColorPresetSchema,
 } from './index'
@@ -238,6 +239,27 @@ describe('sendRoomInputResponseInputSchema', () => {
         response: 'maybe',
       }),
     ).toThrow()
+  })
+})
+
+describe('tmuxPaneInputSchema', () => {
+  it('accepts allowed tmux key input', () => {
+    expect(tmuxPaneInputSchema.parse({ type: 'key', key: 'CtrlC' })).toEqual({
+      type: 'key',
+      key: 'CtrlC',
+    })
+  })
+
+  it('accepts bounded literal text input', () => {
+    expect(tmuxPaneInputSchema.parse({ type: 'text', text: 'hello' })).toEqual({
+      type: 'text',
+      text: 'hello',
+    })
+  })
+
+  it('rejects unknown keys and empty text', () => {
+    expect(() => tmuxPaneInputSchema.parse({ type: 'key', key: 'F12' })).toThrow()
+    expect(() => tmuxPaneInputSchema.parse({ type: 'text', text: '' })).toThrow()
   })
 })
 

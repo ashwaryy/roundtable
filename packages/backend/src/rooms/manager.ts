@@ -30,6 +30,8 @@ import type {
   StartConsolidationInput,
   StartRoomInput,
   SystemPromptSection,
+  TmuxPaneInput,
+  TmuxPaneInputKey,
   TmuxPaneSnapshot,
   ThreadStatus,
   ThreadAgentInvite,
@@ -127,6 +129,7 @@ export interface RoomManager {
   getRoom(threadId: string): AgentRoom
   getRoomSummary(threadId: string): AgentRoom
   getTmuxPaneSnapshot(threadId: string, agent: AgentName): TmuxPaneSnapshot
+  sendTmuxPaneInput(threadId: string, agent: AgentName, input: TmuxPaneInput): void
   startRoom(threadId: string, input: StartRoomInput): AgentRoom
   syncRoster(threadId: string): AgentRoom
   restartRoom(threadId: string): AgentRoom
@@ -479,6 +482,47 @@ function sendKeysToPane(
   keys: string[],
 ): void {
   executor.execFile('tmux', ['send-keys', '-t', target, ...keys])
+}
+
+function sendLiteralToPane(
+  executor: CommandExecutor,
+  target: string,
+  text: string,
+): void {
+  executor.execFile('tmux', ['send-keys', '-t', target, '-l', text])
+}
+
+function tmuxKeyForInput(key: TmuxPaneInputKey): string {
+  switch (key) {
+    case 'Enter':
+      return 'C-m'
+    case 'Escape':
+      return 'Escape'
+    case 'Tab':
+      return 'Tab'
+    case 'Backspace':
+      return 'BSpace'
+    case 'ArrowUp':
+      return 'Up'
+    case 'ArrowDown':
+      return 'Down'
+    case 'ArrowLeft':
+      return 'Left'
+    case 'ArrowRight':
+      return 'Right'
+    case 'CtrlC':
+      return 'C-c'
+    case 'CtrlD':
+      return 'C-d'
+    case 'CtrlL':
+      return 'C-l'
+    case 'CtrlU':
+      return 'C-u'
+    default: {
+      const exhaustive: never = key
+      throw new BadRequestError(`unsupported tmux input key: ${exhaustive}`)
+    }
+  }
 }
 
 function promptAnswerKeys(
@@ -2533,6 +2577,25 @@ export function createRoomManager(options: {
         text,
         truncated,
       }
+    },
+
+    sendTmuxPaneInput(threadId: string, agent: AgentName, input: TmuxPaneInput): void {
+      ensureThread(dataDir, threadId)
+      const room = reconcileRoom(threadId)
+      inviteForSnapshot(room, agent)
+      if (room.session_state !== 'connected' && room.session_state !== 'recovered') {
+        throw new ConflictError('room tmux session is not running')
+      }
+      if (!room.agents[agent]?.pane_viewable) {
+        throw new ConflictError(`agent ${agent} tmux window is not viewable`)
+      }
+
+      const target = `${room.tmux_session}:${windowForAgent(agent)}`
+      if (input.type === 'key') {
+        sendKeysToPane(executor, target, [tmuxKeyForInput(input.key)])
+        return
+      }
+      sendLiteralToPane(executor, target, input.text)
     },
 
     startRoom(threadId: string, input: StartRoomInput): AgentRoom {

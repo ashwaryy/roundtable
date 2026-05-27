@@ -431,6 +431,24 @@ export interface TmuxPaneSnapshot {
   truncated: boolean
 }
 
+export type TmuxPaneInputKey =
+  | 'Enter'
+  | 'Escape'
+  | 'Tab'
+  | 'Backspace'
+  | 'ArrowUp'
+  | 'ArrowDown'
+  | 'ArrowLeft'
+  | 'ArrowRight'
+  | 'CtrlC'
+  | 'CtrlD'
+  | 'CtrlL'
+  | 'CtrlU'
+
+export type TmuxPaneInput =
+  | { type: 'key'; key: TmuxPaneInputKey }
+  | { type: 'text'; text: string }
+
 export type IntegrityIssueKind = 'added' | 'modified' | 'deleted' | 'invalid'
 
 export interface IntegrityIssue {

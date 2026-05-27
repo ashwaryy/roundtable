@@ -6,6 +6,8 @@ import type {
   AgentRoom,
   RoomPreflight,
   ThreadStatus,
+  TmuxPaneInput,
+  TmuxPaneInputKey,
   TmuxPaneSnapshot,
 } from '@roundtable/shared'
 import {
@@ -20,6 +22,7 @@ import {
   retryTurn,
   restartRoom,
   sendRoomInputResponse,
+  sendTmuxPaneInput,
   skipTurn,
   startAutoDiscussion,
   startRoom,
@@ -34,7 +37,22 @@ import {
 import { Avatar, Icon } from './primitives'
 import { ModelSelect } from './ModelSelect'
 
-const TMUX_VIEW_POLL_MS = 2000
+const TMUX_VIEW_POLL_MS = 5000
+
+const TMUX_INPUT_KEYS: Array<{ key: TmuxPaneInputKey; label: string }> = [
+  { key: 'Enter', label: 'Enter' },
+  { key: 'Escape', label: 'Esc' },
+  { key: 'Tab', label: 'Tab' },
+  { key: 'Backspace', label: 'Backspace' },
+  { key: 'ArrowUp', label: 'Up' },
+  { key: 'ArrowDown', label: 'Down' },
+  { key: 'ArrowLeft', label: 'Left' },
+  { key: 'ArrowRight', label: 'Right' },
+  { key: 'CtrlC', label: 'Ctrl+C' },
+  { key: 'CtrlD', label: 'Ctrl+D' },
+  { key: 'CtrlL', label: 'Ctrl+L' },
+  { key: 'CtrlU', label: 'Ctrl+U' },
+]
 
 export function RoomRosterPlaceholder() {
   return (
@@ -75,8 +93,10 @@ function TmuxViewerDialog({
   loading,
   stale,
   error,
+  sendingInput,
   onClose,
   onSelectAgent,
+  onSendInput,
 }: {
   open: boolean
   agents: Array<{ agent_id: string; name: string }>
@@ -85,11 +105,15 @@ function TmuxViewerDialog({
   loading: boolean
   stale: boolean
   error: string | null
+  sendingInput: boolean
   onClose: () => void
   onSelectAgent: (agentId: string) => void
+  onSendInput: (input: TmuxPaneInput) => Promise<void>
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const stickToBottomRef = useRef(true)
+  const [inputMode, setInputMode] = useState(false)
+  const [inputText, setInputText] = useState('')
   const selected = agents.find((agent) => agent.agent_id === selectedAgent) ?? null
 
   useEffect(() => {
@@ -115,6 +139,25 @@ function TmuxViewerDialog({
     if (!scroller || !stickToBottomRef.current) return
     scroller.scrollTop = scroller.scrollHeight
   }, [snapshot?.captured_at, selectedAgent])
+
+  async function sendKey(key: TmuxPaneInputKey) {
+    try {
+      await onSendInput({ type: 'key', key })
+    } catch {
+      // The parent renders the send error in the viewer alert.
+    }
+  }
+
+  async function sendText(event: FormEvent) {
+    event.preventDefault()
+    if (!inputText) return
+    try {
+      await onSendInput({ type: 'text', text: inputText })
+      setInputText('')
+    } catch {
+      // Keep the text in place so the user can retry or edit it.
+    }
+  }
 
   if (!open || typeof document === 'undefined') return null
 
@@ -161,7 +204,7 @@ function TmuxViewerDialog({
           </div>
         ) : (
           <div className="tmux-viewer-meta">
-            <span>{stale ? 'Updates paused' : 'Live'}</span>
+            <span>{stale ? 'Updates paused' : 'Live'} · refreshes every {Math.round(TMUX_VIEW_POLL_MS / 1000)}s</span>
             <span className="mono">
               {snapshot?.captured_at ? new Date(snapshot.captured_at).toLocaleTimeString([], {
                 hour: '2-digit',
@@ -171,6 +214,52 @@ function TmuxViewerDialog({
             </span>
           </div>
         )}
+
+        <div className="tmux-viewer-input-head">
+          <button
+            type="button"
+            className={`btn sm${inputMode ? ' primary' : ''}`}
+            aria-pressed={inputMode}
+            disabled={!selectedAgent}
+            onClick={() => setInputMode((value) => !value)}
+          >
+            <Icon name="terminal" className="ic-sm" />
+            Input mode
+          </button>
+          <span>{inputMode ? 'Use buttons below to send input to the selected tmux pane.' : 'Input is off.'}</span>
+        </div>
+
+        {inputMode ? (
+          <div className="tmux-viewer-input-panel">
+            <div className="tmux-viewer-key-grid" aria-label="Tmux input keys">
+              {TMUX_INPUT_KEYS.map((entry) => (
+                <button
+                  key={entry.key}
+                  type="button"
+                  className="tmux-viewer-key"
+                  disabled={!selectedAgent || sendingInput}
+                  onClick={() => void sendKey(entry.key)}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
+            <form className="tmux-viewer-text-row" onSubmit={sendText}>
+              <input
+                className="rail-input"
+                aria-label="Literal tmux text"
+                value={inputText}
+                maxLength={500}
+                disabled={!selectedAgent || sendingInput}
+                onChange={(event) => setInputText(event.target.value)}
+                placeholder="Literal text to send..."
+              />
+              <button type="submit" className="btn sm" disabled={!selectedAgent || sendingInput || !inputText}>
+                Send text
+              </button>
+            </form>
+          </div>
+        ) : null}
 
         {error ? (
           <p className="tmux-viewer-alert" role="alert">
@@ -305,6 +394,9 @@ export function RoomPanel({
   const [viewerLoading, setViewerLoading] = useState(false)
   const [viewerStale, setViewerStale] = useState(false)
   const [viewerError, setViewerError] = useState<string | null>(null)
+  const [viewerInputSending, setViewerInputSending] = useState(false)
+  const [viewerInputError, setViewerInputError] = useState<string | null>(null)
+  const [viewerRefreshNonce, setViewerRefreshNonce] = useState(0)
   const viewerSnapshotRef = useRef<TmuxPaneSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const isThreadOpen = threadStatus === 'open'
@@ -333,6 +425,7 @@ export function RoomPanel({
       setViewerLoading(false)
       setViewerStale(false)
       setViewerError('No tmux windows are currently viewable.')
+      setViewerInputError(null)
       return
     }
     if (!viewerAgent || !viewableAgents.some((agent) => agent.agent_id === viewerAgent)) {
@@ -356,6 +449,7 @@ export function RoomPanel({
         if (cancelled) return
         setViewerSnapshot(next)
         setViewerError(null)
+        setViewerInputError(null)
         setViewerStale(false)
       } catch (err) {
         if (cancelled) return
@@ -384,13 +478,14 @@ export function RoomPanel({
       cancelled = true
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
-  }, [threadId, viewerAgent, viewerOpen])
+  }, [threadId, viewerAgent, viewerOpen, viewerRefreshNonce])
 
   function openViewer(agentId: string) {
     setViewerOpen(true)
     setViewerAgent(agentId)
     setViewerSnapshot(null)
     setViewerError(null)
+    setViewerInputError(null)
     setViewerStale(false)
   }
 
@@ -399,8 +494,30 @@ export function RoomPanel({
     setViewerAgent(null)
     setViewerSnapshot(null)
     setViewerError(null)
+    setViewerInputError(null)
     setViewerStale(false)
     setViewerLoading(false)
+    setViewerInputSending(false)
+  }
+
+  function selectViewerAgent(agentId: string) {
+    setViewerAgent(agentId)
+    setViewerInputError(null)
+  }
+
+  async function handleTmuxPaneInput(input: TmuxPaneInput) {
+    if (!viewerAgent) return
+    setViewerInputSending(true)
+    setViewerInputError(null)
+    try {
+      await sendTmuxPaneInput(threadId, viewerAgent, input)
+      setViewerRefreshNonce((value) => value + 1)
+    } catch (err) {
+      setViewerInputError(err instanceof Error ? err.message : String(err))
+      throw err
+    } finally {
+      setViewerInputSending(false)
+    }
   }
 
   async function handleStart(event: FormEvent) {
@@ -964,9 +1081,11 @@ export function RoomPanel({
         snapshot={viewerSnapshot}
         loading={viewerLoading}
         stale={viewerStale}
-        error={viewerError}
+        error={viewerInputError ?? viewerError}
+        sendingInput={viewerInputSending}
         onClose={closeViewer}
-        onSelectAgent={setViewerAgent}
+        onSelectAgent={selectViewerAgent}
+        onSendInput={handleTmuxPaneInput}
       />
     </>
   )

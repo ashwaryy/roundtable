@@ -191,6 +191,32 @@ export const sendRoomInputResponseInputSchema = z.object({
   response: z.enum(['yes', 'no']),
 })
 
+export const tmuxPaneInputKeySchema = z.enum([
+  'Enter',
+  'Escape',
+  'Tab',
+  'Backspace',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'CtrlC',
+  'CtrlD',
+  'CtrlL',
+  'CtrlU',
+])
+
+export const tmuxPaneInputSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('key'),
+    key: tmuxPaneInputKeySchema,
+  }),
+  z.object({
+    type: z.literal('text'),
+    text: z.string().min(1, 'text is required').max(500, 'text must be at most 500 characters'),
+  }),
+])
+
 export const helperCommentInputSchema = z.object({
   turn_id: z.string().min(1, 'turn_id is required'),
   agent: agentNameSchema,

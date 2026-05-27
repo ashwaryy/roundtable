@@ -43,6 +43,7 @@ import type {
   UpdateThreadAgentInviteInput,
   SystemPromptSection,
   SystemInfo,
+  TmuxPaneInput,
   TmuxPaneSnapshot,
 } from '@roundtable/shared'
 
@@ -394,6 +395,20 @@ export function getTmuxPaneSnapshot(
   agentId: string,
 ): Promise<TmuxPaneSnapshot> {
   return readJson<TmuxPaneSnapshot>(`/api/threads/${threadId}/room/agents/${agentId}/tmux-view`)
+}
+
+export function sendTmuxPaneInput(
+  threadId: string,
+  agentId: string,
+  input: TmuxPaneInput,
+): Promise<void> {
+  return fetch(`/api/threads/${threadId}/room/agents/${agentId}/tmux-input`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((res) => {
+    if (!res.ok) throw new Error(`request failed: ${res.status}`)
+  })
 }
 
 export function startRoom(

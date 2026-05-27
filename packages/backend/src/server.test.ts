@@ -693,6 +693,7 @@ describe('room routes', () => {
         text: 'working...',
         truncated: false,
       })),
+      sendTmuxPaneInput: vi.fn(),
       startRoom: vi.fn(() => testRoom('starting')),
       syncRoster: vi.fn(() => testRoom('idle')),
       restartRoom: vi.fn(() => testRoom('starting')),
@@ -913,6 +914,28 @@ describe('room routes', () => {
       truncated: false,
     })
     expect(rooms.getTmuxPaneSnapshot).toHaveBeenCalledWith('thread-1', 'claude')
+  })
+
+  it('sends tmux pane input to an invited agent', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/agents/codex/tmux-input')
+      .send({ type: 'key', key: 'CtrlC' })
+
+    expect(res.status).toBe(202)
+    expect(res.body).toEqual({ ok: true })
+    expect(rooms.sendTmuxPaneInput).toHaveBeenCalledWith('thread-1', 'codex', {
+      type: 'key',
+      key: 'CtrlC',
+    })
+  })
+
+  it('rejects invalid tmux pane input', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/agents/codex/tmux-input')
+      .send({ type: 'key', key: 'F12' })
+
+    expect(res.status).toBe(400)
+    expect(rooms.sendTmuxPaneInput).not.toHaveBeenCalled()
   })
 
   it('stops a room', async () => {

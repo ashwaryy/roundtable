@@ -552,6 +552,46 @@ describe('createRoomManager', () => {
     expect(snapshot.text).not.toContain('line 1\n')
   })
 
+  it('sends allowed tmux input keys to a viewable agent pane', () => {
+    const { manager } = startReadyRoom()
+
+    manager.sendTmuxPaneInput('thread-1', 'codex', { type: 'key', key: 'CtrlC' })
+
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', 'C-c'],
+    })
+  })
+
+  it('sends literal text to a viewable agent pane', () => {
+    const { manager } = startReadyRoom()
+
+    manager.sendTmuxPaneInput('thread-1', 'codex', { type: 'text', text: 'hello world' })
+
+    expect(executor.commands).toContainEqual({
+      file: 'tmux',
+      args: ['send-keys', '-t', 'roundtable-thread-1:agent-codex', '-l', 'hello world'],
+    })
+  })
+
+  it('rejects tmux pane input when the agent pane is not viewable', () => {
+    const { manager } = startReadyRoom()
+    executor.panes.delete('roundtable-thread-1:agent-codex')
+
+    expect(() =>
+      manager.sendTmuxPaneInput('thread-1', 'codex', { type: 'key', key: 'Enter' }),
+    ).toThrow('agent codex tmux window is not viewable')
+  })
+
+  it('rejects tmux pane input when the room session is not running', () => {
+    const { manager } = startReadyRoom()
+    executor.sessions.delete('roundtable-thread-1')
+
+    expect(() =>
+      manager.sendTmuxPaneInput('thread-1', 'codex', { type: 'key', key: 'Enter' }),
+    ).toThrow('room tmux session is not running')
+  })
+
   it('trusts generated Codex hooks when their review prompt appears at startup', async () => {
     executor.paneCaptures.set('roundtable-thread-1:agent-claude', 'Claude Code ready')
     executor.paneCaptures.set(
