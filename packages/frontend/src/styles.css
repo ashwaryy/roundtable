@@ -460,8 +460,18 @@ section[aria-label="thread-context"] {
   background: var(--pending-bg);
 }
 .recovery-card {
-  border-color: #fca5a5;
-  background: #fef2f2;
+  border-color: var(--pending-border);
+  background: var(--pending-bg);
+}
+.recovery-card .section-heading h2 {
+  color: var(--pending-text);
+}
+.recovery-card--error {
+  border-color: var(--status-attn-border);
+  background: var(--status-attn-bg);
+}
+.recovery-card--error .section-heading h2 {
+  color: var(--status-attn-text);
 }
 
 section[aria-label="consolidation"],

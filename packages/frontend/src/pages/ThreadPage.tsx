@@ -87,28 +87,6 @@ function consolidationSectionLabel(status: ThreadDetail["status"]): string {
   return status === "open" ? "Discussion consolidation" : "Discussion outcome";
 }
 
-function statusLabel(status: ThreadDisplayStatus): string {
-  switch (status) {
-    case "setup":
-      return "Idle";
-    case "discussing":
-      return "Discussing";
-    case "consolidating":
-      return "Consolidating";
-    case "needs_attention":
-      return "Needs attention";
-    case "error":
-      return "Error";
-    case "closed":
-      return "Closed";
-    case "archived":
-      return "Archived";
-    default: {
-      const _: never = status;
-      return _;
-    }
-  }
-}
 
 type DiscussionAskStatus = { discussionId: string; agent: AgentName };
 
@@ -138,10 +116,10 @@ function RecoveryCard({
 }) {
   if (displayStatus !== "needs_attention" && displayStatus !== "error") return null;
   return (
-    <section className="panel recovery-card" aria-label="room-recovery">
+    <section className={`panel recovery-card${displayStatus === "error" ? " recovery-card--error" : ""}`} aria-label="room-recovery">
       <div className="section-heading">
         <h2>Recovery</h2>
-        <span>{statusLabel(displayStatus)}</span>
+        <StatusPill status={displayStatus} />
       </div>
       {room?.input_prompt ? (
         <>
