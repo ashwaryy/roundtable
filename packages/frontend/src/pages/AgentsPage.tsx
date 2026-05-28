@@ -1,9 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import type { AgentColorPreset, Agent, AgentRuntime, RoundtableEvent } from '@roundtable/shared'
 import { createAgent, deleteAgent, importAgents, listAgents, updateAgent } from '../api'
-import { TopbarHeader } from '../components/AppHeader'
+import { TopbarHeader, TopbarNavMenu } from '../components/AppHeader'
 import { Avatar, Icon } from '../components/primitives'
 import { ModelSelect } from '../components/ModelSelect'
 import { roundtableQueryKeys } from '../query'
@@ -141,11 +140,14 @@ export function AgentsPage() {
         backendStatus={backendStatus}
         actions={
           <>
-          <Link className="btn" to="/">
-            <Icon name="arrowLeft" className="ic-sm" />
-            Threads
-          </Link>
-          <ThemeToggle />
+            <TopbarNavMenu
+              items={[
+                { to: '/', label: 'Threads', icon: 'file', end: true },
+                { to: '/agents', label: 'Agents', icon: 'settings' },
+                { to: '/system', label: 'System', icon: 'file' },
+              ]}
+            />
+            <ThemeToggle />
           </>
         }
       />
@@ -213,17 +215,38 @@ export function AgentsPage() {
               </button>
             </div>
             <form className="rail-form" onSubmit={submit}>
-              <input className="input" required placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} />
-              <select className="input" value={runtime} onChange={(e) => setRuntime(e.target.value as AgentRuntime)}>
-                <option value="codex">Codex runtime</option><option value="claude">Claude runtime</option>
-              </select>
-              <input className="input" placeholder="Role description" value={role} onChange={(e) => setRole(e.target.value)} />
-              <textarea className="textarea" placeholder="Agent instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-              <div className="rail-row">
-                <ModelSelect key={`${formVersion}-${editingId ?? 'new'}-${runtime}`} runtime={runtime} value={model} onChange={setModel} ariaLabel="Agent model" />
-                <select className="input" value={effort} onChange={(e) => setEffort(e.target.value)}><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>{runtime === 'codex' ? <option value="xhigh">Extra high</option> : null}</select>
+              <div>
+                <label className="field-label" htmlFor="agent-name">Display Name</label>
+                <input id="agent-name" className="input" required placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} />
               </div>
-              <div className="color-picker">{COLORS.map((preset) => <button type="button" key={preset} className={`swatch swatch-${preset} ${color === preset ? 'selected' : ''}`} aria-label={preset} onClick={() => setColor(preset)} />)}</div>
+              <div>
+                <label className="field-label" htmlFor="agent-runtime">Runtime</label>
+                <select id="agent-runtime" className="input" value={runtime} onChange={(e) => setRuntime(e.target.value as AgentRuntime)}>
+                  <option value="codex">Codex runtime</option><option value="claude">Claude runtime</option>
+                </select>
+              </div>
+              <div>
+                <label className="field-label" htmlFor="agent-role">Role Description</label>
+                <input id="agent-role" className="input" placeholder="Role description" value={role} onChange={(e) => setRole(e.target.value)} />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="agent-instructions">Agent Instructions</label>
+                <textarea id="agent-instructions" className="textarea" placeholder="Agent instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+              </div>
+              <div className="rail-row">
+                <div>
+                  <label className="field-label">Model</label>
+                  <ModelSelect key={`${formVersion}-${editingId ?? 'new'}-${runtime}`} runtime={runtime} value={model} onChange={setModel} ariaLabel="Agent model" />
+                </div>
+                <div>
+                  <label className="field-label" htmlFor="agent-effort">Effort</label>
+                  <select id="agent-effort" className="input" value={effort} onChange={(e) => setEffort(e.target.value)}><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>{runtime === 'codex' ? <option value="xhigh">Extra high</option> : null}</select>
+                </div>
+              </div>
+              <div>
+                <span className="field-label">Color</span>
+                <div className="color-picker">{COLORS.map((preset) => <button type="button" key={preset} className={`swatch swatch-${preset} ${color === preset ? 'selected' : ''}`} aria-label={preset} onClick={() => setColor(preset)} />)}</div>
+              </div>
               <div className="pending-actions">
                 <button className="btn primary" type="submit">
                   <Icon name={editingId ? 'check' : 'plus'} className="ic-sm" />

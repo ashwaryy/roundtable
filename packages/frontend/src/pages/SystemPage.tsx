@@ -1,10 +1,8 @@
 import { useQueries } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import type { SystemPromptRuntime, SystemPromptSection } from '@roundtable/shared'
 import { getSystemInfo, listSystemPrompts } from '../api'
-import { TopbarHeader } from '../components/AppHeader'
-import { Icon } from '../components/primitives'
+import { TopbarHeader, TopbarNavMenu } from '../components/AppHeader'
 import { roundtableQueryKeys } from '../query'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useLiveRefresh } from '../useLiveRefresh'
@@ -65,15 +63,14 @@ export function SystemPage() {
         backendStatus={backendStatus}
         actions={
           <>
-          <Link className="btn" to="/agents">
-            <Icon name="settings" className="ic-sm" />
-            Agents
-          </Link>
-          <Link className="btn" to="/">
-            <Icon name="arrowLeft" className="ic-sm" />
-            Threads
-          </Link>
-          <ThemeToggle />
+            <TopbarNavMenu
+              items={[
+                { to: '/', label: 'Threads', icon: 'file', end: true },
+                { to: '/agents', label: 'Agents', icon: 'settings' },
+                { to: '/system', label: 'System', icon: 'file' },
+              ]}
+            />
+            <ThemeToggle />
           </>
         }
       />

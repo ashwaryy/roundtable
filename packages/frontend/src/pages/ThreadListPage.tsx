@@ -6,7 +6,7 @@ import logoUrl from "../../assets/web/icon-192.png";
 import { archiveThread, deleteThread, listThreads } from "../api";
 import { roundtableQueryKeys } from "../query";
 import { useLiveRefresh } from "../useLiveRefresh";
-import { TopbarHeader } from "../components/AppHeader";
+import { TopbarHeader, TopbarNavMenu } from "../components/AppHeader";
 import { NewThreadForm } from "../components/NewThreadForm";
 import { Icon, StatusPill } from "../components/primitives";
 import { ThemeToggle } from "../components/ThemeToggle";
@@ -166,12 +166,13 @@ export function ThreadListPage() {
         backendStatus={backendStatus}
         actions={
           <>
-            <Link className="btn" to="/system">
-              <Icon name="file" className="ic-sm" /> System
-            </Link>
-            <Link className="btn" to="/agents">
-              <Icon name="settings" className="ic-sm" /> Agents
-            </Link>
+            <TopbarNavMenu
+              items={[
+                { to: "/", label: "Threads", icon: "file", end: true },
+                { to: "/agents", label: "Agents", icon: "settings" },
+                { to: "/system", label: "System", icon: "file" },
+              ]}
+            />
             <ThemeToggle />
           </>
         }

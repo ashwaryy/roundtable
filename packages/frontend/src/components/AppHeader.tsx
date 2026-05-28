@@ -1,8 +1,36 @@
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import type { LiveRefreshStatus } from '../useLiveRefresh'
 import { Icon } from './primitives'
+import type { IconName } from './primitives'
 import { RoundtableBrand } from './RoundtableBrand'
+
+export function TopbarNavMenu({
+  items,
+}: {
+  items: Array<{
+    to: string
+    label: string
+    icon: IconName
+    end?: boolean
+  }>
+}) {
+  return (
+    <nav className="topbar-nav" aria-label="Primary">
+      {items.map((item) => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          end={item.end}
+          className={({ isActive }) => `topbar-nav__link${isActive ? ' is-active' : ''}`}
+        >
+          <Icon name={item.icon} className="ic-sm" />
+          <span>{item.label}</span>
+        </NavLink>
+      ))}
+    </nav>
+  )
+}
 
 export function TopbarHeader({
   actions,
