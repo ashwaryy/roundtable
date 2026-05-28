@@ -4777,11 +4777,21 @@ a:hover {
 
 /* saved output page */
 .saved-output-page {
-  min-height: 100vh;
   background: var(--bg);
+}
+.saved-output-workspace .workspace-body {
+  margin-left: 0;
 }
 .saved-output-main {
   padding: 36px clamp(28px, 5vw, 64px) 80px;
+}
+.saved-output-skeleton .sk {
+  background: var(--panel-2);
+}
+.saved-output-skeleton__subtitle {
+  width: min(440px, 78%);
+  height: 12px;
+  margin-bottom: 6px;
 }
 .saved-output-shell {
   max-width: 920px;
@@ -4790,9 +4800,8 @@ a:hover {
   border: 0;
   box-shadow: none;
 }
-.saved-output-header {
-  border-bottom: 1px solid var(--rule);
-  padding-bottom: 22px;
+.saved-output-source {
+  padding-bottom: 18px;
 }
 .saved-output-subtitle {
   margin: 10px 0 0;
@@ -4850,8 +4859,7 @@ a:hover {
 }
 
 @media (max-width: 640px) {
-  .source-title-row,
-  .saved-output-title-row {
+  .source-title-row {
     align-items: stretch;
     flex-direction: column;
     gap: 12px;
