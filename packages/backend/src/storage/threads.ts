@@ -253,29 +253,27 @@ export function createDerivedThread(
 }
 
 export function archiveThread(dataDir: string, threadId: string): Thread {
-  const detail = getThread(dataDir, threadId)
-  if (!detail) throw new Error(`thread ${threadId} not found`)
+  const thread = readThreadRecord(dataDir, threadId)
+  if (!thread) throw new Error(`thread ${threadId} not found`)
   const timestamp = new Date().toISOString()
-  const thread: Thread = {
-    ...detail,
+  const updated: ThreadRecord = {
+    ...thread,
     status: 'archived',
-    archived_at: detail.archived_at ?? timestamp,
+    archived_at: thread.archived_at ?? timestamp,
   }
-  const { body: _body, ...metadata } = thread as ThreadDetail
-  writeJsonAtomic(threadJsonPath(dataDir, threadId), metadata)
-  return metadata
+  writeJsonAtomic(threadJsonPath(dataDir, threadId), updated)
+  return normalizeThread(updated)
 }
 
 export function closeThread(dataDir: string, threadId: string): Thread {
-  const detail = getThread(dataDir, threadId)
-  if (!detail) throw new Error(`thread ${threadId} not found`)
+  const thread = readThreadRecord(dataDir, threadId)
+  if (!thread) throw new Error(`thread ${threadId} not found`)
   const timestamp = new Date().toISOString()
-  const thread: Thread = {
-    ...detail,
+  const updated: ThreadRecord = {
+    ...thread,
     status: 'closed',
-    closed_at: detail.closed_at ?? timestamp,
+    closed_at: thread.closed_at ?? timestamp,
   }
-  const { body: _body, ...metadata } = thread as ThreadDetail
-  writeJsonAtomic(threadJsonPath(dataDir, threadId), metadata)
-  return metadata
+  writeJsonAtomic(threadJsonPath(dataDir, threadId), updated)
+  return normalizeThread(updated)
 }

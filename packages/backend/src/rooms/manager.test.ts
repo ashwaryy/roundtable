@@ -100,20 +100,32 @@ class FakeExecutor implements CommandExecutor {
 
 let dataDir: string
 let executor: FakeExecutor
+let previousTmuxSubmitDelayMs: string | undefined
 
 beforeEach(() => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-room-'))
   executor = new FakeExecutor()
+  previousTmuxSubmitDelayMs = process.env.ROUNDTABLE_TMUX_SUBMIT_DELAY_MS
+  process.env.ROUNDTABLE_TMUX_SUBMIT_DELAY_MS = '0'
   createThread(dataDir, { title: 'Room', body: '# Room' })
   initializeThreadAgents(dataDir, 'thread-1')
 })
 
 afterEach(() => {
+  if (previousTmuxSubmitDelayMs === undefined) {
+    delete process.env.ROUNDTABLE_TMUX_SUBMIT_DELAY_MS
+  } else {
+    process.env.ROUNDTABLE_TMUX_SUBMIT_DELAY_MS = previousTmuxSubmitDelayMs
+  }
   fs.rmSync(dataDir, { recursive: true, force: true })
 })
 
 function roomToken(): string {
   return JSON.parse(fs.readFileSync(roomJsonPath(dataDir, 'thread-1'), 'utf8')).token
+}
+
+async function waitForQueuedPaneCommands(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve))
 }
 
 function startReadyRoom() {
@@ -816,7 +828,7 @@ describe('createRoomManager', () => {
     )
   })
 
-  it('nudges only when idle and sends to the selected pane', () => {
+  it('nudges only when idle and sends to the selected pane', async () => {
     const manager = createRoomManager({
       dataDir,
       backendUrl: 'http://localhost:4319',
@@ -828,6 +840,7 @@ describe('createRoomManager', () => {
     manager.markReady('thread-1', 'codex', token)
 
     manager.nudgeRoom('thread-1', { agent: 'codex', body: 'Please inspect this.' })
+    await waitForQueuedPaneCommands()
 
     expect(executor.commands).toContainEqual({
       file: 'tmux',
@@ -853,13 +866,14 @@ describe('createRoomManager', () => {
     ).toBe('Please inspect this.')
   })
 
-  it('requests idle suggestions and sends the permitted helper instruction', () => {
+  it('requests idle suggestions and sends the permitted helper instruction', async () => {
     const { manager } = startReadyRoom()
 
     const room = manager.requestIdleSuggestion('thread-1', {
       agent: 'codex',
       body: 'Look for one performance bottleneck.',
     })
+    await waitForQueuedPaneCommands()
 
     expect(room.idle_suggestion_request).toMatchObject({
       agent: 'codex',
@@ -892,11 +906,12 @@ describe('createRoomManager', () => {
     ).toContain('roundtable pending-discussion --body-file <that-file> --type comment')
   })
 
-  it('cancels an idle suggestion request before submission', () => {
+  it('cancels an idle suggestion request before submission', async () => {
     const { manager, token } = startReadyRoom()
     manager.requestIdleSuggestion('thread-1', { agent: 'codex' })
 
     const room = manager.cancelIdleSuggestion('thread-1')
+    await waitForQueuedPaneCommands()
 
     expect(room.idle_suggestion_request).toBeNull()
     expect(executor.commands).toContainEqual({
@@ -927,7 +942,7 @@ describe('createRoomManager', () => {
     ).toThrow('idle pending discussion requires an explicit suggestion request')
   })
 
-  it('detects a pane input prompt and sends a yes response', () => {
+  it('detects a pane input prompt and sends a yes response', async () => {
     const { manager } = startReadyRoom()
     executor.paneCaptures.set(
       'roundtable-thread-1:agent-codex',
@@ -940,7 +955,7 @@ describe('createRoomManager', () => {
       ].join('\n'),
     )
 
-    const detected = manager.getRoom('thread-1')
+    const detected = await manager.getRoom('thread-1')
     expect(detected.input_prompt).toMatchObject({
       agent: 'codex',
     })
@@ -958,12 +973,12 @@ describe('createRoomManager', () => {
     })
   })
 
-  it('reuses a recent input prompt probe across repeated getRoom calls', () => {
+  it('reuses a recent input prompt probe across repeated getRoom calls', async () => {
     const { manager } = startReadyRoom()
 
-    const first = manager.getRoom('thread-1')
+    const first = await manager.getRoom('thread-1')
     const firstCommandCount = executor.commands.length
-    const second = manager.getRoom('thread-1')
+    const second = await manager.getRoom('thread-1')
 
     expect(first.input_prompt).toBeNull()
     expect(second.input_prompt).toBeNull()
@@ -972,7 +987,7 @@ describe('createRoomManager', () => {
     expect(second).not.toHaveProperty('input_prompt_checked_at')
   })
 
-  it('starts an ask turn, writes current-turn context, and sends a single-line prompt file instruction', () => {
+  it('starts an ask turn, writes current-turn context, and sends a single-line prompt file instruction', async () => {
     const manager = createRoomManager({
       dataDir,
       backendUrl: 'http://localhost:4319',
@@ -987,6 +1002,7 @@ describe('createRoomManager', () => {
       agent: 'codex',
       body: 'Please review the thread.',
     })
+    await waitForQueuedPaneCommands()
 
     expect(result.room.status).toBe('running')
     expect(result.room.active_job_id).toBe('job-001')
@@ -1664,7 +1680,7 @@ describe('createRoomManager', () => {
 
       await new Promise((resolve) => setTimeout(resolve, 20))
 
-      const room = manager.getRoom('thread-1')
+      const room = await manager.getRoom('thread-1')
       expect(room.status).toBe('needs_attention')
       expect(room.last_error).toBe('agent turn timed out')
       expect(getJob(dataDir, 'thread-1', 'job-001')?.status).toBe('timed_out')
@@ -1705,11 +1721,11 @@ describe('createRoomManager', () => {
     expect(fs.existsSync(tempDir)).toBe(false)
   })
 
-  it('recovers a persisted live session and preserves an active turn', () => {
+  it('recovers a persisted live session and preserves an active turn', async () => {
     const { manager } = startReadyRoom()
     manager.askAgent('thread-1', { agent: 'claude' })
 
-    const recovered = createRoomManager({
+    const recovered = await createRoomManager({
       dataDir,
       backendUrl: 'http://localhost:4319',
       executor,
@@ -1720,7 +1736,7 @@ describe('createRoomManager', () => {
     expect(recovered.status).toBe('running')
   })
 
-  it('retains an interrupted job through missing-session restart and retry', () => {
+  it('retains an interrupted job through missing-session restart and retry', async () => {
     const { manager } = startReadyRoom()
     manager.askAgent('thread-1', { agent: 'claude' })
     executor.sessions.delete('roundtable-thread-1')
@@ -1730,7 +1746,7 @@ describe('createRoomManager', () => {
       backendUrl: 'http://localhost:4319',
       executor,
     })
-    const missing = restored.getRoom('thread-1')
+    const missing = await restored.getRoom('thread-1')
     expect(missing.session_state).toBe('missing')
     expect(missing.status).toBe('needs_attention')
     expect(getJob(dataDir, 'thread-1', 'job-001')?.status).toBe('failed')
@@ -1747,9 +1763,9 @@ describe('createRoomManager', () => {
     expect(retried.room.status).toBe('running')
   })
 
-  it('does not adopt an untracked session and stops terminal-thread sessions', () => {
+  it('does not adopt an untracked session and stops terminal-thread sessions', async () => {
     executor.sessions.add('roundtable-thread-1')
-    const untracked = createRoomManager({
+    const untracked = await createRoomManager({
       dataDir,
       backendUrl: 'http://localhost:4319',
       executor,
@@ -1757,7 +1773,7 @@ describe('createRoomManager', () => {
     expect(untracked.session_state).toBe('untracked')
 
     archiveThread(dataDir, 'thread-1')
-    const terminal = createRoomManager({
+    const terminal = await createRoomManager({
       dataDir,
       backendUrl: 'http://localhost:4319',
       executor,

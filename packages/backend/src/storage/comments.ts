@@ -10,16 +10,44 @@ import { NotFoundError } from './errors'
 import { appendJsonl, atomicRewriteJsonl } from './jsonl'
 
 const replyDiscussionIdsByThread = new Map<string, Map<string, string>>()
+const commentsByThread = new Map<string, {
+  mtimeMs: number
+  size: number
+  comments: Comment[]
+}>()
 
-export function listComments(dataDir: string, threadId: string): Comment[] {
-  const file = commentsPath(dataDir, threadId)
-  if (!fs.existsSync(file)) return []
+function commentsCacheKey(dataDir: string, threadId: string): string {
+  return `${dataDir}:${threadId}`
+}
 
+function clearCommentsCache(dataDir: string, threadId: string): void {
+  commentsByThread.delete(commentsCacheKey(dataDir, threadId))
+}
+
+function readCommentsFile(file: string): Comment[] {
   return fs
     .readFileSync(file, 'utf8')
     .split('\n')
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line) as Comment)
+}
+
+export function listComments(dataDir: string, threadId: string): Comment[] {
+  const file = commentsPath(dataDir, threadId)
+  if (!fs.existsSync(file)) return []
+  const stat = fs.statSync(file)
+  const cacheKey = commentsCacheKey(dataDir, threadId)
+  const cached = commentsByThread.get(cacheKey)
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached.comments
+  }
+  const comments = readCommentsFile(file)
+  commentsByThread.set(cacheKey, {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    comments,
+  })
+  return comments
 }
 
 function nextCommentIdAfter(comment: Comment | null): string {
@@ -61,7 +89,7 @@ function nextTopLevelCommentId(dataDir: string, threadId: string): string {
 }
 
 function replyCacheKey(dataDir: string, threadId: string): string {
-  return `${dataDir}:${threadId}`
+  return commentsCacheKey(dataDir, threadId)
 }
 
 function buildReplyDiscussionIds(dataDir: string, threadId: string): Map<string, string> {
@@ -138,6 +166,7 @@ function addStoredComment(
   })
 
   appendJsonl(commentsPath(dataDir, threadId), comment)
+  clearCommentsCache(dataDir, threadId)
   const cacheKey = replyCacheKey(dataDir, threadId)
   const replyDiscussionIds = replyDiscussionIdsByThread.get(cacheKey) ?? new Map<string, string>()
   replyDiscussionIds.set(comment.id, comment.discussion_id)
@@ -197,6 +226,7 @@ export function deleteComment(
       : comments.filter((c) => c.id !== target.id)
 
   atomicRewriteJsonl(commentsPath(dataDir, threadId), kept)
+  clearCommentsCache(dataDir, threadId)
   clearReplyDiscussionIds(dataDir, threadId)
 }
 

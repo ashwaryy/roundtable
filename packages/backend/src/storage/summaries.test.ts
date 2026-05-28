@@ -3,7 +3,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createStorage } from './index'
-import { getThreadSummary, setThreadSummaryDirty, updateThreadSummary } from './threads'
+import {
+  archiveThread,
+  closeThread,
+  getThreadSummary,
+  setThreadSummaryDirty,
+  updateThreadSummary,
+} from './threads'
 
 let dataDir: string
 
@@ -47,6 +53,23 @@ describe('thread summaries', () => {
       pending_count: 1,
       active_proposal_count: 0,
       dirty: {},
+    })
+  })
+
+  it('preserves dirty summary fields when archiving or closing a thread', () => {
+    const storage = createStorage(dataDir)
+    const first = storage.createThread({ title: 'T1', body: 'body' })
+    const second = storage.createThread({ title: 'T2', body: 'body' })
+
+    setThreadSummaryDirty(dataDir, first.id, 'pending_count')
+    setThreadSummaryDirty(dataDir, second.id, 'active_proposal_count')
+
+    archiveThread(dataDir, first.id)
+    closeThread(dataDir, second.id)
+
+    expect(getThreadSummary(dataDir, first.id)?.dirty).toEqual({ pending_count: true })
+    expect(getThreadSummary(dataDir, second.id)?.dirty).toEqual({
+      active_proposal_count: true,
     })
   })
 })

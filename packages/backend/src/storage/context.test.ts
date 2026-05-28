@@ -68,7 +68,7 @@ describe('context items', () => {
 
   it('does not recreate missing canonical context files during reads', () => {
     fs.rmSync(contextItemsPath(dataDir, 'thread-1'))
-    expect(() => listContextItems(dataDir, 'thread-1')).toThrow()
+    expect(listContextItems(dataDir, 'thread-1')).toEqual([])
     expect(fs.existsSync(contextItemsPath(dataDir, 'thread-1'))).toBe(false)
   })
 })

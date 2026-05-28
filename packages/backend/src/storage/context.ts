@@ -296,6 +296,7 @@ export function listSnapshotReports(dataDir: string, threadId: string): Snapshot
 export function listContextItems(dataDir: string, threadId: string): ContextItem[] {
   ensureThreadExists(dataDir, threadId)
   const file = contextItemsPath(dataDir, threadId)
+  if (!fs.existsSync(file)) return []
   return fs
     .readFileSync(file, 'utf8')
     .split('\n')

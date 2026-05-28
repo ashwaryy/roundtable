@@ -383,9 +383,9 @@ export function createApp(deps: {
     res.json(thread)
   })
 
-  function rosterEditable(threadId: string): boolean {
+  async function rosterEditable(threadId: string): Promise<boolean> {
     if (!rooms) return true
-    const room = rooms.getRoom(threadId)
+    const room = await rooms.getRoom(threadId)
     return room.status === 'not_started' || room.status === 'stopped' || room.status === 'idle'
   }
 
@@ -398,11 +398,11 @@ export function createApp(deps: {
     }
   })
 
-  app.post('/api/threads/:id/agents', (req, res) => {
+  app.post('/api/threads/:id/agents', async (req, res) => {
     const parsed = inviteAgentInputSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
     try {
-      if (!rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
+      if (!await rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
       const roster = storage.inviteAgent(req.params.id, parsed.data)
       rooms?.syncRoster(req.params.id)
       broadcast({ type: 'thread_agents_updated', thread_id: req.params.id })
@@ -413,11 +413,11 @@ export function createApp(deps: {
     }
   })
 
-  app.patch('/api/threads/:id/agents/:agentId', (req, res) => {
+  app.patch('/api/threads/:id/agents/:agentId', async (req, res) => {
     const parsed = updateThreadAgentInviteInputSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
     try {
-      if (!rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
+      if (!await rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
       const roster = storage.updateThreadAgent(req.params.id, req.params.agentId, parsed.data)
       rooms?.syncRoster(req.params.id)
       broadcast({ type: 'thread_agents_updated', thread_id: req.params.id })
@@ -428,9 +428,9 @@ export function createApp(deps: {
     }
   })
 
-  app.delete('/api/threads/:id/agents/:agentId', (req, res) => {
+  app.delete('/api/threads/:id/agents/:agentId', async (req, res) => {
     try {
-      if (!rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
+      if (!await rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
       const roster = storage.removeThreadAgent(req.params.id, req.params.agentId)
       rooms?.syncRoster(req.params.id)
       broadcast({ type: 'thread_agents_updated', thread_id: req.params.id })
@@ -441,11 +441,11 @@ export function createApp(deps: {
     }
   })
 
-  app.put('/api/threads/:id/agents/order', (req, res) => {
+  app.put('/api/threads/:id/agents/order', async (req, res) => {
     const parsed = reorderThreadAgentsInputSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
     try {
-      if (!rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
+      if (!await rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
       const roster = storage.reorderThreadAgents(req.params.id, parsed.data)
       rooms?.syncRoster(req.params.id)
       broadcast({ type: 'thread_agents_updated', thread_id: req.params.id })
@@ -996,10 +996,10 @@ export function createApp(deps: {
     res.json(rooms.preflight(req.params.id))
   })
 
-  app.get('/api/threads/:id/room', (req, res) => {
+  app.get('/api/threads/:id/room', async (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
     try {
-      res.json(rooms.getRoom(req.params.id))
+      res.json(await rooms.getRoom(req.params.id))
     } catch (err) {
       if (handleStorageError(err, res)) return
       throw err
@@ -1073,10 +1073,10 @@ export function createApp(deps: {
     }
   })
 
-  app.post('/api/threads/:id/room/open-terminal', (req, res) => {
+  app.post('/api/threads/:id/room/open-terminal', async (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
     try {
-      const room = rooms.getRoom(req.params.id)
+      const room = await rooms.getRoom(req.params.id)
       if (room.session_state !== 'connected' && room.session_state !== 'recovered') {
         return res.status(409).json({ error: 'room tmux session is not running' })
       }

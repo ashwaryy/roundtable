@@ -710,7 +710,7 @@ describe('room routes', () => {
     terminalLauncher = vi.fn()
     rooms = {
       preflight: vi.fn(() => testPreflight()),
-      getRoom: vi.fn(() => testRoom('not_started')),
+      getRoom: vi.fn(async () => testRoom('not_started')),
       getRoomSummary: vi.fn(() => testRoom('not_started')),
       getTmuxPaneSnapshot: vi.fn(() => ({
         thread_id: 'thread-1',
@@ -979,7 +979,7 @@ describe('room routes', () => {
   })
 
   it('opens a terminal attached to a running room tmux session', async () => {
-    vi.mocked(rooms.getRoom).mockReturnValue(testRoom('idle'))
+    vi.mocked(rooms.getRoom).mockResolvedValue(testRoom('idle'))
 
     const res = await request(app).post('/api/threads/thread-1/room/open-terminal')
 
