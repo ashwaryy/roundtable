@@ -128,8 +128,8 @@ export function PendingDiscussionModerationCard({
             {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
           <div className="pending-block__actions">
-            <button type="submit" className="btn-approve">Save</button>
-            <button type="button" className="btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
+            <button type="submit" className="btn sm primary">Save</button>
+            <button type="button" className="btn sm ghost" onClick={() => setEditing(false)}>Cancel</button>
           </div>
         </form>
       ) : (
@@ -141,22 +141,22 @@ export function PendingDiscussionModerationCard({
           {confirmingReject ? (
             <div className="reject-confirm">
               <span className="reject-confirm__label">Remove this pending discussion?</span>
-              <button type="button" className="btn-destructive" onClick={handleConfirmReject}>Remove</button>
-              <button type="button" className="btn-ghost" onClick={() => setConfirmingReject(false)}>Cancel</button>
+              <button type="button" className="btn sm danger" onClick={handleConfirmReject}>Remove</button>
+              <button type="button" className="btn sm ghost" onClick={() => setConfirmingReject(false)}>Cancel</button>
             </div>
           ) : (
             <div className="pending-block__actions">
-              <button type="button" className="btn-approve" onClick={handleApprove}>Approve</button>
+              <button type="button" className="btn sm primary" onClick={handleApprove}>Approve</button>
               <button
                 type="button"
+                className="btn sm"
                 onClick={() => { setEditing(true); setError(null) }}
               >
                 Edit
               </button>
               <button
                 type="button"
-                className="btn-destructive"
-                style={{ background: 'transparent', borderColor: 'transparent' }}
+                className="btn sm danger"
                 onClick={() => setConfirmingReject(true)}
               >
                 Reject
@@ -170,10 +170,10 @@ export function PendingDiscussionModerationCard({
         <div className="pending-block__error" role="alert">
           <span>{error}</span>
           {errorAction === 'approve' && (
-            <button type="button" style={{ fontSize: '0.8125rem' }} onClick={handleApprove}>Retry</button>
+            <button type="button" className="btn sm" onClick={handleApprove}>Retry</button>
           )}
           {errorAction === 'reject' && (
-            <button type="button" style={{ fontSize: '0.8125rem' }} onClick={() => setConfirmingReject(true)}>Retry</button>
+            <button type="button" className="btn sm" onClick={() => setConfirmingReject(true)}>Retry</button>
           )}
         </div>
       ) : null}

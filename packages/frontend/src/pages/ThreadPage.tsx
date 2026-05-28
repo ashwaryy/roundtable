@@ -303,6 +303,8 @@ export function ThreadPage() {
   const [bodyCollapsed, setBodyCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useStoredBoolean(RAIL_COLLAPSED_STORAGE_KEY, false);
+  const [composerHidden, setComposerHidden] = useStoredBoolean("roundtable.composerHidden", false);
+  const [inlineReplyActive, setInlineReplyActive] = useState(false);
   const [commentSortOrder, setCommentSortOrder] = useState<CommentSortOrder>("oldest");
   const mainRef = useRef<HTMLDivElement>(null);
   const {
@@ -571,6 +573,7 @@ export function ThreadPage() {
                 readOnly={thread.status !== "open"}
                 sortOrder={commentSortOrder}
                 roster={room?.roster ?? []}
+                onActiveReplyChange={setInlineReplyActive}
               />
             )}
           </section>
@@ -583,18 +586,36 @@ export function ThreadPage() {
                 latestNewId={latestNewCommentId}
                 onDismiss={dismissNewComments}
               />
-              <div className="composer-card" style={{ maxWidth: 920, margin: "0 auto" }}>
-                <CommentForm label="Post" threadId={thread.id} draftContext="root" onSubmit={addTopLevel} />
-                {room?.auto?.status === "running" ? (
-                  <div className="composer-hint">
-                    <Icon name="play" className="ic-sm" />
-                    <span>
-                      Auto-discussion is running ({room.auto.completed_turns}/{room.auto.total_turns}). Your post is durable, but agents won't react
-                      until the run completes.
-                    </span>
-                  </div>
-                ) : null}
-              </div>
+              {inlineReplyActive ? null : composerHidden ? (
+                <div className="composer-card" style={{ maxWidth: 920, margin: "0 auto" }}>
+                  <button type="button" className="btn sm ghost" onClick={() => setComposerHidden(false)}>
+                    <Icon name="chevronD" className="ic-sm" /> Show composer
+                  </button>
+                </div>
+              ) : (
+                <div className="composer-card" style={{ maxWidth: 920, margin: "0 auto" }}>
+                  <CommentForm
+                    label="Post"
+                    threadId={thread.id}
+                    draftContext="root"
+                    onSubmit={addTopLevel}
+                    typeRowActions={
+                      <button type="button" className="btn sm ghost" onClick={() => setComposerHidden(true)}>
+                        <Icon name="collapse" className="ic-sm" /> Hide
+                      </button>
+                    }
+                  />
+                  {room?.auto?.status === "running" ? (
+                    <div className="composer-hint">
+                      <Icon name="play" className="ic-sm" />
+                      <span>
+                        Auto-discussion is running ({room.auto.completed_turns}/{room.auto.total_turns}). Your post is durable, but agents won't react
+                        until the run completes.
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
           ) : (
             <div className="composer-anchor">

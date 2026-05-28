@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CommentType } from '@roundtable/shared'
 import { Icon } from './primitives'
 
@@ -33,6 +33,7 @@ export function CommentForm({
   draftContext = 'root',
   compact = false,
   autoFocus = false,
+  typeRowActions,
   onCancel,
   onSubmit,
 }: {
@@ -41,6 +42,7 @@ export function CommentForm({
   draftContext?: string
   compact?: boolean
   autoFocus?: boolean
+  typeRowActions?: ReactNode
   onCancel?: () => void
   onSubmit: (input: { body: string; type: CommentType }) => Promise<void>
 }) {
@@ -113,6 +115,7 @@ export function CommentForm({
               {t}
             </button>
           ))}
+          {typeRowActions ? <span className="composer-type-row__actions">{typeRowActions}</span> : null}
         </div>
       ) : null}
       <textarea

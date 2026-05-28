@@ -1430,13 +1430,13 @@ article + ul article {
   flex-wrap: wrap;
   padding: 6px 10px;
   border-radius: var(--r-sm);
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--bad-bg);
+  border: 1px solid var(--bad);
 }
 .reject-confirm__label {
   font-size: 0.8125rem;
   font-weight: 500;
-  color: #991b1b;
+  color: var(--bad);
 }
 
 /* ── Composer anchor ─────────────────────────────────────────── */
@@ -1464,6 +1464,10 @@ article + ul article {
   align-items: center;
   gap: 0.3rem;
   flex-wrap: wrap;
+}
+
+.composer-type-row__actions {
+  margin-left: auto;
 }
 
 .composer-type-chip {
@@ -2732,7 +2736,6 @@ textarea:focus {
   background: var(--surface);
 }
 
-
 .thread-row .num {
   color: var(--text-3);
   font-family: var(--font-mono);
@@ -3170,7 +3173,7 @@ textarea:focus {
 }
 
 .pending-block__body {
-  color: #3a342d;
+  color: var(--ink-soft);
 }
 
 .composer-anchor {
@@ -3645,7 +3648,10 @@ a:hover {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
 }
 .topbar-nav__link:hover {
   color: var(--ink);
@@ -4008,7 +4014,8 @@ a:hover {
   animation: avatar-pulse 2.4s ease-in-out infinite;
 }
 @keyframes avatar-pulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--good) 80%, transparent);
   }
   50% {
@@ -4918,7 +4925,22 @@ a:hover {
 .cmt-head .cmt-id {
   font-size: 10.5px;
   color: var(--rule-strong);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.cmt-head .collapse-btn {
   margin-left: auto;
+}
+
+.reply-item .reply-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.reply-item .reply-meta .cmt-id {
+  font-size: 10.5px;
+  color: var(--rule-strong);
   font-variant-numeric: tabular-nums;
   opacity: 0.7;
 }
@@ -5086,6 +5108,16 @@ a:hover {
   width: 1px;
   background: var(--rule);
 }
+
+.reply-cluster-rail:last-child {
+  position: absolute;
+  top: -10px;
+  bottom: -20px;
+  left: 0px;
+  width: 1px;
+  background: var(--rule);
+}
+
 .reply-cluster-body {
   min-width: 0;
 }
@@ -7697,12 +7729,7 @@ a:hover {
 }
 .cmt-root[data-color] .cmt-text.root-bubble.tinted,
 .reply-cluster[data-color] .cmt-text.reply-bubble.tinted {
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--comment-accent) 6%, var(--panel)) 0,
-      var(--panel) 18px
-    );
+  background: linear-gradient(90deg, color-mix(in srgb, var(--comment-accent) 6%, var(--panel)) 0, var(--panel) 18px);
   border-color: color-mix(in srgb, var(--comment-accent) 24%, var(--rule));
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--comment-accent) 56%, transparent);
 }

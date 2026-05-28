@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, type CSSProperties } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { AgentColorPreset, AgentName, Comment, CommentType, PendingDiscussion, ThreadAgentInvite } from '@roundtable/shared'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -130,6 +130,7 @@ const RootComment = memo(function RootComment({
   onDelete,
   onAskDiscussion,
   onPendingUpdate,
+  onReplyOpenChange,
   roster,
   agentById,
 }: {
@@ -146,10 +147,16 @@ const RootComment = memo(function RootComment({
   onDelete: (commentId: string) => Promise<void>
   onAskDiscussion: (discussionId: string, agent: AgentName) => Promise<void>
   onPendingUpdate: () => void
+  onReplyOpenChange: (rootId: string, open: boolean) => void
   roster: ThreadAgentInvite[]
   agentById: Map<string, ThreadAgentInvite>
 }) {
   const [openReply, setOpenReply] = useState(false)
+
+  useEffect(() => {
+    onReplyOpenChange(root.id, openReply)
+    return () => onReplyOpenChange(root.id, false)
+  }, [openReply, root.id, onReplyOpenChange])
   const [collapsed, setCollapsed] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
@@ -277,12 +284,15 @@ const RootComment = memo(function RootComment({
                   {sub.comments[0].type !== 'comment' ? (
                     <TypeBadge type={sub.comments[0].type} />
                   ) : null}
-                  <span className="time">{formatTs(sub.comments[0].created_at)}</span>
                 </div>
                 {sub.comments.map((reply) => {
                   const isLatestReply = reply.id === latestReplyId
                   return (
                     <div key={reply.id} className="reply-item">
+                      <div className="reply-meta">
+                        <span className="time">{formatTs(reply.created_at)}</span>
+                        <span className="cmt-id mono">{reply.id}</span>
+                      </div>
                       <div
                         id={reply.id}
                         className="cmt-text reply-bubble tinted comment-new-anchor"
@@ -377,6 +387,7 @@ export function CommentTree({
   readOnly = false,
   sortOrder = 'oldest',
   roster = [],
+  onActiveReplyChange,
 }: {
   comments: Comment[]
   pendingDiscussions?: PendingDiscussion[]
@@ -391,7 +402,23 @@ export function CommentTree({
   readOnly?: boolean
   sortOrder?: CommentSortOrder
   roster?: ThreadAgentInvite[]
+  onActiveReplyChange?: (active: boolean) => void
 }) {
+  const [openReplyRoots, setOpenReplyRoots] = useState<Set<string>>(() => new Set())
+
+  const handleReplyOpenChange = useCallback((rootId: string, open: boolean) => {
+    setOpenReplyRoots((prev) => {
+      if (open === prev.has(rootId)) return prev
+      const next = new Set(prev)
+      if (open) next.add(rootId)
+      else next.delete(rootId)
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    onActiveReplyChange?.(openReplyRoots.size > 0)
+  }, [openReplyRoots, onActiveReplyChange])
   const derived = useMemo(() => {
     const groups = groupComments(comments, sortOrder)
     const commentsById = new Map(comments.map((c) => [c.id, c]))
@@ -448,6 +475,7 @@ export function CommentTree({
           onDelete={onDelete}
           onAskDiscussion={onAskDiscussion}
           onPendingUpdate={onPendingUpdate}
+          onReplyOpenChange={handleReplyOpenChange}
           roster={roster}
           agentById={derived.agentById}
         />

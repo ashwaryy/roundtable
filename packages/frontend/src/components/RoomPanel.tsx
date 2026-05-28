@@ -372,7 +372,9 @@ export function RoomPanel({
   const canStopAuto = isThreadOpen && room?.auto?.status === "running";
   const canExitAuto = isThreadOpen && !!room?.auto && (room?.status === "paused" || room?.status === "turn_limit_reached");
   const canExtendAuto = isThreadOpen && !!room?.auto && (room?.status === "paused" || room?.status === "turn_limit_reached");
-  const canStop = isThreadOpen && !!room && room.status !== "not_started" && room.status !== "stopped";
+  const roomActive = !!room && room.status !== "not_started" && room.status !== "stopped";
+  const canStop = isThreadOpen && roomActive;
+  const agentConfigLocked = !isThreadOpen || roomActive;
   const needsAttention = isThreadOpen && room?.status === "needs_attention";
   const canRestart = isThreadOpen && room?.session_state === "missing";
   const canReloadRoom = isThreadOpen || canRestart;
@@ -448,7 +450,7 @@ export function RoomPanel({
                       value={models[agentId] ?? ""}
                       onChange={(value) => setModels((modelsByAgent) => ({ ...modelsByAgent, [agentId]: value }))}
                       onCommit={(value) => void controls.saveModel(agentId, value || null, efforts[agentId] || null)}
-                      disabled={!isThreadOpen}
+                      disabled={agentConfigLocked}
                     />
                     <select
                       className="agent-model"
@@ -456,7 +458,7 @@ export function RoomPanel({
                       value={efforts[agentId] ?? ""}
                       onChange={(event) => setEfforts((value) => ({ ...value, [agentId]: event.target.value }))}
                       onBlur={() => void controls.saveModel(agentId, models[agentId] || null, efforts[agentId] || null)}
-                      disabled={!isThreadOpen}
+                      disabled={agentConfigLocked}
                     >
                       <option value="">Effort</option>
                       <option value="low">Low</option>
