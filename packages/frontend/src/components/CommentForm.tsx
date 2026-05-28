@@ -23,6 +23,10 @@ function placeholderFor(type: CommentType): string {
   }
 }
 
+function compactPlaceholder(): string {
+  return 'Add a comment...'
+}
+
 export function CommentForm({
   label,
   threadId,
@@ -96,19 +100,21 @@ export function CommentForm({
       aria-label={label}
       className={`composer ${compact ? 'compact' : ''}`}
     >
-      <div className="composer-type-row">
-        {TYPES.map((t) => (
-          <button
-            key={t}
-            type="button"
-            className={`composer-type-chip type-${t} ${type === t ? 'on' : ''}`}
-            onClick={() => setType(t)}
-            disabled={submitting}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      {!compact ? (
+        <div className="composer-type-row">
+          {TYPES.map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={`composer-type-chip type-${t} ${type === t ? 'on' : ''}`}
+              onClick={() => setType(t)}
+              disabled={submitting}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <textarea
         ref={textareaRef}
         className="composer-textarea"
@@ -116,7 +122,7 @@ export function CommentForm({
         value={body}
         onChange={(e) => setBody(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={placeholderFor(type)}
+        placeholder={compact ? compactPlaceholder() : placeholderFor(type)}
         autoFocus={autoFocus}
         disabled={submitting}
         rows={compact ? 2 : 3}
