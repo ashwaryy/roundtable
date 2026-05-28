@@ -21,6 +21,8 @@ declare module 'formidable' {
 
   export default function formidable(options?: {
     multiples?: boolean
+    maxFiles?: number
     maxFileSize?: number
+    maxTotalFileSize?: number
   }): IncomingForm
 }

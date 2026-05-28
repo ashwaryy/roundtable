@@ -63,17 +63,67 @@ const JOB_ID_RE = /^job-\d+$/
 const PROPOSAL_ID_RE = /^consolidation-\d+$/
 const SAVED_ID_RE = /^thread-\d+-consolidation-\d+$/
 const AGENT_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
+const DEFAULT_ATTACHMENT_MAX_FILES = 10
+const DEFAULT_ATTACHMENT_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+const DEFAULT_ATTACHMENT_MAX_TOTAL_FILE_SIZE_BYTES = 100 * 1024 * 1024
+
+function parsePositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (!raw) return fallback
+  const value = Number.parseInt(raw, 10)
+  return Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+function attachmentUploadLimits(): {
+  maxFiles: number
+  maxFileSize: number
+  maxTotalFileSize: number
+} {
+  return {
+    maxFiles: parsePositiveIntegerEnv(
+      'ROUNDTABLE_ATTACHMENT_MAX_FILES',
+      DEFAULT_ATTACHMENT_MAX_FILES,
+    ),
+    maxFileSize: parsePositiveIntegerEnv(
+      'ROUNDTABLE_ATTACHMENT_MAX_FILE_SIZE_BYTES',
+      DEFAULT_ATTACHMENT_MAX_FILE_SIZE_BYTES,
+    ),
+    maxTotalFileSize: parsePositiveIntegerEnv(
+      'ROUNDTABLE_ATTACHMENT_MAX_TOTAL_FILE_SIZE_BYTES',
+      DEFAULT_ATTACHMENT_MAX_TOTAL_FILE_SIZE_BYTES,
+    ),
+  }
+}
+
+function toMultipartParseError(err: unknown): Error {
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'httpCode' in err &&
+    typeof (err as { httpCode?: unknown }).httpCode === 'number' &&
+    (err as { httpCode: number }).httpCode >= 400 &&
+    (err as { httpCode: number }).httpCode < 500
+  ) {
+    const message =
+      'message' in err && typeof err.message === 'string'
+        ? err.message
+        : 'invalid multipart request'
+    return new BadRequestError(`attachment upload rejected: ${message}`)
+  }
+  return err instanceof Error ? err : new Error('invalid multipart request')
+}
 
 function flattenFiles(files: Record<string, FormidableFile | FormidableFile[]>): FormidableFile[] {
   return Object.values(files).flatMap((file) => (Array.isArray(file) ? file : [file]))
 }
 
 function parseMultipartFiles(req: express.Request): Promise<FormidableFile[]> {
-  const form = formidable({ multiples: true })
+  const limits = attachmentUploadLimits()
+  const form = formidable({ multiples: true, ...limits })
   return new Promise((resolve, reject) => {
     form.parse(req, (err, _fields, files) => {
       if (err) {
-        reject(err)
+        reject(toMultipartParseError(err))
         return
       }
       resolve(flattenFiles(files))

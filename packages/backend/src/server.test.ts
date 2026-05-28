@@ -473,6 +473,24 @@ describe('context routes', () => {
     expect(res.body[0].path).toContain('attachments/')
   })
 
+  it('rejects attachments that exceed configured upload size limits', async () => {
+    const source = path.join(dataDir, 'oversized-upload.txt')
+    fs.writeFileSync(source, 'hello')
+    process.env.ROUNDTABLE_ATTACHMENT_MAX_FILE_SIZE_BYTES = '4'
+
+    try {
+      const res = await request(app)
+        .post('/api/threads/thread-1/attachments/files')
+        .attach('files', source)
+
+      expect(res.status).toBe(400)
+      expect(res.body.error).toContain('attachment upload rejected:')
+      expect(res.body.error).toContain('maxFileSize')
+    } finally {
+      delete process.env.ROUNDTABLE_ATTACHMENT_MAX_FILE_SIZE_BYTES
+    }
+  })
+
   it('preflights and creates a confirmed folder snapshot', async () => {
     const project = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-server-project-'))
     fs.writeFileSync(path.join(project, 'notes.md'), '# Notes\n')
