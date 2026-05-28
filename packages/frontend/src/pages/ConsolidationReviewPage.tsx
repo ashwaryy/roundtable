@@ -2,7 +2,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type { AgentName, RoundtableEvent } from "@roundtable/shared";
 import {
   getConsolidation,
@@ -20,6 +19,7 @@ import { useLiveRefresh } from "../useLiveRefresh";
 import { WorkspaceHeader } from "../components/AppHeader";
 import { ConsolidationReviewSkeleton } from "../components/ConsolidationReviewSkeleton";
 import { Icon } from "../components/primitives";
+import { REMARK_PLUGINS } from "../lib/markdown";
 import { roundtableQueryKeys } from "../query";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { CONSOLIDATION_STEPS, buildConsolidationUiState } from "../lib/consolidationUi";
@@ -266,7 +266,7 @@ export function ConsolidationReviewPage() {
               ) : (
                 <div className="source-body proposal-preview">
                   {body.trim() ? (
-                    <Markdown remarkPlugins={[remarkGfm]}>{body}</Markdown>
+                    <Markdown remarkPlugins={REMARK_PLUGINS}>{body}</Markdown>
                   ) : (
                     <p className="empty-state">The draft has not been submitted yet.</p>
                   )}
@@ -329,7 +329,7 @@ export function ConsolidationReviewPage() {
                 <RailSection label="Latest review" count={detail.reviews.length} defaultOpen>
                   <div className="review-note review-note--rail">
                     {detail.latest_review_body ? (
-                      <Markdown remarkPlugins={[remarkGfm]}>{detail.latest_review_body}</Markdown>
+                      <Markdown remarkPlugins={REMARK_PLUGINS}>{detail.latest_review_body}</Markdown>
                     ) : (
                       <p className="empty-state">No review yet.</p>
                     )}

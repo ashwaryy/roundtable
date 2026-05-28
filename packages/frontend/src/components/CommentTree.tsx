@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { AgentColorPreset, AgentName, Comment, CommentType, PendingDiscussion, ThreadAgentInvite } from '@roundtable/shared'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { groupComments, type CommentSortOrder } from '../lib/commentTree'
+import { REMARK_PLUGINS } from '../lib/markdown'
 import { CommentForm } from './CommentForm'
 import { PendingDiscussionModerationCard } from './PendingDiscussionQueue'
 import { Avatar, AgentTag, Icon, TypeBadge } from './primitives'
@@ -228,7 +228,7 @@ const RootComment = memo(function RootComment({
                 data-author={root.author}
                 tabIndex={-1}
               >
-                <Markdown remarkPlugins={[remarkGfm]}>{root.body}</Markdown>
+                <Markdown remarkPlugins={REMARK_PLUGINS}>{root.body}</Markdown>
               </div>
               {!readOnly && totalReplies > 0 ? (
                 <div
@@ -299,7 +299,7 @@ const RootComment = memo(function RootComment({
                         data-author={reply.author}
                         tabIndex={-1}
                       >
-                        <Markdown remarkPlugins={[remarkGfm]}>{reply.body}</Markdown>
+                        <Markdown remarkPlugins={REMARK_PLUGINS}>{reply.body}</Markdown>
                       </div>
                       {!readOnly ? (
                         <div

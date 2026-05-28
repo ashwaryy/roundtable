@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { getSavedOutput, getThread } from '../api'
 import { WorkspaceHeader } from '../components/AppHeader'
 import { Icon } from '../components/primitives'
+import { REMARK_PLUGINS } from '../lib/markdown'
 import { roundtableQueryKeys } from '../query'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useLiveRefresh } from '../useLiveRefresh'
@@ -107,7 +107,7 @@ export function SavedOutputPage() {
           </header>
 
           <section className="saved-output-body" aria-label="saved-output-body">
-            <Markdown remarkPlugins={[remarkGfm]}>{saved.body}</Markdown>
+            <Markdown remarkPlugins={REMARK_PLUGINS}>{saved.body}</Markdown>
           </section>
         </article>
       </main>

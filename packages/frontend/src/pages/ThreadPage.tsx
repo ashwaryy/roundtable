@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type {
   ThreadDetail,
   AgentRoom,
@@ -29,6 +28,7 @@ import { IntegrityPanel } from "../components/IntegrityPanel";
 import { NewCommentsPill } from "../components/NewCommentsPill";
 import { ThreadSkeleton } from "../components/ThreadSkeleton";
 import { AgentStack, Avatar, Icon, StatusPill } from "../components/primitives";
+import { REMARK_PLUGINS } from "../lib/markdown";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { RAIL_COLLAPSED_STORAGE_KEY, readStoredBoolean, writeStoredBoolean } from "../lib/uiStorage";
 import { buildConsolidationUiState, isActiveProposal } from "../lib/consolidationUi";
@@ -487,7 +487,7 @@ export function ThreadPage() {
                   ) : null}
                 </div>
                 <div className="source-body">
-                  <Markdown remarkPlugins={[remarkGfm]}>{thread.body}</Markdown>
+                  <Markdown remarkPlugins={REMARK_PLUGINS}>{thread.body}</Markdown>
                 </div>
                 {sourceThread && thread.created_from_consolidation_id ? (
                   <div className="source-lineage">

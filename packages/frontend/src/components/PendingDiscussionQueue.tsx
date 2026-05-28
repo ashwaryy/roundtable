@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import type { CommentType, PendingDiscussion, ThreadAgentInvite } from '@roundtable/shared'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   approvePendingDiscussion,
   editPendingDiscussion,
   rejectPendingDiscussion,
 } from '../api'
+import { REMARK_PLUGINS } from '../lib/markdown'
 import { Avatar } from './primitives'
 
 const TYPES: CommentType[] = ['comment', 'proposal', 'critique', 'question', 'decision']
@@ -135,7 +135,7 @@ export function PendingDiscussionModerationCard({
       ) : (
         <>
           <div className="pending-block__body">
-            <Markdown remarkPlugins={[remarkGfm]}>{discussion.body}</Markdown>
+            <Markdown remarkPlugins={REMARK_PLUGINS}>{discussion.body}</Markdown>
           </div>
 
           {confirmingReject ? (
