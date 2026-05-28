@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TmuxPaneInput, TmuxPaneSnapshot } from '@roundtable/shared'
 import { getTmuxPaneSnapshot, sendTmuxPaneInput } from './api'
 
-const TMUX_VIEW_POLL_MS = 5000
+const TMUX_VIEW_POLL_MS = 1000
 
 type ViewableAgent = { agent_id: string; name: string }
 

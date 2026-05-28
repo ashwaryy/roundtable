@@ -162,6 +162,13 @@ export function useThreadWorkspace(threadId: string | undefined, onThreadDeleted
     void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.pendingDiscussions(threadId) })
   }, [queryClient, threadId])
 
+  const refreshRoomState = useCallback(() => {
+    if (!threadId) return
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.room(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.jobs(threadId) })
+    void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.threads.roomPreflight(threadId) })
+  }, [queryClient, threadId])
+
   const onEvent = useCallback((event: RoundtableEvent) => {
     if (event.type === 'agents_updated') {
       void queryClient.invalidateQueries({ queryKey: roundtableQueryKeys.agents.all })
@@ -315,6 +322,7 @@ export function useThreadWorkspace(threadId: string | undefined, onThreadDeleted
     backendStatus,
     refresh,
     refreshDiscussionQueues,
+    refreshRoomState,
     addTopLevel,
     addReply,
     removeComment,

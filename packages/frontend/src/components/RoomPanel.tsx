@@ -17,6 +17,7 @@ import { ModelSelect } from './ModelSelect'
 import { useAgentCatalogue } from '../useAgentCatalogue'
 import { useTmuxViewer } from '../useTmuxViewer'
 import { useRoomControls } from '../useRoomControls'
+import type { LiveRefreshStatus } from '../useLiveRefresh'
 
 const TMUX_VIEW_POLL_MS = 5000
 
@@ -338,6 +339,7 @@ export function RoomPanel({
   threadStatus,
   room,
   preflight,
+  backendStatus,
   hideRecoveryControls = false,
   summary,
   onUpdate,
@@ -348,6 +350,7 @@ export function RoomPanel({
   threadStatus: ThreadStatus
   room: AgentRoom | null
   preflight: RoomPreflight | null
+  backendStatus: LiveRefreshStatus
   hideRecoveryControls?: boolean
   summary?: string
   onUpdate: () => void
@@ -441,14 +444,15 @@ export function RoomPanel({
       !room ||
       room.status === 'not_started' ||
       room.status === 'stopped' ||
-      room.status === 'error'
+      room.status === 'error' ||
+      backendStatus !== 'disconnected'
     ) {
       return
     }
 
     const interval = window.setInterval(onUpdate, 3000)
     return () => window.clearInterval(interval)
-  }, [onUpdate, room])
+  }, [backendStatus, onUpdate, room])
 
   return (
     <>

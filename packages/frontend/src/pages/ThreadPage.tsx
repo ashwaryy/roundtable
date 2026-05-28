@@ -35,6 +35,7 @@ import { buildConsolidationUiState, isActiveProposal } from "../lib/consolidatio
 import { useStoredBoolean } from "../useStoredBoolean";
 import { useThreadWorkspace } from "../useThreadWorkspace";
 import { useNewCommentTracking } from "../useNewCommentTracking";
+import type { LiveRefreshStatus } from "../useLiveRefresh";
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -190,6 +191,7 @@ function SideRailContent({
   onRetryTurn,
   onSkipTurn,
   onUpdate,
+  backendStatus,
   onRoomResult,
   workingAgent,
 }: {
@@ -212,6 +214,7 @@ function SideRailContent({
   onRetryTurn: () => void;
   onSkipTurn: () => void;
   onUpdate: () => void;
+  backendStatus: LiveRefreshStatus;
   onRoomResult: (result: AgentRoom | AgentTurnResult) => void;
   workingAgent: AgentName | null;
 }) {
@@ -234,6 +237,7 @@ function SideRailContent({
           threadStatus={thread.status}
           room={room}
           preflight={roomPreflight}
+          backendStatus={backendStatus}
           hideRecoveryControls
           summary={roomSummary}
           onUpdate={onUpdate}
@@ -318,8 +322,8 @@ export function ThreadPage() {
     sourceProposal,
     activeConsolidationDetail,
     backendStatus,
-    refresh,
     refreshDiscussionQueues,
+    refreshRoomState,
     addTopLevel,
     addReply,
     removeComment,
@@ -385,7 +389,8 @@ export function ThreadPage() {
     onRestartRoom: restartRecoveryRoom,
     onRetryTurn: retryRecoveryTurn,
     onSkipTurn: skipRecoveryTurn,
-    onUpdate: refresh,
+    onUpdate: refreshRoomState,
+    backendStatus,
     onRoomResult: applyRoomResult,
     workingAgent,
   };
