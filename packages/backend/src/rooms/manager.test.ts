@@ -958,6 +958,20 @@ describe('createRoomManager', () => {
     })
   })
 
+  it('reuses a recent input prompt probe across repeated getRoom calls', () => {
+    const { manager } = startReadyRoom()
+
+    const first = manager.getRoom('thread-1')
+    const firstCommandCount = executor.commands.length
+    const second = manager.getRoom('thread-1')
+
+    expect(first.input_prompt).toBeNull()
+    expect(second.input_prompt).toBeNull()
+    expect(executor.commands).toHaveLength(firstCommandCount)
+    expect(second).not.toHaveProperty('session_checked_at')
+    expect(second).not.toHaveProperty('input_prompt_checked_at')
+  })
+
   it('starts an ask turn, writes current-turn context, and sends a single-line prompt file instruction', () => {
     const manager = createRoomManager({
       dataDir,

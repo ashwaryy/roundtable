@@ -88,6 +88,7 @@ interface InternalRoom extends AgentRoom {
   token: string
   session_active: boolean | null
   session_checked_at: string | null
+  input_prompt_checked_at: string | null
 }
 
 const roomCacheObservers = new Map<string, (room: InternalRoom) => void>()
@@ -231,6 +232,7 @@ const DEFAULT_TURN_TIMEOUT_MS = 10 * 60 * 1000
 const TMUX_VIEW_LINE_LIMIT = 200
 const DEFAULT_EXEC_TIMEOUT_MS = 5_000
 const ROOM_SUMMARY_PROBE_TTL_MS = 1_500
+const INPUT_PROMPT_PROBE_TTL_MS = 1_500
 const TOOL_PREFLIGHT_TTL_MS = 30_000
 const DEFAULT_TMUX_SUBMIT_DELAY_MS = 200
 
@@ -273,7 +275,13 @@ function agentStates(
 }
 
 function stripToken(room: InternalRoom): AgentRoom {
-  const { token: _token, ...publicRoom } = room
+  const {
+    token: _token,
+    session_active: _sessionActive,
+    session_checked_at: _sessionCheckedAt,
+    input_prompt_checked_at: _inputPromptCheckedAt,
+    ...publicRoom
+  } = room
   return publicRoom
 }
 
@@ -327,6 +335,7 @@ function defaultRoom(dataDir: string, threadId: string): InternalRoom {
     session_state: 'not_started',
     session_active: null,
     session_checked_at: null,
+    input_prompt_checked_at: null,
     token: '',
   }
 }
@@ -346,6 +355,7 @@ function readRoom(dataDir: string, threadId: string): InternalRoom {
     idle_suggestion_request: parsed.idle_suggestion_request ?? null,
     session_active: parsed.session_active ?? null,
     session_checked_at: parsed.session_checked_at ?? null,
+    input_prompt_checked_at: parsed.input_prompt_checked_at ?? null,
   }
 }
 
@@ -1769,15 +1779,37 @@ export function createRoomManager(options: {
     }
   }
 
+  function inputPromptProbeNeeded(room: InternalRoom): boolean {
+    if (
+      room.status === 'not_started' ||
+      room.status === 'stopped' ||
+      room.status === 'error'
+    ) {
+      return false
+    }
+    if (!room.input_prompt_checked_at) return true
+    return Date.now() - Date.parse(room.input_prompt_checked_at) >= INPUT_PROMPT_PROBE_TTL_MS
+  }
+
   function refreshInputPrompt(room: InternalRoom): InternalRoom {
+    const checkedAt = now()
     if (
       room.status === 'not_started' ||
       room.status === 'stopped' ||
       room.status === 'error' ||
       !sessionExists(executor, room.tmux_session)
     ) {
-      if (!room.input_prompt) return room
-      const updated: InternalRoom = { ...room, input_prompt: null }
+      const updated: InternalRoom = {
+        ...room,
+        input_prompt: null,
+        input_prompt_checked_at: checkedAt,
+      }
+      if (
+        updated.input_prompt === room.input_prompt &&
+        updated.input_prompt_checked_at === room.input_prompt_checked_at
+      ) {
+        return room
+      }
       writeRoom(dataDir, updated)
       return updated
     }
@@ -1795,20 +1827,27 @@ export function createRoomManager(options: {
           input_prompt: {
             agent,
             excerpt,
-            detected_at: now(),
+            detected_at: checkedAt,
           },
-          updated_at: now(),
+          updated_at: checkedAt,
+          input_prompt_checked_at: checkedAt,
         }
         writeRoom(dataDir, updated)
         return updated
       }
     }
 
-    if (!room.input_prompt) return room
+    if (!room.input_prompt) {
+      const updated: InternalRoom = { ...room, input_prompt_checked_at: checkedAt }
+      if (updated.input_prompt_checked_at === room.input_prompt_checked_at) return room
+      writeRoom(dataDir, updated)
+      return updated
+    }
     const updated: InternalRoom = {
       ...room,
       input_prompt: null,
-      updated_at: now(),
+      updated_at: checkedAt,
+      input_prompt_checked_at: checkedAt,
     }
     writeRoom(dataDir, updated)
     return updated
@@ -2561,11 +2600,20 @@ export function createRoomManager(options: {
 
     getRoom(threadId: string): AgentRoom {
       ensureThread(dataDir, threadId)
-      const reconciled = reconcileRoom(threadId)
+      const status = threadStatus(dataDir, threadId)
+      const cached = cachedRoom(threadId)
+      const reconciled =
+        status === 'closed' ||
+        status === 'archived' ||
+        !fs.existsSync(roomJsonPath(dataDir, threadId)) ||
+        roomSummaryNeedsProbe(cached)
+        ? reconcileRoom(threadId)
+        : cached
       if (reconciled.session_state === 'missing' || reconciled.session_state === 'untracked') {
         return stripToken(reconciled)
       }
-      return stripToken(refreshInputPrompt(expireActiveTurn(threadId)))
+      const room = expireActiveTurn(threadId)
+      return stripToken(inputPromptProbeNeeded(room) ? refreshInputPrompt(room) : room)
     },
 
     getRoomSummary(threadId: string): AgentRoom {
