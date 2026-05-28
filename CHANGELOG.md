@@ -1,3 +1,20 @@
+# [1.4.0](https://github.com/ashwaryy/roundtable/compare/v1.3.4...v1.4.0) (2026-05-28)
+
+
+### Bug Fixes
+
+* reduce avoidable frontend rerenders ([32f1905](https://github.com/ashwaryy/roundtable/commit/32f1905e64d2db21b8dcbb702dd256b1fcfa8aee))
+* reduce room polling and improve tmux viewer refresh ([42ffc02](https://github.com/ashwaryy/roundtable/commit/42ffc021b793d68aaf468ae8f9915d3021b467b7))
+* reduce thread polling and speed up tmux viewer refresh ([0b7144f](https://github.com/ashwaryy/roundtable/commit/0b7144fdf19cff93af7e3e2ff23b47c7b6ca1222))
+* simplify inline reply composer ([498ffc9](https://github.com/ashwaryy/roundtable/commit/498ffc9768167d607a35bacb25d32eb9dd4531d1))
+
+
+### Features
+
+* add tmux viewer input controls ([b8e154b](https://github.com/ashwaryy/roundtable/commit/b8e154b6ca4442238523416f087e1e42f8ced27f))
+* improve frontend room controls, agent dialog labels, and topbar nav ([763e8cc](https://github.com/ashwaryy/roundtable/commit/763e8cc92ae6e40e28fddd1a5b15a06d60743cf5))
+* show configured agent accents in comment bubbles ([9a7644d](https://github.com/ashwaryy/roundtable/commit/9a7644d2ace9a754bbbc259ed7e82345969ae091))
+
 ## [1.3.4](https://github.com/ashwaryy/roundtable/compare/v1.3.3...v1.3.4) (2026-05-27)
 
 
