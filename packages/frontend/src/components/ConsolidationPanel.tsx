@@ -225,19 +225,19 @@ export function ConsolidationPanel({
             <div className="rail-row three">
               <div className="rail-mini">
                 <label>Drafter</label>
-                <select className="rail-input" value={drafter} onChange={(event) => setDrafter(event.target.value as AgentName)}>
+                <select className="rail-input" value={drafter} onChange={(event) => setDrafter(event.target.value)}>
                   {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
                 </select>
               </div>
               <div className="rail-mini">
                 <label>Reviewer</label>
-                <select className="rail-input" value={reviewer} onChange={(event) => setReviewer(event.target.value as AgentName)}>
+                <select className="rail-input" value={reviewer} onChange={(event) => setReviewer(event.target.value)}>
                   {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
                 </select>
               </div>
               <div className="rail-mini">
                 <label>Reviser</label>
-                <select className="rail-input" value={reviser} onChange={(event) => setReviser(event.target.value as AgentName)}>
+                <select className="rail-input" value={reviser} onChange={(event) => setReviser(event.target.value)}>
                   {readyAgents.map((agent) => <option key={agent.agent_id} value={agent.agent_id}>{agent.name}</option>)}
                 </select>
               </div>

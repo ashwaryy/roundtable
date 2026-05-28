@@ -348,7 +348,7 @@ export function ConsolidationReviewPage() {
                           <select
                             className="rail-input"
                             value={reviewer}
-                            onChange={(event) => setReviewer(event.target.value as AgentName)}
+                            onChange={(event) => setReviewer(event.target.value)}
                             disabled={locked || busy}
                           >
                             {readyAgents.map((agent) => (
@@ -388,7 +388,7 @@ export function ConsolidationReviewPage() {
                         <select
                           className="rail-input"
                           value={reviser}
-                          onChange={(event) => setReviser(event.target.value as AgentName)}
+                          onChange={(event) => setReviser(event.target.value)}
                           disabled={locked || busy}
                         >
                           {readyAgents.map((agent) => (

@@ -137,7 +137,7 @@ export function useThreadWorkspace(threadId: string | undefined, onThreadDeleted
     queryKey: threadId && selectedOutcomeProposal
       ? roundtableQueryKeys.threads.consolidation(threadId, selectedOutcomeProposal.id)
       : roundtableQueryKeys.threads.consolidation('missing', 'missing'),
-    queryFn: () => getConsolidation(threadId!, selectedOutcomeProposal!.id),
+    queryFn: () => getConsolidation(threadId!, selectedOutcomeProposal.id),
     enabled: Boolean(threadId && selectedOutcomeProposal),
   })
 

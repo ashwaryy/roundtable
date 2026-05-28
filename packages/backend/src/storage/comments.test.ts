@@ -65,8 +65,8 @@ describe('addComment', () => {
     let commentFileReads = 0
     const readSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(((file, options) => {
       if (file === filePath) commentFileReads += 1
-      return originalReadFileSync.call(fs, file as Parameters<typeof fs.readFileSync>[0], options as Parameters<typeof fs.readFileSync>[1])
-    }) as typeof fs.readFileSync)
+      return originalReadFileSync.call(fs, file, options)
+    }))
 
     try {
       const reply = addComment(dataDir, 'thread-1', { body: 'reply', reply_to: root.id })
@@ -172,8 +172,8 @@ describe('deleteComment', () => {
     let commentFileReads = 0
     const readSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(((file, options) => {
       if (file === filePath) commentFileReads += 1
-      return originalReadFileSync.call(fs, file as Parameters<typeof fs.readFileSync>[0], options as Parameters<typeof fs.readFileSync>[1])
-    }) as typeof fs.readFileSync)
+      return originalReadFileSync.call(fs, file, options)
+    }))
 
     try {
       const rebuilt = addAgentComment(dataDir, 'thread-1', {
@@ -212,8 +212,8 @@ describe('deleteComment', () => {
     let commentFileReads = 0
     const readSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(((file, options) => {
       if (file === filePath) commentFileReads += 1
-      return originalReadFileSync.call(fs, file as Parameters<typeof fs.readFileSync>[0], options as Parameters<typeof fs.readFileSync>[1])
-    }) as typeof fs.readFileSync)
+      return originalReadFileSync.call(fs, file, options)
+    }))
 
     try {
       expect(isDiscussionRoot(dataDir, 'thread-1', root.id)).toBe(true)

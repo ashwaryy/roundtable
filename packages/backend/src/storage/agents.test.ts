@@ -50,8 +50,8 @@ describe('agent catalogue and thread invites', () => {
     let agentDirReads = 0
     const readdirSpy = vi.spyOn(fs, 'readdirSync').mockImplementation(((file, options) => {
       if (file === dirPath) agentDirReads += 1
-      return originalReaddirSync.call(fs, file as Parameters<typeof fs.readdirSync>[0], options as Parameters<typeof fs.readdirSync>[1])
-    }) as typeof fs.readdirSync)
+      return originalReaddirSync.call(fs, file, options)
+    }))
 
     try {
       expect(listAgents(dataDir).map((agent) => agent.id)).toEqual(['claude', 'codex'])

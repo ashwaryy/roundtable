@@ -670,7 +670,7 @@ export function RoomPanel({
                   className="rail-input"
                   aria-label="Nudge agent"
                   value={nudgeAgent}
-                  onChange={(e) => setNudgeAgent(e.target.value as AgentName)}
+                  onChange={(e) => setNudgeAgent(e.target.value)}
                   disabled={!canNudge}
                 >
                   {roster.map((agent) => (
@@ -723,7 +723,7 @@ export function RoomPanel({
                   className="rail-input"
                   aria-label="Suggestion agent"
                   value={suggestAgent}
-                  onChange={(e) => setSuggestAgent(e.target.value as AgentName)}
+                  onChange={(e) => setSuggestAgent(e.target.value)}
                   disabled={!canSuggest}
                 >
                   {roster.map((agent) => (

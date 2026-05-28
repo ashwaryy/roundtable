@@ -11,6 +11,8 @@
     "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"node scripts/wait-for-backend.mjs && npm run dev:frontend\"",
     "dev:backend": "npm run dev --workspace @roundtable/backend",
     "dev:frontend": "npm run dev --workspace @roundtable/frontend",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "release": "semantic-release",
     "start": "npm run build && npm run start --workspace @roundtable/backend",
     "test": "vitest run",
@@ -18,6 +20,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/git": "^10.0.1",
@@ -26,9 +29,13 @@
     "@semantic-release/release-notes-generator": "^14.1.0",
     "@types/node": "^20.12.0",
     "concurrently": "^9.2.1",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.6.0",
     "semantic-release": "^24.2.5",
     "tsup": "^8.5.0",
     "typescript": "^5.4.5",
+    "typescript-eslint": "^8.60.0",
     "vitest": "^1.6.0"
   }
 }
