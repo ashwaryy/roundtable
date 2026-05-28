@@ -1394,6 +1394,7 @@ function buildTurnPrompt(job: BoundedJob): string {
       : `Roundtable Ask turn ${job.turn.id}.`,
     target,
     'Read the current thread and approved discussion as needed.',
+    'If the thread mentions attached files, product docs, the codebase, or a project snapshot, verify visibility by checking `context-items.jsonl` and `project-snapshot-manifest.json` before claiming the files are or are not present.',
     'Do not edit canonical Roundtable files or project files. Write only the Markdown draft files under `.roundtable/tmp/` required for the submissions below.',
     ...repeatedTurnExecutionRules(job.turn.agent),
     'Keep your comment short and forum-like. Make one clear point, avoid wordy explanations, and do not write an essay-style reply.',

@@ -978,6 +978,9 @@ describe('createRoomManager', () => {
     const turnPrompt = fs.readFileSync(turnPromptPath, 'utf8')
     expect(turnPrompt).toContain('Roundtable Ask turn job-001')
     expect(turnPrompt).toContain(
+      'verify visibility by checking `context-items.jsonl` and `project-snapshot-manifest.json` before claiming the files are or are not present.',
+    )
+    expect(turnPrompt).toContain(
       'Write your final comment body to `.roundtable/tmp/job-001-codex-comment.md`.',
     )
     expect(turnPrompt).not.toContain('interactive prompts')
