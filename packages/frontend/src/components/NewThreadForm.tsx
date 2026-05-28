@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Thread } from '@roundtable/shared'
+import type { SnapshotPreflight, Thread } from '@roundtable/shared'
 import {
   addUrlContextItem,
   createProjectSnapshot,
   createThread,
+  preflightProjectSnapshotSource,
   uploadAttachmentFiles,
 } from '../api'
 import { AgentStack, Icon, type IconName } from './primitives'
@@ -20,6 +21,10 @@ function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
   return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`
 }
 
 function CtxSection({
@@ -120,6 +125,8 @@ export function NewThreadForm({
   const [urlLabel, setUrlLabel] = useState('')
   const [snapshotPath, setSnapshotPath] = useState('')
   const [snapStaged, setSnapStaged] = useState(false)
+  const [snapshotPreflight, setSnapshotPreflight] = useState<SnapshotPreflight | null>(null)
+  const [snapshotChecking, setSnapshotChecking] = useState(false)
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -169,6 +176,7 @@ export function NewThreadForm({
     setUrlLabel('')
     setSnapshotPath('')
     setSnapStaged(false)
+    setSnapshotPreflight(null)
     setError(null)
     setAgentIds(['claude', 'codex'])
   }
@@ -357,9 +365,23 @@ export function NewThreadForm({
             {!snapStaged ? (
               <form
                 className="snap-form"
-                onSubmit={(e) => {
+                onSubmit={async (e) => {
                   e.preventDefault()
-                  if (snapshotPath.trim()) setSnapStaged(true)
+                  if (!snapshotPath.trim() || snapshotChecking) return
+                  setError(null)
+                  setSnapshotChecking(true)
+                  try {
+                    const result = await preflightProjectSnapshotSource({
+                      source_path: snapshotPath.trim(),
+                    })
+                    setSnapshotPath(result.source_path)
+                    setSnapshotPreflight(result)
+                    setSnapStaged(true)
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Failed to inspect project path')
+                  } finally {
+                    setSnapshotChecking(false)
+                  }
                 }}
               >
                 <span className="snap-prompt mono">$</span>
@@ -367,17 +389,42 @@ export function NewThreadForm({
                   className="rail-input snap-input mono"
                   placeholder="/path/to/project"
                   value={snapshotPath}
-                  onChange={(e) => setSnapshotPath(e.target.value)}
-                  disabled={submitting}
+                  onChange={(e) => {
+                    setSnapshotPath(e.target.value)
+                    setSnapshotPreflight(null)
+                  }}
+                  disabled={submitting || snapshotChecking}
                 />
-                <button type="submit" className="btn sm" disabled={!snapshotPath.trim()}>
-                  Stage
+                <button type="submit" className="btn sm" disabled={!snapshotPath.trim() || snapshotChecking}>
+                  {snapshotChecking ? 'Checking…' : 'Check'}
                   <Icon name="arrowRight" className="ic-sm" />
                 </button>
               </form>
             ) : (
               <div className="snap-set">
+                {snapshotPreflight ? (
+                  <div className="snap-set-stat">
+                    <span className="snap-set-dot" />
+                    <span>
+                      <b>{pluralize(snapshotPreflight.file_count, 'file')}</b>
+                      {' · '}
+                      {pluralize(snapshotPreflight.directory_count, 'directory', 'directories')}
+                      {' · '}
+                      {fmtBytes(snapshotPreflight.total_bytes)}
+                    </span>
+                  </div>
+                ) : null}
                 <div className="snap-set-path mono">{snapshotPath}</div>
+                {snapshotPreflight?.warnings.length ? (
+                  <ul className="snap-warnings">
+                    {snapshotPreflight.warnings.map((warning) => (
+                      <li key={warning}>
+                        <Icon name="flag" className="ic-sm" />
+                        <span>{warning}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 <div className="snap-set-actions">
                   <button
                     type="button"
@@ -385,10 +432,11 @@ export function NewThreadForm({
                     onClick={() => {
                       setSnapStaged(false)
                       setSnapshotPath('')
+                      setSnapshotPreflight(null)
                     }}
                   >
                     <Icon name="close" className="ic-sm" />
-                    Remove
+                    Clear
                   </button>
                 </div>
               </div>

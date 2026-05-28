@@ -682,6 +682,20 @@ export function createApp(deps: {
     }
   })
 
+  app.post('/api/project-snapshot/preflight', async (req, res) => {
+    const parsed = snapshotPreflightInputSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() })
+    }
+
+    try {
+      res.json(await storage.preflightProjectSnapshotSource(parsed.data.source_path))
+    } catch (err) {
+      if (handleStorageError(err, res)) return
+      throw err
+    }
+  })
+
   app.post('/api/threads/:id/project-snapshot/preflight', async (req, res) => {
     const parsed = snapshotPreflightInputSchema.safeParse(req.body)
     if (!parsed.success) {

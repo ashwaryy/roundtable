@@ -284,6 +284,7 @@ export interface SnapshotPreflight {
   mode: ProjectSnapshotMode
   requires_confirmation: boolean
   file_count: number
+  directory_count: number
   total_bytes: number
   excluded_count: number
   warnings: string[]

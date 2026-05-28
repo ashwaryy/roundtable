@@ -343,6 +343,16 @@ export function preflightProjectSnapshot(
   }).then((r) => json<SnapshotPreflight>(r))
 }
 
+export function preflightProjectSnapshotSource(
+  input: SnapshotPreflightInput,
+): Promise<SnapshotPreflight> {
+  return fetch('/api/project-snapshot/preflight', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  }).then((r) => json<SnapshotPreflight>(r))
+}
+
 export function createProjectSnapshot(
   threadId: string,
   input: CreateProjectSnapshotInput,

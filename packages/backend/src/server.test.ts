@@ -474,6 +474,7 @@ describe('context routes', () => {
     expect(preflight.status).toBe(200)
     expect(preflight.body.mode).toBe('folder')
     expect(preflight.body.requires_confirmation).toBe(true)
+    expect(preflight.body.directory_count).toBe(0)
 
     const rejected = await request(app)
       .put('/api/threads/thread-1/project-snapshot')
@@ -490,6 +491,22 @@ describe('context routes', () => {
       type: 'thread_context_updated',
       thread_id: 'thread-1',
     })
+    fs.rmSync(project, { recursive: true, force: true })
+  })
+
+  it('preflights a compose-time folder snapshot without a thread id', async () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-server-project-'))
+    fs.mkdirSync(path.join(project, 'src'))
+    fs.writeFileSync(path.join(project, 'src', 'main.ts'), 'export const x = 1\n')
+
+    const preflight = await request(app)
+      .post('/api/project-snapshot/preflight')
+      .send({ source_path: project })
+
+    expect(preflight.status).toBe(200)
+    expect(preflight.body.mode).toBe('folder')
+    expect(preflight.body.file_count).toBe(1)
+    expect(preflight.body.directory_count).toBe(1)
     fs.rmSync(project, { recursive: true, force: true })
   })
 

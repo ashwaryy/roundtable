@@ -364,6 +364,17 @@ export async function preflightProjectSnapshot(
   })
 }
 
+export async function preflightProjectSnapshotSource(
+  dataDir: string,
+  sourcePathInput: string,
+): Promise<SnapshotPreflight> {
+  return runSnapshotWorker<SnapshotPreflight>({
+    kind: 'preflight',
+    sourcePathInput,
+    workspacePath: fs.realpathSync(dataDir),
+  })
+}
+
 export async function createProjectSnapshot(
   dataDir: string,
   threadId: string,

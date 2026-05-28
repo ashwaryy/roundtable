@@ -90,6 +90,7 @@ describe('project snapshots', () => {
     const preflight = await preflightProjectSnapshot(dataDir, 'thread-1', project)
     expect(preflight.mode).toBe('folder')
     expect(preflight.file_count).toBe(2)
+    expect(preflight.directory_count).toBe(1)
 
     const snapshot = await createProjectSnapshot(dataDir, 'thread-1', {
       source_path: project,

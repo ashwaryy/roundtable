@@ -485,6 +485,10 @@ export function createStorage(
       sourcePath: string,
     ): Promise<SnapshotPreflight> =>
       context.preflightProjectSnapshot(dataDir, threadId, sourcePath),
+    preflightProjectSnapshotSource: async (
+      sourcePath: string,
+    ): Promise<SnapshotPreflight> =>
+      context.preflightProjectSnapshotSource(dataDir, sourcePath),
     createProjectSnapshot: async (
       threadId: string,
       input: CreateProjectSnapshotInput,

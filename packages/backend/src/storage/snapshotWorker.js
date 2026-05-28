@@ -99,6 +99,7 @@ function isEligibleFile(absolutePath, relativePath, stat) {
 
 function listRecursiveCandidates(sourcePath) {
   const candidates = []
+  let directoryCount = 0
   let excludedCount = 0
 
   function walk(dir) {
@@ -110,6 +111,7 @@ function listRecursiveCandidates(sourcePath) {
           excludedCount += 1
           continue
         }
+        directoryCount += 1
         walk(absolutePath)
         continue
       }
@@ -131,7 +133,7 @@ function listRecursiveCandidates(sourcePath) {
   }
 
   walk(sourcePath)
-  return { candidates, excludedCount }
+  return { candidates, directoryCount, excludedCount }
 }
 
 function collectCandidates(sourcePath) {
@@ -139,6 +141,7 @@ function collectCandidates(sourcePath) {
   return {
     mode: 'folder',
     candidates: result.candidates,
+    directoryCount: result.directoryCount,
     excludedCount: result.excludedCount,
   }
 }
@@ -222,7 +225,7 @@ async function runPreflight(request) {
     throw badRequest('source_path cannot be inside the thread workspace')
   }
 
-  const { mode, candidates, excludedCount } = collectCandidates(sourcePath)
+  const { mode, candidates, directoryCount, excludedCount } = collectCandidates(sourcePath)
   const totalBytes = candidates.reduce((sum, file) => sum + file.size_bytes, 0)
   return {
     source_path: sourcePath,
@@ -230,6 +233,7 @@ async function runPreflight(request) {
     candidates,
     requires_confirmation: true,
     file_count: candidates.length,
+    directory_count: directoryCount,
     total_bytes: totalBytes,
     excluded_count: excludedCount,
     warnings: warningsFor(candidates.length, totalBytes),
