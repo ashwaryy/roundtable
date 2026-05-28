@@ -1,3 +1,15 @@
+# [1.6.0](https://github.com/ashwaryy/roundtable/compare/v1.5.0...v1.6.0) (2026-05-28)
+
+
+### Bug Fixes
+
+* align saved output page header and skeleton with workspace layout ([b75daa7](https://github.com/ashwaryy/roundtable/commit/b75daa70e1892ef7b9152fc1a64528f9f72c4865))
+
+
+### Features
+
+* let stopped rooms resume or start fresh ([0f4f424](https://github.com/ashwaryy/roundtable/commit/0f4f42419572ae9064e190bdae00594579de9699))
+
 # [1.5.0](https://github.com/ashwaryy/roundtable/compare/v1.4.1...v1.5.0) (2026-05-28)
 
 
