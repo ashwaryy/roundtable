@@ -2205,10 +2205,11 @@ export function createRoomManager(options: {
       }
 
       const timestamp = now()
+      const forceFresh = input.resume === false
       const shouldResume: Record<AgentName, boolean> = Object.fromEntries(
         roster.map((invite) => [
           invite.agent_id,
-          existing.started_at !== null && existing.agents[invite.agent_id]?.ready_at !== null,
+          !forceFresh && existing.started_at !== null && existing.agents[invite.agent_id]?.ready_at !== null,
         ]),
       )
       const room: InternalRoom = {
@@ -2219,7 +2220,7 @@ export function createRoomManager(options: {
         roster,
         agents: agentStates(roster),
         updated_at: timestamp,
-        started_at: existing.started_at ?? timestamp,
+        started_at: forceFresh ? timestamp : (existing.started_at ?? timestamp),
         stopped_at: null,
         last_error: null,
         active_job_id: null,

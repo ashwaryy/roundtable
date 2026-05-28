@@ -131,6 +131,7 @@ const nullableTrimmedModelSchema = z.preprocess(
 export const startRoomInputSchema = z.object({
   claude_model: nullableTrimmedModelSchema,
   codex_model: nullableTrimmedModelSchema,
+  resume: z.boolean().optional(),
 })
 
 export const nudgeRoomInputSchema = z.object({

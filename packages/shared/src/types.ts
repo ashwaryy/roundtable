@@ -501,6 +501,8 @@ export interface StartRoomInput {
   /** Legacy built-in override fields; roster APIs are preferred. */
   claude_model?: string | null
   codex_model?: string | null
+  /** When false, force a fresh CLI session even if agents were previously ready. Defaults to resume behavior. */
+  resume?: boolean
 }
 
 export interface NudgeRoomInput {

@@ -815,6 +815,82 @@ describe('createRoomManager', () => {
     expect(restarted.agents.codex.ready_at).not.toBeNull()
   })
 
+  it('forces fresh agent launch when resume: false even if agents were previously ready', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptTimeoutMs: 0,
+    })
+    manager.startRoom('thread-1', {})
+    const token = roomToken()
+    manager.markReady('thread-1', 'claude', token)
+    manager.markReady('thread-1', 'codex', token)
+    manager.stopRoom('thread-1')
+
+    manager.startRoom('thread-1', { resume: false })
+
+    const launchClaude = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-claude.sh'),
+      'utf8',
+    )
+    const launchCodex = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-codex.sh'),
+      'utf8',
+    )
+    expect(launchClaude).toContain('exec claude --permission-mode dontAsk ')
+    expect(launchClaude).not.toContain('claude --continue')
+    expect(launchCodex).toContain('exec codex ')
+    expect(launchCodex).not.toContain('codex resume --last')
+  })
+
+  it('keeps resume behavior when resume: true and agents were previously ready', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptTimeoutMs: 0,
+    })
+    manager.startRoom('thread-1', {})
+    const token = roomToken()
+    manager.markReady('thread-1', 'claude', token)
+    manager.markReady('thread-1', 'codex', token)
+    manager.stopRoom('thread-1')
+
+    manager.startRoom('thread-1', { resume: true })
+
+    const launchClaude = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-claude.sh'),
+      'utf8',
+    )
+    const launchCodex = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-codex.sh'),
+      'utf8',
+    )
+    expect(launchClaude).toContain('claude --continue --permission-mode dontAsk')
+    expect(launchCodex).toContain('codex resume --last')
+  })
+
+  it('uses a fresh started_at when resume: false', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptTimeoutMs: 0,
+    })
+    manager.startRoom('thread-1', {})
+    const token = roomToken()
+    manager.markReady('thread-1', 'claude', token)
+    manager.markReady('thread-1', 'codex', token)
+    const stopped = manager.stopRoom('thread-1')
+    const originalStartedAt = stopped.started_at
+
+    const restarted = manager.startRoom('thread-1', { resume: false })
+
+    expect(restarted.started_at).not.toBeNull()
+    expect(restarted.started_at).not.toBe(originalStartedAt)
+  })
+
   it('rejects readiness with an invalid token', () => {
     const manager = createRoomManager({
       dataDir,

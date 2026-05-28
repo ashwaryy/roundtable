@@ -6079,9 +6079,14 @@ a:hover {
 }
 
 .room-actions {
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: flex;
   gap: 8px;
+}
+.room-actions > .btn {
+  flex: 1 1 0;
+}
+.room-actions > .room-reload {
+  flex: 0 0 auto;
 }
 .tmux-attach {
   display: grid;

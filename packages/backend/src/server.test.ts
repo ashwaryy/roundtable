@@ -946,6 +946,17 @@ describe('room routes', () => {
     })
   })
 
+  it('passes resume: false through to startRoom when explicitly set', async () => {
+    const res = await request(app)
+      .post('/api/threads/thread-1/room/start')
+      .send({ resume: false })
+
+    expect(res.status).toBe(201)
+    expect(rooms.startRoom).toHaveBeenCalledWith('thread-1', {
+      resume: false,
+    })
+  })
+
   it('returns a read-only tmux pane snapshot for an invited agent', async () => {
     const res = await request(app).get('/api/threads/thread-1/room/agents/claude/tmux-view')
 

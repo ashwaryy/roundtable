@@ -34,13 +34,14 @@ export function useRoomControls({ threadId, room, onUpdate, onRoomResult }: Room
   const [startingRoom, setStartingRoom] = useState(false)
   const [openingTerminal, setOpeningTerminal] = useState(false)
 
-  const start = useCallback(async (models: Record<string, string>) => {
+  const start = useCallback(async (models: Record<string, string>, resume?: boolean) => {
     setError(null)
     setStartingRoom(true)
     try {
       await startRoom(threadId, {
         claude_model: models.claude || null,
         codex_model: models.codex || null,
+        resume,
       })
       onUpdate()
     } catch (err) {

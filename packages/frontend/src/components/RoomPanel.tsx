@@ -541,6 +541,34 @@ export function RoomPanel({
             <button type="button" className="btn" onClick={() => void controls.stop()}>
               <Icon name="stop" className="ic-sm" /> {room?.auto?.status === "running" ? "Stop Room" : "Stop"}
             </button>
+          ) : room?.status === "stopped" && room.started_at !== null ? (
+            <>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={!canStart || controls.startingRoom}
+                onClick={() => void controls.start(models, true)}
+              >
+                {controls.startingRoom ? (
+                  <>
+                    <span className="button-spinner" aria-hidden="true" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <Icon name="play" className="ic-sm" /> Resume Room
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={!canStart || controls.startingRoom}
+                onClick={() => void controls.start(models, false)}
+              >
+                <Icon name="play" className="ic-sm" /> New Room
+              </button>
+            </>
           ) : (
             <button type="submit" className="btn primary" disabled={!canStart || controls.startingRoom}>
               {controls.startingRoom ? (
@@ -555,7 +583,7 @@ export function RoomPanel({
               )}
             </button>
           )}
-          <button type="button" className="btn" onClick={() => void controls.restart()} disabled={!canReloadRoom} title="Restart room">
+          <button type="button" className="btn room-reload" onClick={() => void controls.restart()} disabled={!canReloadRoom} title="Restart room">
             <Icon name="refresh" className="ic-sm" />
           </button>
         </form>
