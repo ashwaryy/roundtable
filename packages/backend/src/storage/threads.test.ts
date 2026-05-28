@@ -67,8 +67,15 @@ describe('listThreads', () => {
   it('returns threads newest-first', () => {
     createThread(dataDir, { title: 'A', body: 'a' })
     createThread(dataDir, { title: 'B', body: 'b' })
-    const ids = listThreads(dataDir).map((t) => t.id)
+    const threads = listThreads(dataDir)
+    const ids = threads.map((t) => t.id)
     expect(ids).toEqual(['thread-2', 'thread-1'])
+    expect(threads[0]).toEqual(
+      expect.objectContaining({
+        pending_count: 0,
+        active_proposal_count: 0,
+      }),
+    )
   })
 
   it('breaks created_at ties by numeric id, not lexicographically', () => {

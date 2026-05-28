@@ -16,6 +16,11 @@ import { NotFoundError } from './errors'
 
 export type ThreadSummaryField = 'pending_count' | 'active_proposal_count'
 
+export interface ThreadListRecord extends Thread {
+  pending_count: number
+  active_proposal_count: number
+}
+
 interface ThreadDirtyState {
   pending_count?: true
   active_proposal_count?: true
@@ -33,10 +38,12 @@ function writeJsonAtomic(filePath: string, value: unknown): void {
   fs.renameSync(tmp, filePath)
 }
 
-function normalizeThread(thread: ThreadRecord): Thread {
+function normalizeThread(thread: ThreadRecord): ThreadListRecord {
   return {
     ...thread,
     closed_at: thread.closed_at ?? null,
+    pending_count: thread.pending_count ?? 0,
+    active_proposal_count: thread.active_proposal_count ?? 0,
   }
 }
 
@@ -172,11 +179,11 @@ function threadNumber(id: string): number {
   return match ? Number(match[1]) : 0
 }
 
-export function listThreads(dataDir: string): Thread[] {
+export function listThreads(dataDir: string): ThreadListRecord[] {
   const dir = threadsDir(dataDir)
   if (!fs.existsSync(dir)) return []
 
-  const threads: Thread[] = []
+  const threads: ThreadListRecord[] = []
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const jsonPath = threadJsonPath(dataDir, entry.name)

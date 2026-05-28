@@ -145,6 +145,15 @@ describe('POST /api/threads', () => {
     const res = await request(app).post('/api/threads').send({ title: '', body: 'x' })
     expect(res.status).toBe(400)
   })
+
+  it('accepts thread bodies larger than the default express JSON limit', async () => {
+    const res = await request(app)
+      .post('/api/threads')
+      .send({ title: 'Large', body: 'x'.repeat(200 * 1024) })
+
+    expect(res.status).toBe(201)
+    expect(res.body.id).toBe('thread-1')
+  })
 })
 
 describe('GET /api/threads', () => {

@@ -237,7 +237,7 @@ export function createApp(deps: {
     frontendDistDir = null,
   } = deps
   const app = express()
-  app.use(express.json())
+  app.use(express.json({ limit: '5mb' }))
 
   app.param('id', (_req, res, next, value: string) => {
     if (!THREAD_ID_RE.test(value)) {
@@ -359,16 +359,15 @@ export function createApp(deps: {
   app.get('/api/threads', (_req, res) => {
     const items: ThreadListItem[] = storage.listThreads().map((thread) => {
       const room = rooms ? rooms.getRoomSummary(thread.id) : null
-      const summary = storage.getThreadSummary(thread.id)
       const display_status = computeDisplayStatus({
         thread,
         room,
-        activeProposalCount: summary?.active_proposal_count ?? 0,
+        activeProposalCount: thread.active_proposal_count,
       })
       return {
         ...thread,
         display_status,
-        pending_count: summary?.pending_count ?? 0,
+        pending_count: thread.pending_count,
         recovery_action_label:
           display_status === 'needs_attention' || display_status === 'error'
             ? recoveryActionLabel(room)

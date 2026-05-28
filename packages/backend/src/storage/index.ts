@@ -208,7 +208,7 @@ export function createStorage(
         touched: { filesAddedOrUpdated: [threadJsonPath(dataDir, threadId)] },
       })),
     deleteThread: (threadId: string): void => threads.deleteThread(dataDir, threadId),
-    listThreads: (): Thread[] => threads.listThreads(dataDir),
+    listThreads: (): threads.ThreadListRecord[] => threads.listThreads(dataDir),
     getThread: (id: string): ThreadDetail | null => threads.getThread(dataDir, id),
     listComments: (threadId: string): Comment[] => comments.listComments(dataDir, threadId),
     addComment: (threadId: string, input: CreateCommentInput): Comment =>
@@ -229,7 +229,6 @@ export function createStorage(
     countPendingDiscussions: (threadId: string): number =>
       threads.getThreadSummary(dataDir, threadId)?.pending_count ??
       pending.countPendingDiscussions(dataDir, threadId),
-    getThreadSummary: (threadId: string) => threads.getThreadSummary(dataDir, threadId),
     addPendingDiscussion: (
       threadId: string,
       input: CreatePendingDiscussionInput,
