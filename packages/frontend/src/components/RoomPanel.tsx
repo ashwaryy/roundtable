@@ -19,7 +19,7 @@ import { useTmuxViewer } from '../useTmuxViewer'
 import { useRoomControls } from '../useRoomControls'
 import type { LiveRefreshStatus } from '../useLiveRefresh'
 
-const TMUX_VIEW_POLL_MS = 5000
+const TMUX_VIEW_POLL_MS = 1000
 
 const TMUX_INPUT_KEYS: Array<{ key: TmuxPaneInputKey; label: string }> = [
   { key: 'Enter', label: 'Enter' },

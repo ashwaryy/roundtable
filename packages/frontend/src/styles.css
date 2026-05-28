@@ -7304,10 +7304,12 @@ a:hover {
 
 .tmux-viewer-dialog {
   width: min(900px, 100%);
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   max-height: min(820px, calc(100vh - 40px));
   overflow: hidden;
+  min-height: 0;
 }
 .tmux-viewer-sub {
   margin: 4px 0 0;
@@ -7449,8 +7451,8 @@ a:hover {
 }
 .tmux-viewer-frame {
   flex: 1 1 auto;
-  min-height: 280px;
-  max-height: min(60vh, 560px);
+  min-height: 0;
+  max-height: none;
   overflow: auto;
   border-radius: 8px;
   border: 1px solid var(--rule);
@@ -7514,8 +7516,8 @@ a:hover {
     grid-template-columns: 1fr;
   }
   .tmux-viewer-frame {
-    min-height: 220px;
-    max-height: 50vh;
+    min-height: 0;
+    max-height: none;
   }
 }
 
