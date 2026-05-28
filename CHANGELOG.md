@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/ashwaryy/roundtable/compare/v1.4.0...v1.4.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* require agents to verify snapshot and attachment context before commenting on file visibility ([aefdb8d](https://github.com/ashwaryy/roundtable/commit/aefdb8d29ec825d2ba5efa30012e6bb2ea1f3252))
+
 # [1.4.0](https://github.com/ashwaryy/roundtable/compare/v1.3.4...v1.4.0) (2026-05-28)
 
 
