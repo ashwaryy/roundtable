@@ -1,3 +1,22 @@
+# [1.5.0](https://github.com/ashwaryy/roundtable/compare/v1.4.1...v1.5.0) (2026-05-28)
+
+
+### Bug Fixes
+
+* avoid repeated integrity rehashes and cache room preflight probes ([ee99789](https://github.com/ashwaryy/roundtable/commit/ee99789974642c1a56bedbf33acf8f40ebf0a4af))
+* bind backend to loopback by default and clarify exposure logging ([bbdf528](https://github.com/ashwaryy/roundtable/commit/bbdf52878dd452bb9dbf725f2bdd99e4e57e4025))
+* debounce room detail tmux probes ([9e07fe2](https://github.com/ashwaryy/roundtable/commit/9e07fe29ed5fd9d19c40eb0a649d6c4e55c282f5))
+* finish type-aware eslint cleanup and gate lint in ci ([1624643](https://github.com/ashwaryy/roundtable/commit/162464330015b2feb2e4f757f99dbe4d2a0239c3))
+* raise JSON body limit and avoid duplicate thread summary reads ([8b0a2f5](https://github.com/ashwaryy/roundtable/commit/8b0a2f5d67e059be63ec66bbc22d531b8120bb9b))
+* remove blocking room probes and preserve thread summary dirty state ([033343b](https://github.com/ashwaryy/roundtable/commit/033343b63bd7fc5b78966382852d355f15d69a3a))
+* reuse a shared remark plugin array across markdown views ([59dc10e](https://github.com/ashwaryy/roundtable/commit/59dc10e36fccda35c618718110e2f969c2c563f4))
+
+
+### Features
+
+* cap attachment upload size and count ([4d72d9b](https://github.com/ashwaryy/roundtable/commit/4d72d9b2f39f250b883f04dfb1af00f94dedb501))
+* show verified snapshot file counts during thread creation ([9c71898](https://github.com/ashwaryy/roundtable/commit/9c71898d74199e630e68a350013970d1a429cdd8))
+
 ## [1.4.1](https://github.com/ashwaryy/roundtable/compare/v1.4.0...v1.4.1) (2026-05-28)
 
 
