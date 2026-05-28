@@ -1,5 +1,5 @@
-import { memo, useCallback, useMemo, useState } from 'react'
-import type { AgentName, Comment, CommentType, PendingDiscussion, ThreadAgentInvite } from '@roundtable/shared'
+import { memo, useCallback, useMemo, useState, type CSSProperties } from 'react'
+import type { AgentColorPreset, AgentName, Comment, CommentType, PendingDiscussion, ThreadAgentInvite } from '@roundtable/shared'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { groupComments, type CommentSortOrder } from '../lib/commentTree'
@@ -102,6 +102,20 @@ function CommentActions({
 
 const EMPTY_PENDING_DISCUSSIONS: PendingDiscussion[] = []
 
+const COMMENT_ACCENT_BY_COLOR: Record<AgentColorPreset, string> = {
+  blue: '#2563eb',
+  green: '#16a34a',
+  amber: '#d97706',
+  rose: '#e11d48',
+  violet: '#7c3aed',
+  teal: '#0f766e',
+}
+
+function commentAccentStyle(color?: AgentColorPreset): CSSProperties | undefined {
+  if (!color) return undefined
+  return { '--comment-accent': COMMENT_ACCENT_BY_COLOR[color] } as CSSProperties
+}
+
 const RootComment = memo(function RootComment({
   root,
   replies,
@@ -174,7 +188,12 @@ const RootComment = memo(function RootComment({
   }
 
   return (
-    <div className="cmt-root" data-author={root.author} data-color={agentById.get(root.author)?.color}>
+    <div
+      className="cmt-root"
+      data-author={root.author}
+      data-color={agentById.get(root.author)?.color}
+      style={commentAccentStyle(agentById.get(root.author)?.color)}
+    >
       <div className="cmt cmt-root-row">
         <div className="cmt-row">
           <div className="cmt-body">
@@ -247,6 +266,8 @@ const RootComment = memo(function RootComment({
               key={`${root.id}-sub-${si}`}
               className="reply-cluster"
               data-author={sub.author}
+              data-color={agentById.get(sub.author)?.color}
+              style={commentAccentStyle(agentById.get(sub.author)?.color)}
             >
               <div className="reply-cluster-rail" />
               <div className="reply-cluster-body">
