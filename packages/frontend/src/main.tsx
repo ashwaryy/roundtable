@@ -12,7 +12,7 @@ import './styles.css'
 applyStoredTheme()
 
 function ensureLink(rel: string, href: string) {
-  let link = document.head.querySelector(`link[rel="${rel}"]`)
+  let link = document.head.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`)
   if (!link) {
     link = document.createElement('link')
     link.rel = rel

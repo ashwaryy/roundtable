@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import type { AgentName, AgentRoom, RoomPreflight, ThreadStatus, TmuxPaneInput, TmuxPaneInputKey, TmuxPaneSnapshot } from "@roundtable/shared";
 import { type AgentTurnResult } from "../api";
@@ -348,7 +348,7 @@ export function RoomPanel({
   const [allowDirectRoots, setAllowDirectRoots] = useState(true);
   const catalogue = useAgentCatalogue();
   const isThreadOpen = threadStatus === "open";
-  const roster = room?.roster ?? [];
+  const roster = useMemo(() => room?.roster ?? [], [room?.roster]);
   const viewableAgents = roster.filter((agent) => room?.agents[agent.agent_id]?.pane_viewable);
   const viewerAgents = viewableAgents.map((agent) => ({ agent_id: agent.agent_id, name: agent.name }));
   const viewer = useTmuxViewer(threadId, viewerAgents);
@@ -362,7 +362,7 @@ export function RoomPanel({
       setNudgeAgent((value) => (roster.some((agent) => agent.agent_id === value) ? value : first));
       setSuggestAgent((value) => (roster.some((agent) => agent.agent_id === value) ? value : first));
     }
-  }, [room?.roster]);
+  }, [roster]);
 
   const canStart = canStartRoom(isThreadOpen, preflight, room);
   const canNudge = isThreadOpen && room?.status === "idle";
@@ -568,7 +568,7 @@ export function RoomPanel({
             disabled={!room?.attach_command}
             onClick={() => {
               if (room?.attach_command) {
-                navigator.clipboard?.writeText(room.attach_command);
+                void navigator.clipboard?.writeText(room.attach_command);
               }
             }}
           >

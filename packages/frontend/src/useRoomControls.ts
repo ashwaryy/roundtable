@@ -65,7 +65,7 @@ export function useRoomControls({ threadId, room, onUpdate, onRoomResult }: Room
     try {
       await openRoomTerminal(threadId)
     } catch {
-      navigator.clipboard?.writeText(room.attach_command)
+      void navigator.clipboard?.writeText(room.attach_command)
       setError('Terminal could not be opened. Attach command copied.')
     } finally {
       setOpeningTerminal(false)

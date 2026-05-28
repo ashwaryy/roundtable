@@ -67,6 +67,12 @@ const DEFAULT_ATTACHMENT_MAX_FILES = 10
 const DEFAULT_ATTACHMENT_MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
 const DEFAULT_ATTACHMENT_MAX_TOTAL_FILE_SIZE_BYTES = 100 * 1024 * 1024
 
+type AsyncRequestHandler = (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) => Promise<unknown>
+
 function parsePositiveIntegerEnv(name: string, fallback: number): number {
   const raw = process.env[name]
   if (!raw) return fallback
@@ -93,6 +99,16 @@ function attachmentUploadLimits(): {
       DEFAULT_ATTACHMENT_MAX_TOTAL_FILE_SIZE_BYTES,
     ),
   }
+}
+
+function asyncHandler(fn: AsyncRequestHandler): express.RequestHandler {
+  return (req, res, next) => {
+    void Promise.resolve(fn(req, res, next)).catch(next)
+  }
+}
+
+function hasJsonBody(value: unknown): value is { json?: unknown } {
+  return typeof value === 'object' && value !== null && 'json' in value
 }
 
 function toMultipartParseError(err: unknown): Error {
@@ -356,10 +372,11 @@ export function createApp(deps: {
   })
 
   app.post('/api/agents/import-json', (req, res) => {
-    let input: unknown = req.body
-    if (typeof req.body?.json === 'string') {
+    const body: unknown = req.body
+    let input = body
+    if (hasJsonBody(body) && typeof body.json === 'string') {
       try {
-        input = JSON.parse(req.body.json)
+        input = JSON.parse(body.json)
       } catch {
         return res.status(400).json({ error: 'json must contain valid JSON' })
       }
@@ -448,7 +465,7 @@ export function createApp(deps: {
     }
   })
 
-  app.post('/api/threads/:id/agents', async (req, res) => {
+  app.post('/api/threads/:id/agents', asyncHandler(async (req, res) => {
     const parsed = inviteAgentInputSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
     try {
@@ -461,9 +478,9 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
-  })
+  }))
 
-  app.patch('/api/threads/:id/agents/:agentId', async (req, res) => {
+  app.patch('/api/threads/:id/agents/:agentId', asyncHandler(async (req, res) => {
     const parsed = updateThreadAgentInviteInputSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
     try {
@@ -476,9 +493,9 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
-  })
+  }))
 
-  app.delete('/api/threads/:id/agents/:agentId', async (req, res) => {
+  app.delete('/api/threads/:id/agents/:agentId', asyncHandler(async (req, res) => {
     try {
       if (!await rosterEditable(req.params.id)) throw new ConflictError('room must be idle before changing its roster')
       const roster = storage.removeThreadAgent(req.params.id, req.params.agentId)
@@ -489,9 +506,9 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
-  })
+  }))
 
-  app.put('/api/threads/:id/agents/order', async (req, res) => {
+  app.put('/api/threads/:id/agents/order', asyncHandler(async (req, res) => {
     const parsed = reorderThreadAgentsInputSchema.safeParse(req.body)
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
     try {
@@ -504,7 +521,7 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
-  })
+  }))
 
   app.delete('/api/threads/:id', (req, res) => {
     if (!storage.getThread(req.params.id)) {
@@ -705,7 +722,7 @@ export function createApp(deps: {
     }
   })
 
-  app.post('/api/threads/:id/attachments/files', async (req, res) => {
+  app.post('/api/threads/:id/attachments/files', asyncHandler(async (req, res) => {
     if (!storage.getThread(req.params.id)) {
       return res.status(404).json({ error: 'thread not found' })
     }
@@ -729,9 +746,9 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
-  })
+  }))
 
-  app.post('/api/project-snapshot/preflight', async (req, res) => {
+  app.post('/api/project-snapshot/preflight', asyncHandler(async (req, res) => {
     const parsed = snapshotPreflightInputSchema.safeParse(req.body)
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() })
@@ -743,9 +760,9 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
-  })
+  }))
 
-  app.post('/api/threads/:id/project-snapshot/preflight', async (req, res) => {
+  app.post('/api/threads/:id/project-snapshot/preflight', asyncHandler(async (req, res) => {
     const parsed = snapshotPreflightInputSchema.safeParse(req.body)
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() })
@@ -757,9 +774,9 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
-  })
+  }))
 
-  app.put('/api/threads/:id/project-snapshot', async (req, res) => {
+  app.put('/api/threads/:id/project-snapshot', asyncHandler(async (req, res) => {
     const parsed = createProjectSnapshotInputSchema.safeParse(req.body)
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() })
@@ -773,9 +790,9 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
-  })
+  }))
 
-  app.post('/api/threads/:id/project-snapshot/refresh', async (req, res) => {
+  app.post('/api/threads/:id/project-snapshot/refresh', asyncHandler(async (req, res) => {
     try {
       const snapshot = await storage.refreshProjectSnapshot(req.params.id)
       broadcast({ type: 'thread_context_updated', thread_id: req.params.id })
@@ -784,7 +801,7 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
-  })
+  }))
 
   app.get('/api/threads/:id/project-snapshot/reports', (req, res) => {
     try {
@@ -1046,7 +1063,7 @@ export function createApp(deps: {
     res.json(rooms.preflight(req.params.id))
   })
 
-  app.get('/api/threads/:id/room', async (req, res) => {
+  app.get('/api/threads/:id/room', asyncHandler(async (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
     try {
       res.json(await rooms.getRoom(req.params.id))
@@ -1054,7 +1071,7 @@ export function createApp(deps: {
       if (handleStorageError(err, res)) return
       throw err
     }
-  })
+  }))
 
   app.get('/api/threads/:id/room/agents/:agentId/tmux-view', (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
@@ -1123,7 +1140,7 @@ export function createApp(deps: {
     }
   })
 
-  app.post('/api/threads/:id/room/open-terminal', async (req, res) => {
+  app.post('/api/threads/:id/room/open-terminal', asyncHandler(async (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })
     try {
       const room = await rooms.getRoom(req.params.id)
@@ -1138,7 +1155,7 @@ export function createApp(deps: {
       if (err instanceof Error) return res.status(409).json({ error: err.message })
       throw err
     }
-  })
+  }))
 
   app.post('/api/threads/:id/room/nudge', (req, res) => {
     if (!rooms) return res.status(501).json({ error: 'room manager not configured' })

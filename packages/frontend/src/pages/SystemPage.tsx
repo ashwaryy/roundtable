@@ -37,7 +37,7 @@ export function SystemPage() {
       },
     ],
   })
-  const sections = sectionsQuery.data ?? []
+  const sections = useMemo(() => sectionsQuery.data ?? [], [sectionsQuery.data])
   const systemInfo = systemInfoQuery.data ?? null
   const error = sectionsQuery.error ?? systemInfoQuery.error
 

@@ -42,6 +42,10 @@ interface Scan {
 
 type Fingerprints = Record<string, Omit<BaselineEntry, 'hash'>>
 
+function isBaselineEntry(value: string | BaselineEntry): value is BaselineEntry {
+  return typeof value !== 'string'
+}
+
 function hash(filePath: string): string {
   return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
 }
@@ -323,8 +327,9 @@ function normalizeBaseline(
   baseline: IntegrityState['baseline'],
 ): Record<string, BaselineEntry> | null {
   const normalized: Record<string, BaselineEntry> = {}
-  for (const [filePath, entry] of Object.entries(baseline)) {
-    if (typeof entry === 'string') return null
+  for (const filePath in baseline) {
+    const entry = baseline[filePath]
+    if (!isBaselineEntry(entry)) return null
     normalized[filePath] = entry
   }
   return normalized

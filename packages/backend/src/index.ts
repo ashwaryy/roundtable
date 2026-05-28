@@ -21,18 +21,18 @@ validateAllMonotonicCounters(dataDir)
 const server = http.createServer()
 const wss = new WebSocketServer({ server, path: '/ws' })
 const hub = createBroadcastHub(wss)
-const storage = createStorage(dataDir, hub.broadcast)
+const storage = createStorage(dataDir, (event) => hub.broadcast(event))
 const rooms = createRoomManager({
   dataDir,
   backendUrl,
-  onUpdate: hub.broadcast,
-  onCanonicalWrite: storage.acceptIntegrity,
+  onUpdate: (event) => hub.broadcast(event),
+  onCanonicalWrite: (threadId, touched) => storage.acceptIntegrity(threadId, touched),
 })
 
 const app = createApp({
   storage,
   rooms,
-  broadcast: hub.broadcast,
+  broadcast: (event) => hub.broadcast(event),
   frontendDistDir: fs.existsSync(path.join(frontendDistDir, 'index.html')) ? frontendDistDir : null,
 })
 server.on('request', app)

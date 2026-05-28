@@ -26,6 +26,7 @@ export function useLiveRefresh(onEvent: (event: RoundtableEvent) => void): LiveR
       }
       socket.onmessage = (msg) => {
         try {
+          if (typeof msg.data !== 'string') return
           onEventRef.current(JSON.parse(msg.data) as RoundtableEvent)
         } catch {
           // Ignore malformed frames.

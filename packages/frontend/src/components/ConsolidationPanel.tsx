@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import type {
   AgentName,
@@ -62,7 +62,10 @@ export function ConsolidationPanel({
   const [error, setError] = useState<string | null>(null)
   const [finishRequested, setFinishRequested] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const readyAgents = room?.roster.filter((agent) => room.agents[agent.agent_id]?.ready_at) ?? []
+  const readyAgents = useMemo(
+    () => room?.roster.filter((agent) => room.agents[agent.agent_id]?.ready_at) ?? [],
+    [room?.agents, room?.roster],
+  )
 
   const roomReady =
     room &&
@@ -99,7 +102,7 @@ export function ConsolidationPanel({
     setDrafter((value) => readyAgents.some((agent) => agent.agent_id === value) ? value : second)
     setReviewer((value) => readyAgents.some((agent) => agent.agent_id === value) ? value : first)
     setReviser((value) => readyAgents.some((agent) => agent.agent_id === value) ? value : second)
-  }, [room?.roster, room?.agents])
+  }, [readyAgents])
 
   async function submit(event: FormEvent) {
     event.preventDefault()

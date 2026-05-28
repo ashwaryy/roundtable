@@ -99,7 +99,7 @@ export interface ReorderThreadAgentsInput {
   agent_ids: AgentId[]
 }
 
-export type CommentAuthor = 'human' | 'system' | AgentId
+export type CommentAuthor = 'human' | 'system' | (string & {})
 
 export type CommentType =
   | 'comment'
@@ -226,7 +226,7 @@ export interface CreateProposalRevisionInput {
   body: string
 }
 
-export interface StartConsolidationInput extends CreateConsolidationInput {}
+export type StartConsolidationInput = CreateConsolidationInput
 
 export interface RequestProposalRevisionInput {
   instructions?: string | null

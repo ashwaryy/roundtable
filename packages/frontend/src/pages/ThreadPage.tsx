@@ -507,7 +507,7 @@ export function ThreadPage() {
                     type="button"
                     className="btn sm ghost"
                     onClick={() => {
-                      navigator.clipboard?.writeText(window.location.href);
+                      void navigator.clipboard?.writeText(window.location.href);
                     }}
                   >
                     <Icon name="link" className="ic-sm" /> Copy link

@@ -240,7 +240,9 @@ export interface AgentReviewSubmission extends AgentTurnResult {
   review: ProposalReview
 }
 
-const TOOL_NAMES = ['tmux', 'claude', 'codex'] as const
+type ToolName = 'tmux' | 'claude' | 'codex'
+
+const TOOL_NAMES: readonly ToolName[] = ['tmux', 'claude', 'codex']
 const DEFAULT_TURN_TIMEOUT_MS = 10 * 60 * 1000
 const TMUX_VIEW_LINE_LIMIT = 200
 const DEFAULT_EXEC_TIMEOUT_MS = 5_000
@@ -518,7 +520,7 @@ function tmuxKeyForInput(key: TmuxPaneInputKey): string {
       return 'C-u'
     default: {
       const exhaustive: never = key
-      throw new BadRequestError(`unsupported tmux input key: ${exhaustive}`)
+      throw new BadRequestError(`unsupported tmux input key: ${String(exhaustive)}`)
     }
   }
 }
@@ -773,7 +775,7 @@ exec ${command}
   }
 }
 
-function toolPreflight(executor: CommandExecutor, name: (typeof TOOL_NAMES)[number]): RoomToolPreflight {
+function toolPreflight(executor: CommandExecutor, name: ToolName): RoomToolPreflight {
   try {
     const toolPath = executor.execFile('which', [name]).trim()
     let version: string | null = null
@@ -885,7 +887,7 @@ function capturePaneAsync(
       },
       (err, stdout) => {
         if (err) {
-          reject(err)
+          reject(err instanceof Error ? err : new Error('tmux capture-pane failed'))
           return
         }
         resolve(stdout)
@@ -1115,7 +1117,7 @@ export function createRoomManager(options: {
   const { dataDir, backendUrl } = options
   const executor = options.executor ?? new SystemCommandExecutor()
   const timers = new Map<string, NodeJS.Timeout>()
-  const toolPreflightCache = new Map<(typeof TOOL_NAMES)[number], CachedToolPreflight>()
+  const toolPreflightCache = new Map<ToolName, CachedToolPreflight>()
   const roomSummaryCache = new Map<string, InternalRoom>()
   const queuedSummaryProbes = new Set<string>()
   const paneActionQueues = new Map<string, Promise<void>>()
@@ -1137,7 +1139,7 @@ export function createRoomManager(options: {
     options.onUpdate?.(event)
   }
 
-  function cachedToolPreflight(name: (typeof TOOL_NAMES)[number]): RoomToolPreflight {
+  function cachedToolPreflight(name: ToolName): RoomToolPreflight {
     const cached = toolPreflightCache.get(name)
     const checkedAt = Date.now()
     if (cached && checkedAt - cached.checkedAt < TOOL_PREFLIGHT_TTL_MS) {
@@ -2087,14 +2089,12 @@ export function createRoomManager(options: {
 
   const manager: RoomManager = {
     preflight(threadId?: string): RoomPreflight {
-      const tools = {
-        tmux: cachedToolPreflight('tmux'),
-        claude: cachedToolPreflight('claude'),
-        codex: cachedToolPreflight('codex'),
-      }
+      const tools = Object.fromEntries(
+        TOOL_NAMES.map((name) => [name, cachedToolPreflight(name)]),
+      ) as RoomPreflight['tools']
       const required = threadId
         ? new Set(['tmux', ...listThreadAgents(dataDir, threadId).map((invite) => invite.runtime)])
-        : new Set(Object.keys(tools))
+        : new Set(TOOL_NAMES)
       return {
         ok: Object.values(tools).every((tool) => !required.has(tool.name) || tool.available),
         tools,
@@ -2185,7 +2185,7 @@ export function createRoomManager(options: {
       const requiredTools = ['tmux', ...new Set(roster.map((invite) => invite.runtime))]
       const missing = requiredTools.filter((tool) => !toolAvailable(executor, tool))
       if (missing.length > 0) {
-        throw new ConflictError(`missing required room tools: ${missing}`)
+        throw new ConflictError(`missing required room tools: ${missing.join(', ')}`)
       }
 
       const existing = expireActiveTurn(threadId)
