@@ -85,6 +85,7 @@ http://localhost:4319
 ```
 
 `npm run start` builds the frontend and backend, then starts the backend server. The backend serves the built frontend.
+By default, the backend binds to `127.0.0.1` only.
 
 ## Development
 
@@ -178,8 +179,17 @@ Useful environment variables:
 
 - `ROUNDTABLE_DATA_DIR` changes the durable data directory.
 - `ROUNDTABLE_PORT` changes the backend port. The default is `4319`.
+- `ROUNDTABLE_HOST` changes the backend bind address. The default is `127.0.0.1`.
 - `ROUNDTABLE_BACKEND_URL` changes the backend URL passed to agent rooms.
 - `ROUNDTABLE_TURN_TIMEOUT_MS` changes the active agent turn timeout.
+
+If you explicitly expose Roundtable to your LAN, for example:
+
+```bash
+ROUNDTABLE_HOST=0.0.0.0 npm run start
+```
+
+be aware that Roundtable does not have general API authentication. Anyone who can reach the backend can read thread data and trigger agent actions. Treat non-loopback binding as an advanced escape hatch, not a secure sharing mode.
 
 ## Development Commands
 
