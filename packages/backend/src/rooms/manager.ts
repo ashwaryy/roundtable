@@ -231,6 +231,7 @@ const DEFAULT_TURN_TIMEOUT_MS = 10 * 60 * 1000
 const TMUX_VIEW_LINE_LIMIT = 200
 const DEFAULT_EXEC_TIMEOUT_MS = 5_000
 const ROOM_SUMMARY_PROBE_TTL_MS = 1_500
+const TOOL_PREFLIGHT_TTL_MS = 30_000
 const DEFAULT_TMUX_SUBMIT_DELAY_MS = 200
 
 function now(): string {
@@ -1147,6 +1148,11 @@ function toolPreflight(executor: CommandExecutor, name: (typeof TOOL_NAMES)[numb
   }
 }
 
+interface CachedToolPreflight {
+  checkedAt: number
+  result: RoomToolPreflight
+}
+
 function toolAvailable(executor: CommandExecutor, name: string): boolean {
   try {
     executor.execFile('which', [name])
@@ -1710,6 +1716,7 @@ export function createRoomManager(options: {
   const { dataDir, backendUrl } = options
   const executor = options.executor ?? new SystemCommandExecutor()
   const timers = new Map<string, NodeJS.Timeout>()
+  const toolPreflightCache = new Map<(typeof TOOL_NAMES)[number], CachedToolPreflight>()
   const roomSummaryCache = new Map<string, InternalRoom>()
   const queuedSummaryProbes = new Set<string>()
   let summaryProbeScheduled = false
@@ -1728,6 +1735,17 @@ export function createRoomManager(options: {
 
   function broadcast(event: RoundtableEvent): void {
     options.onUpdate?.(event)
+  }
+
+  function cachedToolPreflight(name: (typeof TOOL_NAMES)[number]): RoomToolPreflight {
+    const cached = toolPreflightCache.get(name)
+    const checkedAt = Date.now()
+    if (cached && checkedAt - cached.checkedAt < TOOL_PREFLIGHT_TTL_MS) {
+      return cached.result
+    }
+    const result = toolPreflight(executor, name)
+    toolPreflightCache.set(name, { checkedAt, result })
+    return result
   }
 
   function cacheRoom(room: InternalRoom): InternalRoom {
@@ -2528,9 +2546,9 @@ export function createRoomManager(options: {
   const manager: RoomManager = {
     preflight(threadId?: string): RoomPreflight {
       const tools = {
-        tmux: toolPreflight(executor, 'tmux'),
-        claude: toolPreflight(executor, 'claude'),
-        codex: toolPreflight(executor, 'codex'),
+        tmux: cachedToolPreflight('tmux'),
+        claude: cachedToolPreflight('claude'),
+        codex: cachedToolPreflight('codex'),
       }
       const required = threadId
         ? new Set(['tmux', ...listThreadAgents(dataDir, threadId).map((invite) => invite.runtime)])

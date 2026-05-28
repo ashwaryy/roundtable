@@ -144,6 +144,20 @@ describe('createRoomManager', () => {
     expect(preflight.tools.claude.path).toBe('/usr/local/bin/claude')
   })
 
+  it('caches tool preflight results across repeated checks', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    })
+
+    manager.preflight()
+    const firstCommandCount = executor.commands.length
+    manager.preflight('thread-1')
+
+    expect(executor.commands).toHaveLength(firstCommandCount)
+  })
+
   it('rejects start when a required tool is missing', () => {
     executor.missing.add('codex')
     const manager = createRoomManager({

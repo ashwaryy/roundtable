@@ -28,6 +28,8 @@ describe('canonical integrity', () => {
   it('skips integrity state writes on unchanged hot reads', () => {
     const storage = createStorage(dataDir)
     const thread = storage.createThread({ title: 'A', body: 'body' })
+    expect(storage.getIntegrity(thread.id).issues).toEqual([])
+
     const statePath = integrityPath(dataDir, thread.id)
     const before = fs.readFileSync(statePath, 'utf8')
     const parsed = JSON.parse(before) as {
@@ -40,7 +42,7 @@ describe('canonical integrity', () => {
       size_bytes: 4,
     })
 
-    expect(storage.getThread(thread.id)?.title).toBe('A')
+    expect(storage.getIntegrity(thread.id).issues).toEqual([])
     expect(fs.readFileSync(statePath, 'utf8')).toBe(before)
   })
 

@@ -528,7 +528,7 @@ export function createStorage(
       proposals.getSavedOutput(dataDir, savedId),
     getIntegrity: (threadId: string): IntegrityReport => {
       const previousIssues = integrity.currentIntegrityIssueCount(dataDir, threadId)
-      const report = integrity.inspectIntegrity(dataDir, threadId, { force: true })
+      const report = integrity.inspectIntegrity(dataDir, threadId)
       if (report.issues.length > previousIssues) {
         onIntegrityUpdate?.({ type: 'integrity_updated', thread_id: threadId })
       }
