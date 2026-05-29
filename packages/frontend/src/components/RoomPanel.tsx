@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import type { AgentName, AgentRoom, RoomPreflight, ThreadStatus, TmuxPaneInput, TmuxPaneInputKey, TmuxPaneSnapshot } from "@roundtable/shared";
+import { allowedEffortsForRuntime, type AgentName, type AgentRoom, type RoomPreflight, type ThreadStatus, type TmuxPaneInput, type TmuxPaneInputKey, type TmuxPaneSnapshot } from "@roundtable/shared";
 import { type AgentTurnResult } from "../api";
 import { Avatar, Icon } from "./primitives";
 import { ModelSelect } from "./ModelSelect";
+import { effortLabel } from "../lib/effortLabels";
 import { useAgentCatalogue } from "../useAgentCatalogue";
 import { useTmuxViewer } from "../useTmuxViewer";
 import { useRoomControls } from "../useRoomControls";
@@ -461,10 +462,11 @@ export function RoomPanel({
                       disabled={agentConfigLocked}
                     >
                       <option value="">Effort</option>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      {agent.runtime === "codex" ? <option value="xhigh">XHigh</option> : null}
+                      {allowedEffortsForRuntime(agent.runtime).map((value) => (
+                        <option key={value} value={value}>
+                          {effortLabel(value)}
+                        </option>
+                      ))}
                     </select>
                     {room?.agents[agentId]?.pane_viewable ? (
                       <button

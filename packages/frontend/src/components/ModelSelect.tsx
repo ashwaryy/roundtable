@@ -1,21 +1,7 @@
 import { useEffect, useState } from 'react'
-import type { AgentRuntime } from '@roundtable/shared'
+import { suggestedModelsForRuntime, type AgentRuntime } from '@roundtable/shared'
 
 const CUSTOM_VALUE = '__other__'
-
-const MODELS: Record<AgentRuntime, string[]> = {
-  claude: [
-    'claude-opus-4-7',
-    'claude-sonnet-4-6',
-    'claude-haiku-4-5',
-  ],
-  codex: [
-    'gpt-5.5',
-    'gpt-5.4',
-    'gpt-5.4-mini',
-    'gpt-5.3-codex',
-  ],
-}
 
 export function ModelSelect({
   runtime,
@@ -34,7 +20,7 @@ export function ModelSelect({
   disabled?: boolean
   ariaLabel?: string
 }) {
-  const choices = MODELS[runtime]
+  const choices = suggestedModelsForRuntime(runtime)
   const isCustomValue = value !== '' && !choices.includes(value)
   const [customMode, setCustomMode] = useState(isCustomValue)
 

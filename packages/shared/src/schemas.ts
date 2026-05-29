@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isAllowedRuntimeEffort } from './runtimeConfig'
 
 export const commentTypeSchema = z.enum([
   'comment',
@@ -29,9 +30,7 @@ const nullableTrimmedStringSchema = z.preprocess(
 
 function runtimeEffortValid(data: { runtime: 'claude' | 'codex'; effort?: string | null }): boolean {
   if (data.effort == null) return true
-  return data.runtime === 'codex'
-    ? ['low', 'medium', 'high', 'xhigh'].includes(data.effort)
-    : ['low', 'medium', 'high'].includes(data.effort)
+  return isAllowedRuntimeEffort(data.runtime, data.effort)
 }
 
 export const createAgentInputSchema = z.object({

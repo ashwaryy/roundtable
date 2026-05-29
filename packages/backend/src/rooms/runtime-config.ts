@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { AgentRuntime } from '@roundtable/shared'
+import { isAllowedRuntimeEffort, type AgentRuntime } from '@roundtable/shared'
 import {
   claudeLocalSettingsPath,
   codexProjectConfigPath,
@@ -288,13 +288,14 @@ export function cliCommand(
   effort: string | null,
   promptFile: string,
 ): string {
+  const allowedEffort = isAllowedRuntimeEffort(runtime, effort) ? effort : null
   const modelPart = model ? ` --model ${shellSingleQuote(model)}` : ''
-  const effortPart = effort ? ` --effort ${shellSingleQuote(effort)}` : ''
+  const effortPart = allowedEffort ? ` --effort ${shellSingleQuote(allowedEffort)}` : ''
   if (runtime === 'claude') {
     return `claude --permission-mode dontAsk${modelPart}${effortPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
   }
-  const codexEffort = effort
-    ? ` -c ${shellSingleQuote(`model_reasoning_effort="${effort}"`)}`
+  const codexEffort = allowedEffort
+    ? ` -c ${shellSingleQuote(`model_reasoning_effort="${allowedEffort}"`)}`
     : ''
   return `codex ${codexSandboxArgs()}${modelPart}${codexEffort} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
 }
@@ -305,13 +306,22 @@ export function resumeCliCommand(
   effort: string | null,
   promptFile: string,
 ): string {
+  const allowedEffort = isAllowedRuntimeEffort(runtime, effort) ? effort : null
   const modelPart = model ? ` --model ${shellSingleQuote(model)}` : ''
-  const effortPart = effort ? ` --effort ${shellSingleQuote(effort)}` : ''
+  const effortPart = allowedEffort ? ` --effort ${shellSingleQuote(allowedEffort)}` : ''
   if (runtime === 'claude') {
     return `claude --continue --permission-mode dontAsk${modelPart}${effortPart} ${shellSingleQuote(`Read ${promptFile} and follow it.`)}`
   }
-  const codexEffort = effort
-    ? ` -c ${shellSingleQuote(`model_reasoning_effort="${effort}"`)}`
+  const codexEffort = allowedEffort
+    ? ` -c ${shellSingleQuote(`model_reasoning_effort="${allowedEffort}"`)}`
     : ''
   return `codex resume --last ${codexSandboxArgs()}${modelPart}${codexEffort}`
+}
+
+export function invalidRuntimeEffortWarning(
+  runtime: AgentRuntime,
+  effort: string | null,
+): string | null {
+  if (effort == null || effort === '' || isAllowedRuntimeEffort(runtime, effort)) return null
+  return `Roundtable warning: omitted unsupported ${runtime} effort ${effort}; CLI default will apply.`
 }

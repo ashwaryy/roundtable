@@ -9,6 +9,7 @@ import type {
   UpdateAgentInput,
   UpdateThreadAgentInviteInput,
 } from '@roundtable/shared'
+import { isAllowedRuntimeEffort } from '@roundtable/shared'
 import { agentJsonPath, agentsDir, threadAgentsPath, threadsDir } from './paths'
 import { BadRequestError, ConflictError, NotFoundError } from './errors'
 
@@ -142,10 +143,7 @@ function uniqueName(dataDir: string, requested: string, exceptId?: string): stri
 
 function validateEffort(agent: Pick<Agent, 'runtime' | 'effort'>): void {
   if (!agent.effort) return
-  const allowed = agent.runtime === 'codex'
-    ? ['low', 'medium', 'high', 'xhigh']
-    : ['low', 'medium', 'high']
-  if (!allowed.includes(agent.effort)) {
+  if (!isAllowedRuntimeEffort(agent.runtime, agent.effort)) {
     throw new BadRequestError('effort is not valid for runtime')
   }
 }
@@ -187,13 +185,20 @@ export function createAgent(dataDir: string, input: CreateAgentInput): Agent {
 export function updateAgent(dataDir: string, agentId: string, patch: UpdateAgentInput): Agent {
   const existing = getAgent(dataDir, agentId)
   if (!existing) throw new NotFoundError(`agent ${agentId} not found`)
+  const runtimePatched = patch.runtime !== undefined
+  const effortPatched = patch.effort !== undefined
   const updated: Agent = {
     ...existing,
     ...patch,
     name: patch.name ? uniqueName(dataDir, patch.name, agentId) : existing.name,
     updated_at: new Date().toISOString(),
   }
-  validateEffort(updated)
+  if (runtimePatched || effortPatched) {
+    validateEffort({
+      runtime: patch.runtime ?? existing.runtime,
+      effort: patch.effort ?? existing.effort,
+    })
+  }
   writeJsonAtomic(agentJsonPath(dataDir, agentId), updated)
   invalidateAgentIndex(dataDir)
   return updated

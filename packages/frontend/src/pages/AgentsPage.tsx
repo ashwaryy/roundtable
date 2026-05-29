@@ -1,10 +1,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState, type FormEvent } from 'react'
-import type { AgentColorPreset, Agent, AgentRuntime, RoundtableEvent } from '@roundtable/shared'
+import {
+  allowedEffortsForRuntime,
+  type AgentColorPreset,
+  type Agent,
+  type AgentRuntime,
+  type RoundtableEvent,
+} from '@roundtable/shared'
 import { createAgent, deleteAgent, importAgents, listAgents, updateAgent } from '../api'
 import { TopbarHeader, TopbarNavMenu } from '../components/AppHeader'
 import { Avatar, Icon } from '../components/primitives'
 import { ModelSelect } from '../components/ModelSelect'
+import { effortLabel } from '../lib/effortLabels'
 import { roundtableQueryKeys } from '../query'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useLiveRefresh } from '../useLiveRefresh'
@@ -240,7 +247,10 @@ export function AgentsPage() {
                 </div>
                 <div>
                   <label className="field-label" htmlFor="agent-effort">Effort</label>
-                  <select id="agent-effort" className="input" value={effort} onChange={(e) => setEffort(e.target.value)}><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>{runtime === 'codex' ? <option value="xhigh">Extra high</option> : null}</select>
+                  <select id="agent-effort" className="input" value={effort} onChange={(e) => setEffort(e.target.value)}>
+                    <option value="">Default effort</option>
+                    {allowedEffortsForRuntime(runtime).map((value) => <option key={value} value={value}>{effortLabel(value)}</option>)}
+                  </select>
                 </div>
               </div>
               <div>

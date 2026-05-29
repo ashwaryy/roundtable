@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { Agent } from '@roundtable/shared'
 import { createStorage } from './index'
 import { createAgent, deleteAgent, getAgent, listAgents, updateAgent } from './agents'
-import { agentsDir } from './paths'
+import { agentJsonPath, agentsDir } from './paths'
 
 let dataDir: string
 
@@ -75,5 +76,19 @@ describe('agent catalogue and thread invites', () => {
     } finally {
       readdirSpy.mockRestore()
     }
+  })
+
+  it('allows unrelated updates for stored agents with stale effort values', () => {
+    const created = createAgent(dataDir, { name: 'Legacy Claude', runtime: 'claude', effort: 'high' })
+    const stale: Agent = {
+      ...created,
+      effort: 'legacy-max',
+    }
+    fs.writeFileSync(agentJsonPath(dataDir, created.id), JSON.stringify(stale, null, 2))
+
+    const updated = updateAgent(dataDir, created.id, { name: 'Legacy Claude 2' })
+
+    expect(updated.name).toBe('Legacy Claude 2')
+    expect(updated.effort).toBe('legacy-max')
   })
 })

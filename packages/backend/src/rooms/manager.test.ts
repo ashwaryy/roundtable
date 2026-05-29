@@ -883,6 +883,33 @@ describe('createRoomManager', () => {
     expect(launchCodex).toContain('codex resume --last')
   })
 
+  it('omits stale effort flags at launch and emits a warning in the launch script', () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+      startupTrustPromptTimeoutMs: 0,
+    })
+
+    createAgent(dataDir, {
+      name: 'Legacy Claude',
+      runtime: 'claude',
+      effort: 'max',
+      color: 'amber',
+    })
+    inviteAgent(dataDir, 'thread-1', { agent_id: 'agent-legacy-claude', effort: 'legacy-max' })
+
+    manager.startRoom('thread-1', {})
+
+    const launchClaude = fs.readFileSync(
+      path.join(dataDir, 'threads', 'thread-1', '.roundtable', 'launch-agent-legacy-claude.sh'),
+      'utf8',
+    )
+    expect(launchClaude).toContain('Roundtable warning: omitted unsupported claude effort legacy-max; CLI default will apply.')
+    expect(launchClaude).not.toContain("--effort 'legacy-max'")
+    expect(launchClaude).not.toContain('--effort')
+  })
+
   it('uses a fresh started_at when resume: false', () => {
     const manager = createRoomManager({
       dataDir,

@@ -88,6 +88,7 @@ import {
   codexProjectConfig,
   codexRulesText,
   commandWrappers,
+  invalidRuntimeEffortWarning,
   resumeCliCommand,
   writeAgentPermissionSetup,
 } from './runtime-config'
@@ -758,6 +759,7 @@ main().catch((err) => {
     const agent = invite.agent_id
     const promptFile = roomPromptPath(dataDir, room.thread_id, agent)
     fs.writeFileSync(promptFile, startupPrompt(invite))
+    const effortWarning = invalidRuntimeEffortWarning(invite.runtime, invite.effort)
     const command = shouldResume[agent]
       ? resumeCliCommand(invite.runtime, invite.model, invite.effort, promptFile)
       : cliCommand(invite.runtime, invite.model, invite.effort, promptFile)
@@ -770,7 +772,7 @@ export ROUNDTABLE_BACKEND_URL=${shellSingleQuote(backendUrl)}
 export ROUNDTABLE_ROOM_TOKEN=${shellSingleQuote(room.token)}
 export ROUNDTABLE_AGENT_ID=${shellSingleQuote(agent)}
 cd ${shellSingleQuote(threadDir(dataDir, room.thread_id))}
-exec ${command}
+${effortWarning ? `echo ${shellSingleQuote(effortWarning)} >&2\n` : ''}exec ${command}
 `,
     )
   }

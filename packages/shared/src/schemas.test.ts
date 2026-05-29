@@ -193,8 +193,14 @@ describe('agent schemas', () => {
   })
 
   it('validates runtime-aware effort', () => {
-    expect(() => createAgentInputSchema.parse({
+    expect(createAgentInputSchema.parse({
+      name: 'Claude', runtime: 'claude', effort: 'max',
+    }).effort).toBe('max')
+    expect(createAgentInputSchema.parse({
       name: 'Claude', runtime: 'claude', effort: 'xhigh',
+    }).effort).toBe('xhigh')
+    expect(() => createAgentInputSchema.parse({
+      name: 'Codex', runtime: 'codex', effort: 'max',
     })).toThrow()
   })
 })
