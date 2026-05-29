@@ -952,20 +952,33 @@ function startupPromptAcceptanceKeys(
   return null
 }
 
-function detectInputPrompt(output: string): string | null {
-  if (
-    !/(requires approval|Do you want to proceed\?|Continue\?|Proceed\?|Allow\?|\[[yY]\/[nN]\]|\[[nN]\/[yY]\]|1\.\s*Yes)/i.test(
-      output,
-    )
-  ) {
-    return null
-  }
+// Number of trailing non-empty pane lines that reflect the agent's live state.
+// Prompts always render at the bottom of the pane, so matching only this tail
+// keeps resolved prompts left behind in scrollback from triggering a stale
+// "waiting for input" banner.
+const INPUT_PROMPT_TAIL_LINES = 12
 
+// A visible working/spinner indicator means the agent owns the pane and is busy,
+// not blocked on a prompt — Codex and Claude both clear it once they actually
+// pause for approval.
+const WORKING_INDICATOR = /esc to interrupt|esc to cancel/i
+
+const INPUT_PROMPT_PATTERN =
+  /(requires approval|Do you want to proceed\?|Continue\?|Proceed\?|Allow\?|\[[yY]\/[nN]\]|\[[nN]\/[yY]\]|1\.\s*Yes)/i
+
+function detectInputPrompt(output: string): string | null {
   const lines = output
     .split('\n')
     .map((line) => line.trimEnd())
     .filter((line) => line.trim().length > 0)
-  const excerpt = lines.slice(-12).join('\n').trim()
+  if (lines.length === 0) return null
+
+  const tail = lines.slice(-INPUT_PROMPT_TAIL_LINES)
+  const tailText = tail.join('\n')
+  if (WORKING_INDICATOR.test(tailText)) return null
+  if (!INPUT_PROMPT_PATTERN.test(tailText)) return null
+
+  const excerpt = tailText.trim()
   return excerpt.length > 1200 ? excerpt.slice(-1200) : excerpt
 }
 

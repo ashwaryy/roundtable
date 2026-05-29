@@ -1088,6 +1088,38 @@ describe('createRoomManager', () => {
     })
   })
 
+  it('ignores a resolved prompt left in scrollback while the agent is working', async () => {
+    const { manager } = startReadyRoom()
+    executor.paneCaptures.set(
+      'roundtable-thread-1:agent-codex',
+      [
+        // A prompt the agent already answered, now buried in scrollback.
+        'Do you want to proceed?',
+        '1. Yes',
+        '2. No',
+        '> codex ran the command and kept going',
+        // ...followed by many lines of subsequent output, then the live state.
+        ...Array.from({ length: 14 }, (_, i) => `output line ${i + 1}`),
+        'Working (17s · esc to interrupt)',
+        '> Find and fix a bug in @filename',
+      ].join('\n'),
+    )
+
+    const detected = await manager.getRoom('thread-1')
+    expect(detected.input_prompt).toBeNull()
+  })
+
+  it('does not treat a working spinner near the prompt regex as input', async () => {
+    const { manager } = startReadyRoom()
+    executor.paneCaptures.set(
+      'roundtable-thread-1:agent-codex',
+      ['Continue?', 'Working (3s · esc to interrupt)'].join('\n'),
+    )
+
+    const detected = await manager.getRoom('thread-1')
+    expect(detected.input_prompt).toBeNull()
+  })
+
   it('reuses a recent input prompt probe across repeated getRoom calls', async () => {
     const { manager } = startReadyRoom()
 

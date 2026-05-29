@@ -23,6 +23,7 @@ import { CommentTree } from "../components/CommentTree";
 import type { CommentSortOrder } from "../lib/commentTree";
 import { ThreadAttachmentsPanel, ThreadContextPanel } from "../components/ThreadContextPanel";
 import { RoomPanel } from "../components/RoomPanel";
+import { TmuxViewerDialog } from "../components/TmuxViewerDialog";
 import { ConsolidationPanel } from "../components/ConsolidationPanel";
 import { IntegrityPanel } from "../components/IntegrityPanel";
 import { NewCommentsPill } from "../components/NewCommentsPill";
@@ -34,6 +35,7 @@ import { RAIL_COLLAPSED_STORAGE_KEY, readStoredBoolean, writeStoredBoolean } fro
 import { buildConsolidationUiState, isActiveProposal } from "../lib/consolidationUi";
 import { useStoredBoolean } from "../useStoredBoolean";
 import { useThreadWorkspace } from "../useThreadWorkspace";
+import { useTmuxViewer } from "../useTmuxViewer";
 import { useNewCommentTracking } from "../useNewCommentTracking";
 import type { LiveRefreshStatus } from "../useLiveRefresh";
 
@@ -76,6 +78,7 @@ function RecoveryCard({
   onRestartRoom,
   onRetryTurn,
   onSkipTurn,
+  onOpenViewer,
 }: {
   room: AgentRoom | null;
   displayStatus: ThreadDisplayStatus;
@@ -83,18 +86,19 @@ function RecoveryCard({
   onRestartRoom: () => void;
   onRetryTurn: () => void;
   onSkipTurn: () => void;
+  onOpenViewer: (agentId: string) => void;
 }) {
   if (displayStatus !== "needs_attention" && displayStatus !== "error") return null;
+  const inputPrompt = room?.input_prompt;
   return (
     <section className={`panel recovery-card${displayStatus === "error" ? " recovery-card--error" : ""}`} aria-label="room-recovery">
       <div className="section-heading">
         <h2>Recovery</h2>
         <StatusPill status={displayStatus} />
       </div>
-      {room?.input_prompt ? (
+      {inputPrompt ? (
         <>
-          <p>{room.input_prompt.agent} is waiting for input.</p>
-          <pre>{room.input_prompt.excerpt}</pre>
+          <p>{inputPrompt.agent} is waiting for input.</p>
           <div className="inline-actions">
             <button type="button" onClick={() => onRecoveryInput("yes")}>
               Send Yes
@@ -102,6 +106,11 @@ function RecoveryCard({
             <button type="button" onClick={() => onRecoveryInput("no")}>
               Send No
             </button>
+            {room?.agents[inputPrompt.agent]?.pane_viewable ? (
+              <button type="button" onClick={() => onOpenViewer(inputPrompt.agent)}>
+                <Icon name="eye" className="ic-sm" /> View output
+              </button>
+            ) : null}
           </div>
         </>
       ) : room?.session_state === "missing" ? (
@@ -193,6 +202,7 @@ function SideRailContent({
   onUpdate,
   backendStatus,
   onRoomResult,
+  onOpenViewer,
   workingAgent,
 }: {
   thread: ThreadDetail;
@@ -216,6 +226,7 @@ function SideRailContent({
   onUpdate: () => void;
   backendStatus: LiveRefreshStatus;
   onRoomResult: (result: AgentRoom | AgentTurnResult) => void;
+  onOpenViewer: (agentId: string) => void;
   workingAgent: AgentName | null;
 }) {
   return (
@@ -229,6 +240,7 @@ function SideRailContent({
         onRestartRoom={onRestartRoom}
         onRetryTurn={onRetryTurn}
         onSkipTurn={onSkipTurn}
+        onOpenViewer={onOpenViewer}
       />
 
       <div className={emphasizedSection === "room" ? "sidebar-section--active" : ""}>
@@ -242,6 +254,7 @@ function SideRailContent({
           summary={roomSummary}
           onUpdate={onUpdate}
           onRoomResult={onRoomResult}
+          onOpenViewer={onOpenViewer}
           workingAgent={workingAgent}
         />
       </div>
@@ -342,6 +355,11 @@ export function ThreadPage() {
   } = useThreadWorkspace(id, () => navigate("/"));
   const { newCommentCount, latestNewCommentId, dismissNewComments } = useNewCommentTracking(mainRef, comments, commentsLoaded);
 
+  const viewerAgents = (room?.roster ?? [])
+    .filter((agent) => room?.agents[agent.agent_id]?.pane_viewable)
+    .map((agent) => ({ agent_id: agent.agent_id, name: agent.name }));
+  const viewer = useTmuxViewer(id ?? "", viewerAgents);
+
   if (!thread) return <ThreadSkeleton />;
 
   const displayStatus = displayStatusFor(thread, room, proposals);
@@ -394,6 +412,7 @@ export function ThreadPage() {
     onUpdate: refreshRoomState,
     backendStatus,
     onRoomResult: applyRoomResult,
+    onOpenViewer: viewer.openViewer,
     workingAgent,
   };
 
@@ -685,6 +704,20 @@ export function ThreadPage() {
           </div>
         </>
       ) : null}
+
+      <TmuxViewerDialog
+        open={viewer.open}
+        agents={viewerAgents}
+        selectedAgent={viewer.selectedAgent}
+        snapshot={viewer.snapshot}
+        loading={viewer.loading}
+        stale={viewer.stale}
+        error={viewer.inputError ?? viewer.error}
+        sendingInput={viewer.inputSending}
+        onClose={viewer.closeViewer}
+        onSelectAgent={viewer.selectViewerAgent}
+        onSendInput={viewer.sendInput}
+      />
     </div>
   );
 }
