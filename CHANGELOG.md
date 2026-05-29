@@ -1,3 +1,11 @@
+# [1.7.0](https://github.com/ashwaryy/roundtable/compare/v1.6.0...v1.7.0) (2026-05-29)
+
+
+### Features
+
+* centralize runtime model and effort configuration ([09835e6](https://github.com/ashwaryy/roundtable/commit/09835e6ef5caaa34469313692493ea61b8973c57))
+* configure agent-room command wrappers via env var ([5787fc7](https://github.com/ashwaryy/roundtable/commit/5787fc749e7d3fef8616b743747b56330d493456))
+
 # [1.6.0](https://github.com/ashwaryy/roundtable/compare/v1.5.0...v1.6.0) (2026-05-28)
 
 
