@@ -57,17 +57,24 @@ function writeTextFile(filePath: string, contents: string): void {
   fs.writeFileSync(filePath, contents)
 }
 
-export function commandVariants(command: string, rtkAvailable: boolean): string[] {
-  return rtkAvailable ? [command, `rtk ${command}`] : [command]
+export function commandWrappers(): string[] {
+  return (process.env.ROUNDTABLE_COMMAND_WRAPPERS ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+}
+
+export function commandVariants(command: string, wrappers: string[]): string[] {
+  return [command, ...wrappers.map((wrapper) => `${wrapper} ${command}`)]
 }
 
 function claudeBashRules(
   commands: readonly string[],
-  rtkAvailable: boolean,
+  wrappers: string[],
   wildcard = '',
 ): string[] {
   return commands.flatMap((command) =>
-    commandVariants(command, rtkAvailable).map((variant) => `Bash(${variant}${wildcard})`),
+    commandVariants(command, wrappers).map((variant) => `Bash(${variant}${wildcard})`),
   )
 }
 
@@ -84,20 +91,21 @@ function codexPrefixRule(
 
 function codexRulesForCommand(
   command: string[],
-  rtkAvailable: boolean,
+  wrappers: string[],
   decision: 'allow' | 'forbidden',
   justification: string,
 ): string[] {
-  const rules = [codexPrefixRule(command, decision, justification)]
-  if (rtkAvailable) {
-    rules.push(codexPrefixRule(['rtk', ...command], decision, justification))
-  }
-  return rules
+  return [
+    codexPrefixRule(command, decision, justification),
+    ...wrappers.map((wrapper) =>
+      codexPrefixRule([...wrapper.split(/\s+/), ...command], decision, justification),
+    ),
+  ]
 }
 
-function allowedShellCommands(rtkAvailable: boolean): string[] {
+function allowedShellCommands(wrappers: string[]): string[] {
   return [...READ_COMMANDS, ...WORKFLOW_COMMANDS, ...HELPER_COMMANDS].flatMap((command) =>
-    commandVariants(command, rtkAvailable),
+    commandVariants(command, wrappers),
   )
 }
 
@@ -142,7 +150,7 @@ if (shellOperators.test(command)) {
   return hookPath
 }
 
-export function claudeLocalSettings(hookPath: string, rtkAvailable: boolean): unknown {
+export function claudeLocalSettings(hookPath: string, wrappers: string[]): unknown {
   return {
     $schema: 'https://json.schemastore.org/claude-code-settings.json',
     permissions: {
@@ -153,9 +161,9 @@ export function claudeLocalSettings(hookPath: string, rtkAvailable: boolean): un
         'Edit(./.roundtable/tmp/**)',
         'Write(.roundtable/tmp/**)',
         'Write(./.roundtable/tmp/**)',
-        ...claudeBashRules(READ_COMMANDS, rtkAvailable, ' *'),
-        ...claudeBashRules(WORKFLOW_COMMANDS, rtkAvailable, ' *'),
-        ...claudeBashRules(HELPER_COMMANDS, rtkAvailable, ' *'),
+        ...claudeBashRules(READ_COMMANDS, wrappers, ' *'),
+        ...claudeBashRules(WORKFLOW_COMMANDS, wrappers, ' *'),
+        ...claudeBashRules(HELPER_COMMANDS, wrappers, ' *'),
       ],
       deny: [
         'Read(./.env)',
@@ -185,7 +193,7 @@ export function claudeLocalSettings(hookPath: string, rtkAvailable: boolean): un
         'Write(./.roundtable/room.json)',
         'Bash(*>*)',
         'Bash(*>>*)',
-        ...claudeBashRules(DESTRUCTIVE_COMMANDS, rtkAvailable, ' *'),
+        ...claudeBashRules(DESTRUCTIVE_COMMANDS, wrappers, ' *'),
       ],
     },
     hooks: {
@@ -222,22 +230,22 @@ PreToolUse = [{ matcher = "Bash", hooks = [{ type = "command", command = ${JSON.
 `
 }
 
-export function codexRulesText(rtkAvailable: boolean): string {
+export function codexRulesText(wrappers: string[]): string {
   const allowReason = 'Allowed for Roundtable agent room workflow'
   const forbidReason =
     'Blocked by Roundtable because this mutates durable state or publishes externally'
   const codexRules = [
     ...HELPER_COMMANDS.flatMap((command) =>
-      codexRulesForCommand(command.split(' '), rtkAvailable, 'allow', allowReason),
+      codexRulesForCommand(command.split(' '), wrappers, 'allow', allowReason),
     ),
     ...READ_COMMANDS.flatMap((command) =>
-      codexRulesForCommand([command], rtkAvailable, 'allow', allowReason),
+      codexRulesForCommand([command], wrappers, 'allow', allowReason),
     ),
     ...WORKFLOW_COMMANDS.flatMap((command) =>
-      codexRulesForCommand(command.split(' '), rtkAvailable, 'allow', allowReason),
+      codexRulesForCommand(command.split(' '), wrappers, 'allow', allowReason),
     ),
     ...DESTRUCTIVE_COMMANDS.flatMap((command) =>
-      codexRulesForCommand(command.split(' '), rtkAvailable, 'forbidden', forbidReason),
+      codexRulesForCommand(command.split(' '), wrappers, 'forbidden', forbidReason),
     ),
   ]
   return `${codexRules.join('\n')}\n`
@@ -246,19 +254,19 @@ export function codexRulesText(rtkAvailable: boolean): string {
 export function writeAgentPermissionSetup(
   dataDir: string,
   threadId: string,
-  rtkAvailable: boolean,
+  wrappers: string[],
 ): void {
   const hookPath = writePreToolUseHook(
     dataDir,
     threadId,
-    allowedShellCommands(rtkAvailable),
+    allowedShellCommands(wrappers),
   )
   writeJsonFile(
     claudeLocalSettingsPath(dataDir, threadId),
-    claudeLocalSettings(hookPath, rtkAvailable),
+    claudeLocalSettings(hookPath, wrappers),
   )
   writeTextFile(codexProjectConfigPath(dataDir, threadId), codexProjectConfig(hookPath))
-  writeTextFile(codexRulesPath(dataDir, threadId), codexRulesText(rtkAvailable))
+  writeTextFile(codexRulesPath(dataDir, threadId), codexRulesText(wrappers))
 }
 
 function codexSandboxArgs(): string {

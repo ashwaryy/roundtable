@@ -101,12 +101,15 @@ class FakeExecutor implements CommandExecutor {
 let dataDir: string
 let executor: FakeExecutor
 let previousTmuxSubmitDelayMs: string | undefined
+let previousCommandWrappers: string | undefined
 
 beforeEach(() => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-room-'))
   executor = new FakeExecutor()
   previousTmuxSubmitDelayMs = process.env.ROUNDTABLE_TMUX_SUBMIT_DELAY_MS
   process.env.ROUNDTABLE_TMUX_SUBMIT_DELAY_MS = '0'
+  previousCommandWrappers = process.env.ROUNDTABLE_COMMAND_WRAPPERS
+  delete process.env.ROUNDTABLE_COMMAND_WRAPPERS
   createThread(dataDir, { title: 'Room', body: '# Room' })
   initializeThreadAgents(dataDir, 'thread-1')
 })
@@ -116,6 +119,11 @@ afterEach(() => {
     delete process.env.ROUNDTABLE_TMUX_SUBMIT_DELAY_MS
   } else {
     process.env.ROUNDTABLE_TMUX_SUBMIT_DELAY_MS = previousTmuxSubmitDelayMs
+  }
+  if (previousCommandWrappers === undefined) {
+    delete process.env.ROUNDTABLE_COMMAND_WRAPPERS
+  } else {
+    process.env.ROUNDTABLE_COMMAND_WRAPPERS = previousCommandWrappers
   }
   fs.rmSync(dataDir, { recursive: true, force: true })
 })
@@ -209,8 +217,11 @@ describe('createRoomManager', () => {
     expect(() => manager.markReady('thread-1', 'claude', token)).toThrow(BadRequestError)
   })
 
-  it('writes per-thread agent permission setup without requiring rtk', () => {
-    executor.missing.add('rtk')
+  it('writes per-thread agent permission setup with no command wrappers by default', () => {
+    // The fake executor reports `rtk` as present on PATH, but no wrapper is
+    // configured. The `rtk` assertions below are a regression guard: presence
+    // of the binary must no longer auto-produce `rtk ...` variants the way the
+    // old hardcoded detection did.
     const manager = createRoomManager({
       dataDir,
       backendUrl: 'http://localhost:4319',
@@ -266,15 +277,15 @@ describe('createRoomManager', () => {
         ],
       },
     ])
-    const noRtkHookPath = preToolUseHookPath(dataDir, 'thread-1')
-    const noRtkHookDecision = (command: string) =>
-      execFileSync(noRtkHookPath, [], {
+    const unwrappedHookPath = preToolUseHookPath(dataDir, 'thread-1')
+    const unwrappedHookDecision = (command: string) =>
+      execFileSync(unwrappedHookPath, [], {
         encoding: 'utf8',
         input: JSON.stringify({ tool_input: { command } }),
       })
-    expect(noRtkHookDecision('grep c014 comments.jsonl')).toBe('')
+    expect(unwrappedHookDecision('grep c014 comments.jsonl')).toBe('')
     expect(
-      JSON.parse(noRtkHookDecision('rtk grep c014 comments.jsonl')).hookSpecificOutput
+      JSON.parse(unwrappedHookDecision('rtk grep c014 comments.jsonl')).hookSpecificOutput
         .permissionDecision,
     ).toBe('deny')
 
@@ -383,7 +394,8 @@ describe('createRoomManager', () => {
     expect(codexRules).not.toContain('["rtk",')
   })
 
-  it('adds rtk wrapper permissions only when rtk is installed', () => {
+  it('adds wrapper permissions for each configured command wrapper', () => {
+    process.env.ROUNDTABLE_COMMAND_WRAPPERS = 'toolwrap'
     const manager = createRoomManager({
       dataDir,
       backendUrl: 'http://localhost:4319',
@@ -398,12 +410,12 @@ describe('createRoomManager', () => {
     )
     expect(claudeSettings.permissions.allow).toEqual(
       expect.arrayContaining([
-        'Bash(rtk roundtable ready *)',
-        'Bash(rtk roundtable comment *)',
-        'Bash(rtk roundtable done *)',
-        'Bash(rtk cat *)',
-        'Bash(rtk grep *)',
-        'Bash(rtk read *)',
+        'Bash(toolwrap roundtable ready *)',
+        'Bash(toolwrap roundtable comment *)',
+        'Bash(toolwrap roundtable done *)',
+        'Bash(toolwrap cat *)',
+        'Bash(toolwrap grep *)',
+        'Bash(toolwrap read *)',
       ]),
     )
     const hookPath = preToolUseHookPath(dataDir, 'thread-1')
@@ -412,9 +424,9 @@ describe('createRoomManager', () => {
           encoding: 'utf8',
           input: JSON.stringify({ tool_input: { command } }),
         })
-    expect(hookOutput('rtk grep c014 comments.jsonl')).toBe('')
+    expect(hookOutput('toolwrap grep c014 comments.jsonl')).toBe('')
     expect(
-      JSON.parse(hookOutput('rtk grep c014 comments.jsonl | python3 -c "print(1)"'))
+      JSON.parse(hookOutput('toolwrap grep c014 comments.jsonl | python3 -c "print(1)"'))
         .hookSpecificOutput,
     ).toMatchObject({
       permissionDecision: 'deny',
@@ -426,13 +438,13 @@ describe('createRoomManager', () => {
 
     const codexRules = fs.readFileSync(codexRulesPath(dataDir, 'thread-1'), 'utf8')
     expect(codexRules).toContain(
-      'prefix_rule(pattern = ["rtk", "roundtable", "ready"], decision = "allow"',
+      'prefix_rule(pattern = ["toolwrap", "roundtable", "ready"], decision = "allow"',
     )
     expect(codexRules).toContain(
-      'prefix_rule(pattern = ["rtk", "cat"], decision = "allow"',
+      'prefix_rule(pattern = ["toolwrap", "cat"], decision = "allow"',
     )
     expect(codexRules).toContain(
-      'prefix_rule(pattern = ["rtk", "read"], decision = "allow"',
+      'prefix_rule(pattern = ["toolwrap", "read"], decision = "allow"',
     )
   })
 

@@ -87,6 +87,7 @@ import {
   claudeLocalSettings,
   codexProjectConfig,
   codexRulesText,
+  commandWrappers,
   resumeCliCommand,
   writeAgentPermissionSetup,
 } from './runtime-config'
@@ -2189,7 +2190,7 @@ export function createRoomManager(options: {
       }
 
       const existing = expireActiveTurn(threadId)
-      writeAgentPermissionSetup(dataDir, threadId, toolAvailable(executor, 'rtk'))
+      writeAgentPermissionSetup(dataDir, threadId, commandWrappers())
       if (
         (
           existing.status === 'starting' ||

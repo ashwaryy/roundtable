@@ -5,6 +5,7 @@ import type {
   SystemPromptSection,
   ThreadAgentInvite,
 } from '@roundtable/shared'
+import { commandWrappers } from './runtime-config'
 
 export function promptAnswerKeys(
   excerpt: string | null,
@@ -230,10 +231,11 @@ export function systemPromptSections(render: {
     effort: string | null,
     promptFile: string,
   ) => string
-  claudeLocalSettings: (hookPath: string, rtkAvailable: boolean) => unknown
+  claudeLocalSettings: (hookPath: string, wrappers: string[]) => unknown
   codexProjectConfig: (hookPath: string) => string
-  codexRulesText: (rtkAvailable: boolean) => string
+  codexRulesText: (wrappers: string[]) => string
 }): SystemPromptSection[] {
+  const wrappers = commandWrappers()
   const sampleInvite: ThreadAgentInvite = {
     agent_id: 'agent-example',
     name: 'Example Agent',
@@ -327,7 +329,7 @@ export function systemPromptSections(render: {
       used_by: 'Written to `.claude/settings.local.json` inside each thread workspace.',
       source: 'packages/backend/src/rooms/runtime-config.ts:claudeLocalSettings()',
       notes: ['Controls Claude tool permissions and installs the shared Bash PreToolUse hook.'],
-      content: JSON.stringify(render.claudeLocalSettings(hookPath, true), null, 2),
+      content: JSON.stringify(render.claudeLocalSettings(hookPath, wrappers), null, 2),
     },
     {
       id: 'codex-launch',
@@ -361,9 +363,9 @@ export function systemPromptSections(render: {
       used_by: 'Written to `.codex/rules/default.rules` inside each thread workspace.',
       source: 'packages/backend/src/rooms/runtime-config.ts:codexRulesText()',
       notes: [
-        'Shows the rtk-enabled variant; rooms without rtk omit the mirrored `rtk ...` prefix rules.',
+        'Mirrors each command under any configured command wrappers (ROUNDTABLE_COMMAND_WRAPPERS); with none configured, only the bare command rules are written.',
       ],
-      content: render.codexRulesText(true),
+      content: render.codexRulesText(wrappers),
     },
   ]
 }
