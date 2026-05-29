@@ -6021,6 +6021,30 @@ a:hover {
 .agent-row .agent-meta .name .state.working {
   background: var(--good);
 }
+.agent-row .agent-meta .name .state.warming {
+  background: var(--accent);
+}
+
+/* Pulsing dot while an agent is launching but not yet ready. */
+.agent-row.is-warming .agent-meta .name .state.warming {
+  animation: agent-warming-dot 1.4s ease-in-out infinite;
+}
+@keyframes agent-warming-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 0%, transparent);
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-row.is-warming .agent-meta .name .state.warming {
+    animation: none;
+  }
+}
 
 /* Breathing card + dot while an agent is actively working a turn. */
 .agent-row.is-working {

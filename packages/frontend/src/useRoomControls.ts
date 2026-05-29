@@ -33,6 +33,8 @@ export function useRoomControls({ threadId, room, onUpdate, onRoomResult }: Room
   const [error, setError] = useState<string | null>(null)
   const [startingRoom, setStartingRoom] = useState(false)
   const [openingTerminal, setOpeningTerminal] = useState(false)
+  const [pausingAuto, setPausingAuto] = useState(false)
+  const [stoppingAuto, setStoppingAuto] = useState(false)
 
   const start = useCallback(async (models: Record<string, string>, resume?: boolean) => {
     setError(null)
@@ -128,19 +130,23 @@ export function useRoomControls({ threadId, room, onUpdate, onRoomResult }: Room
 
   const pauseAuto = useCallback(async () => {
     setError(null)
+    setPausingAuto(true)
     try {
       onRoomResult(await pauseAutoDiscussion(threadId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      setPausingAuto(false)
     }
   }, [onRoomResult, threadId])
 
   const stopAuto = useCallback(async () => {
     setError(null)
+    setStoppingAuto(true)
     try {
       onRoomResult(await stopAutoDiscussion(threadId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      setStoppingAuto(false)
     }
   }, [onRoomResult, threadId])
 
@@ -229,10 +235,23 @@ export function useRoomControls({ threadId, room, onUpdate, onRoomResult }: Room
     }
   }, [room, startingRoom])
 
+  // Once the auto loop is no longer running, any pending pause/stop has resolved.
+  useEffect(() => {
+    if (room?.auto?.status !== 'running') {
+      setPausingAuto(false)
+      setStoppingAuto(false)
+    }
+  }, [room?.auto?.status])
+
+  const pausePending = pausingAuto || (room?.auto?.pause_requested ?? false)
+  const stopPending = stoppingAuto || (room?.auto?.stop_requested ?? false)
+
   return {
     error,
     startingRoom,
     openingTerminal,
+    pausePending,
+    stopPending,
     start,
     stop,
     openTerminal,

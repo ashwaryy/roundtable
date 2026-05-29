@@ -369,8 +369,9 @@ export function RoomPanel({
   const canNudge = isThreadOpen && room?.status === "idle";
   const canSuggest = isThreadOpen && room?.status === "idle";
   const canStartAuto = isThreadOpen && room?.status === "idle";
-  const canPauseAuto = isThreadOpen && room?.auto?.status === "running";
-  const canStopAuto = isThreadOpen && room?.auto?.status === "running";
+  const autoTransitionPending = controls.pausePending || controls.stopPending;
+  const canPauseAuto = isThreadOpen && room?.auto?.status === "running" && !autoTransitionPending;
+  const canStopAuto = isThreadOpen && room?.auto?.status === "running" && !autoTransitionPending;
   const canExitAuto = isThreadOpen && !!room?.auto && (room?.status === "paused" || room?.status === "turn_limit_reached");
   const canExtendAuto = isThreadOpen && !!room?.auto && (room?.status === "paused" || room?.status === "turn_limit_reached");
   const roomActive = !!room && room.status !== "not_started" && room.status !== "stopped";
@@ -431,16 +432,17 @@ export function RoomPanel({
               const agentId = agent.agent_id;
               const ready = showAgentReadiness && Boolean(room?.agents[agentId]?.ready_at);
               const working = workingAgent === agentId;
+              const warming = !ready && !working && room?.status === "starting";
               return (
-                <div key={agentId} className={`agent-row${working ? " is-working" : ""}`}>
+                <div key={agentId} className={`agent-row${working ? " is-working" : ""}${warming ? " is-warming" : ""}`}>
                   <Avatar author={agentId} agent={agent} size={24} />
                   <div className="agent-meta">
                     <div className="name">
-                      <span className={`state ${working ? "working" : ready ? "on" : ""}`} />
+                      <span className={`state ${working ? "working" : ready ? "on" : warming ? "warming" : ""}`} />
                       {agent.name}
                     </div>
                     <div className="sub">
-                      {agent.runtime} · {working ? "working…" : ready ? "ready" : "not started"}
+                      {agent.runtime} · {working ? "working…" : ready ? "ready" : warming ? "getting ready…" : "not started"}
                     </div>
                   </div>
                   <div className="agent-row-controls">
@@ -520,7 +522,9 @@ export function RoomPanel({
           <div className="auto-progress">
             <div className="auto-progress-line">
               <span className="auto-dot" />
-              <span style={{ fontWeight: 600, color: "var(--good)" }}>Auto running</span>
+              <span style={{ fontWeight: 600, color: "var(--good)" }}>
+                {controls.stopPending ? "Stopping after this turn…" : controls.pausePending ? "Pausing after this turn…" : "Auto running"}
+              </span>
               <span style={{ marginLeft: "auto" }} className="mono">
                 {room.auto.completed_turns}/{room.auto.total_turns}
               </span>
@@ -786,17 +790,35 @@ export function RoomPanel({
                 <>
                   <div className="auto-status-card">
                     <span className="auto-dot" />
-                    <span style={{ fontWeight: 600 }}>Auto running</span>
+                    <span style={{ fontWeight: 600 }}>
+                      {controls.stopPending ? "Stopping after this turn…" : controls.pausePending ? "Pausing after this turn…" : "Auto running"}
+                    </span>
                     <span className="mono" style={{ marginLeft: "auto" }}>
                       {room.auto.completed_turns}/{room.auto.total_turns}
                     </span>
                   </div>
                   <div className="rail-row two">
                     <button type="button" className="btn" onClick={() => void controls.pauseAuto()} disabled={!canPauseAuto}>
-                      <Icon name="pause" className="ic-sm" /> Pause
+                      {controls.pausePending ? (
+                        <>
+                          <span className="button-spinner" aria-hidden="true" /> Pausing…
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="pause" className="ic-sm" /> Pause
+                        </>
+                      )}
                     </button>
                     <button type="button" className="btn" onClick={() => void controls.stopAuto()} disabled={!canStopAuto}>
-                      <Icon name="stop" className="ic-sm" /> Stop
+                      {controls.stopPending ? (
+                        <>
+                          <span className="button-spinner" aria-hidden="true" /> Stopping…
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="stop" className="ic-sm" /> Stop
+                        </>
+                      )}
                     </button>
                   </div>
                 </>
