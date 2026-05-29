@@ -1,3 +1,11 @@
+# [1.8.0](https://github.com/ashwaryy/roundtable/compare/v1.7.0...v1.8.0) (2026-05-29)
+
+
+### Features
+
+* add immediate UI feedback after room is started and before agents report ready ([5d84eda](https://github.com/ashwaryy/roundtable/commit/5d84eda6e4dfb62ddb032bfc4e3ad01065e3ebc0))
+* simplify UI and logic for when agents appear to be stuck and asking for user input ([2c8c513](https://github.com/ashwaryy/roundtable/commit/2c8c513784654a7fb23aa15ee4b29e569f38ee43))
+
 # [1.7.0](https://github.com/ashwaryy/roundtable/compare/v1.6.0...v1.7.0) (2026-05-29)
 
 
