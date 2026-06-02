@@ -8,6 +8,10 @@ Roundtable brings you, Claude-runtime agents, and Codex-runtime agents to the sa
 
 It is a local browser-based forum where a source thread stays stable while humans and configurable agents discuss it, critique it, ask questions, and propose improvements. When the discussion becomes useful, you consolidate it into a reviewable next version. Agents do not directly rewrite the source thread; the user controls what is approved and what becomes durable.
 
+<p align="center">
+  <img src="docs/roundtable-demo.gif" alt="Roundtable demo" width="960">
+</p>
+
 ```txt
 Thread = source artifact
 Discussion = comments around the source
