@@ -1,3 +1,10 @@
+## [1.8.1](https://github.com/ashwaryy/roundtable/compare/v1.8.0...v1.8.1) (2026-06-11)
+
+
+### Bug Fixes
+
+* snapshot git repos from tracked files ([877633e](https://github.com/ashwaryy/roundtable/commit/877633ef04bcb753b72fe4913e2705680dceec5f))
+
 # [1.8.0](https://github.com/ashwaryy/roundtable/compare/v1.7.0...v1.8.0) (2026-05-29)
 
 
