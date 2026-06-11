@@ -8,6 +8,7 @@ import {
 
 describe('runtimeConfig', () => {
   it('exposes suggested models for picker UIs', () => {
+    expect(runtimeConfigs.claude.suggestedModels).toContain('claude-fable-5')
     expect(runtimeConfigs.claude.suggestedModels).toContain('claude-opus-4-8')
     expect(suggestedModelsForRuntime('codex')).toContain('gpt-5.5')
   })
