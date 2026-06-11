@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/ashwaryy/roundtable/compare/v1.8.1...v1.9.0) (2026-06-11)
+
+
+### Features
+
+* add claude-fable-5 to Claude model suggestions ([e554954](https://github.com/ashwaryy/roundtable/commit/e55495436fcb4159feeb55e371af7fb20fd3966e))
+
 ## [1.8.1](https://github.com/ashwaryy/roundtable/compare/v1.8.0...v1.8.1) (2026-06-11)
 
 
