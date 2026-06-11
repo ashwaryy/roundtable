@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { parentPort, workerData } from 'node:worker_threads'
 
 const LARGE_FILE_COUNT = 1000
@@ -89,8 +90,11 @@ function isBinaryFile(filePath) {
   }
 }
 
-function isEligibleFile(absolutePath, relativePath, stat) {
-  if (hasExcludedSegment(relativePath) || isSecretLike(relativePath)) return false
+function isEligibleFile(absolutePath, relativePath, stat, options = {}) {
+  const { respectExcludedDirs = true } = options
+  if ((respectExcludedDirs && hasExcludedSegment(relativePath)) || isSecretLike(relativePath)) {
+    return false
+  }
   const name = path.basename(relativePath)
   if (name === '.DS_Store' || name.endsWith('.log')) return false
   if (!stat.isFile()) return false
@@ -136,7 +140,73 @@ function listRecursiveCandidates(sourcePath) {
   return { candidates, directoryCount, excludedCount }
 }
 
+function countDirectoriesForCandidates(candidates) {
+  const directories = new Set()
+  for (const candidate of candidates) {
+    const parts = candidate.relativePath.split('/').slice(0, -1)
+    let current = ''
+    for (const part of parts) {
+      current = current ? `${current}/${part}` : part
+      directories.add(current)
+    }
+  }
+  return directories.size
+}
+
+function listGitTrackedCandidates(sourcePath) {
+  let repoRoot
+  try {
+    repoRoot = fs.realpathSync(execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: sourcePath,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim())
+  } catch {
+    return null
+  }
+
+  const sourcePrefix = toWorkspacePath(path.relative(repoRoot, sourcePath))
+  const pathspec = sourcePrefix ? `${sourcePrefix}/` : '.'
+  const output = execFileSync('git', ['ls-files', '-z', '--full-name', '--', pathspec], {
+    cwd: repoRoot,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  const candidates = []
+  let excludedCount = 0
+
+  for (const repoRelativePath of output.toString('utf8').split('\0').filter(Boolean)) {
+    if (sourcePrefix && !repoRelativePath.startsWith(`${sourcePrefix}/`)) continue
+    const relativePath = sourcePrefix
+      ? repoRelativePath.slice(sourcePrefix.length + 1)
+      : repoRelativePath
+    const absolutePath = path.join(repoRoot, repoRelativePath)
+    if (!fs.existsSync(absolutePath)) {
+      excludedCount += 1
+      continue
+    }
+    const stat = fs.statSync(absolutePath)
+    if (!isEligibleFile(absolutePath, relativePath, stat, { respectExcludedDirs: false })) {
+      excludedCount += 1
+      continue
+    }
+    candidates.push({
+      absolutePath,
+      relativePath,
+      size_bytes: stat.size,
+    })
+  }
+
+  return {
+    mode: 'git-tracked',
+    candidates,
+    directoryCount: countDirectoriesForCandidates(candidates),
+    excludedCount,
+  }
+}
+
 function collectCandidates(sourcePath) {
+  const gitTracked = listGitTrackedCandidates(sourcePath)
+  if (gitTracked) return gitTracked
   const result = listRecursiveCandidates(sourcePath)
   return {
     mode: 'folder',

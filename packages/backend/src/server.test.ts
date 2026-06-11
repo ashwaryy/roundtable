@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import request from 'supertest'
 import { createApp } from './server'
 import { createStorage } from './storage'
@@ -518,6 +519,25 @@ describe('context routes', () => {
       type: 'thread_context_updated',
       thread_id: 'thread-1',
     })
+    fs.rmSync(project, { recursive: true, force: true })
+  })
+
+  it('preflights git repos as git-tracked snapshots', async () => {
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'rt-server-project-'))
+    fs.mkdirSync(path.join(project, 'dist'))
+    fs.writeFileSync(path.join(project, 'dist', 'bundle.js'), 'export const built = true\n')
+    fs.writeFileSync(path.join(project, 'untracked.ts'), 'const y = 2\n')
+    execFileSync('git', ['init'], { cwd: project, stdio: 'ignore' })
+    execFileSync('git', ['add', 'dist/bundle.js'], { cwd: project, stdio: 'ignore' })
+
+    const preflight = await request(app)
+      .post('/api/threads/thread-1/project-snapshot/preflight')
+      .send({ source_path: project })
+
+    expect(preflight.status).toBe(200)
+    expect(preflight.body.mode).toBe('git-tracked')
+    expect(preflight.body.file_count).toBe(1)
+    expect(preflight.body.directory_count).toBe(1)
     fs.rmSync(project, { recursive: true, force: true })
   })
 

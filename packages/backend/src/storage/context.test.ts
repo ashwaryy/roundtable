@@ -74,23 +74,25 @@ describe('context items', () => {
 })
 
 describe('project snapshots', () => {
-  it('copies eligible folder files, including untracked files in git repos', async () => {
+  it('copies git-tracked eligible files in git repos', async () => {
     const project = makeProject()
     fs.mkdirSync(path.join(project, 'src'))
+    fs.mkdirSync(path.join(project, 'dist'))
     fs.writeFileSync(path.join(project, 'src', 'main.ts'), 'export const x = 1\n')
+    fs.writeFileSync(path.join(project, 'dist', 'bundle.js'), 'export const built = true\n')
     fs.writeFileSync(path.join(project, '.env'), 'SECRET=1\n')
     fs.writeFileSync(path.join(project, 'binary.dat'), Buffer.from([0, 1, 2]))
     fs.writeFileSync(path.join(project, 'untracked.ts'), 'const y = 2\n')
     execFileSync('git', ['init'], { cwd: project, stdio: 'ignore' })
-    execFileSync('git', ['add', 'src/main.ts', '.env', 'binary.dat'], {
+    execFileSync('git', ['add', 'src/main.ts', 'dist/bundle.js', '.env', 'binary.dat'], {
       cwd: project,
       stdio: 'ignore',
     })
 
     const preflight = await preflightProjectSnapshot(dataDir, 'thread-1', project)
-    expect(preflight.mode).toBe('folder')
+    expect(preflight.mode).toBe('git-tracked')
     expect(preflight.file_count).toBe(2)
-    expect(preflight.directory_count).toBe(1)
+    expect(preflight.directory_count).toBe(2)
 
     const snapshot = await createProjectSnapshot(dataDir, 'thread-1', {
       source_path: project,
@@ -99,9 +101,10 @@ describe('project snapshots', () => {
     const snapshotDir = projectSnapshotDir(dataDir, 'thread-1')
     expect(snapshot.file_count).toBe(2)
     expect(fs.existsSync(path.join(snapshotDir, 'src', 'main.ts'))).toBe(true)
+    expect(fs.existsSync(path.join(snapshotDir, 'dist', 'bundle.js'))).toBe(true)
     expect(fs.existsSync(path.join(snapshotDir, '.env'))).toBe(false)
     expect(fs.existsSync(path.join(snapshotDir, 'binary.dat'))).toBe(false)
-    expect(fs.existsSync(path.join(snapshotDir, 'untracked.ts'))).toBe(true)
+    expect(fs.existsSync(path.join(snapshotDir, 'untracked.ts'))).toBe(false)
     fs.rmSync(project, { recursive: true, force: true })
   })
 
