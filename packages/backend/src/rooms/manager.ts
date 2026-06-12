@@ -1314,6 +1314,22 @@ export function createRoomManager(options: {
     return updated
   }
 
+  // The async pane captures below yield the event loop, so the room may be
+  // updated concurrently (for example by markReady) while a probe is in
+  // flight. Probe results must be merged onto the latest stored room, never
+  // written from the pre-capture snapshot, or those concurrent writes are
+  // silently reverted.
+  function storeInputPromptProbe(
+    snapshot: InternalRoom,
+    patch: Partial<Pick<InternalRoom, 'input_prompt' | 'updated_at' | 'input_prompt_checked_at'>>,
+  ): InternalRoom {
+    const current = readRoom(dataDir, snapshot.thread_id)
+    if (current.token !== snapshot.token) return current
+    const updated: InternalRoom = { ...current, ...patch }
+    storeRoom(updated)
+    return updated
+  }
+
   async function refreshInputPromptAsync(
     room: InternalRoom,
     liveHint: boolean | null = hasFreshSessionState(room) ? room.session_active : null,
@@ -1349,8 +1365,7 @@ export function createRoomManager(options: {
         if (existing?.agent === agent && existing.excerpt === excerpt) {
           return room
         }
-        const updated: InternalRoom = {
-          ...room,
+        return storeInputPromptProbe(room, {
           input_prompt: {
             agent,
             excerpt,
@@ -1358,26 +1373,19 @@ export function createRoomManager(options: {
           },
           updated_at: checkedAt,
           input_prompt_checked_at: checkedAt,
-        }
-        storeRoom(updated)
-        return updated
+        })
       }
     }
 
     if (!room.input_prompt) {
-      const updated: InternalRoom = { ...room, input_prompt_checked_at: checkedAt }
-      if (updated.input_prompt_checked_at === room.input_prompt_checked_at) return room
-      storeRoom(updated)
-      return updated
+      if (checkedAt === room.input_prompt_checked_at) return room
+      return storeInputPromptProbe(room, { input_prompt_checked_at: checkedAt })
     }
-    const updated: InternalRoom = {
-      ...room,
+    return storeInputPromptProbe(room, {
       input_prompt: null,
       updated_at: checkedAt,
       input_prompt_checked_at: checkedAt,
-    }
-    storeRoom(updated)
-    return updated
+    })
   }
 
   function expireActiveTurn(threadId: string, existingRoom?: InternalRoom): InternalRoom {

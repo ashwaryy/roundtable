@@ -1088,6 +1088,51 @@ describe('createRoomManager', () => {
     })
   })
 
+  it('keeps readiness recorded while an input prompt probe is in flight', async () => {
+    const manager = createRoomManager({
+      dataDir,
+      backendUrl: 'http://localhost:4319',
+      executor,
+    })
+    manager.startRoom('thread-1', {})
+    const token = roomToken()
+    manager.markReady('thread-1', 'claude', token)
+
+    executor.paneCaptures.set(
+      'roundtable-thread-1:agent-codex',
+      ['Do you want to proceed?', '1. Yes', '2. No'].join('\n'),
+    )
+    // Simulate codex signalling readiness after the probe has taken its room
+    // snapshot but before the probe stores its result.
+    const execFile = executor.execFile.bind(executor)
+    let readySignalled = false
+    executor.execFile = (file: string, args: string[]) => {
+      if (
+        !readySignalled &&
+        file === 'tmux' &&
+        args[0] === 'capture-pane' &&
+        args.includes('roundtable-thread-1:agent-codex')
+      ) {
+        readySignalled = true
+        manager.markReady('thread-1', 'codex', token)
+      }
+      return execFile(file, args)
+    }
+
+    const detected = await manager.getRoom('thread-1')
+
+    expect(readySignalled).toBe(true)
+    expect(detected.input_prompt).toMatchObject({ agent: 'codex' })
+    expect(detected.agents.codex.ready_at).not.toBeNull()
+    expect(detected.status).toBe('idle')
+    const stored = JSON.parse(fs.readFileSync(roomJsonPath(dataDir, 'thread-1'), 'utf8')) as {
+      status: string
+      agents: Record<string, { ready_at: string | null }>
+    }
+    expect(stored.agents.codex.ready_at).not.toBeNull()
+    expect(stored.status).toBe('idle')
+  })
+
   it('ignores a resolved prompt left in scrollback while the agent is working', async () => {
     const { manager } = startReadyRoom()
     executor.paneCaptures.set(
