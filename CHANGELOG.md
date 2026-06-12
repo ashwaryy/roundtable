@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/ashwaryy/roundtable/compare/v1.9.0...v1.9.1) (2026-06-12)
+
+
+### Bug Fixes
+
+* prevent input prompt probe from clobbering readiness state ([7efc99e](https://github.com/ashwaryy/roundtable/commit/7efc99ebeba95fbb43dddca2e9b472f8ed461037))
+
 # [1.9.0](https://github.com/ashwaryy/roundtable/compare/v1.8.1...v1.9.0) (2026-06-11)
 
 
